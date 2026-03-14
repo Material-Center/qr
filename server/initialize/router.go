@@ -111,7 +111,9 @@ func Routers() *gin.Engine {
 		systemRouter.InitSysErrorRouter(PrivateGroup, PublicGroup)          // 错误日志
 		systemRouter.InitLoginLogRouter(PrivateGroup)                       // 登录日志
 		systemRouter.InitApiTokenRouter(PrivateGroup)                       // apiToken签发
-		systemRouter.InitSkillsRouter(PrivateGroup,PublicGroup)                         // Skills 定义器
+		systemRouter.InitSkillsRouter(PrivateGroup, PublicGroup)            // Skills 定义器
+		systemRouter.InitRegisterTaskRouter(PrivateGroup)                   // 注册任务
+		systemRouter.InitRegisterConfigRouter(PrivateGroup)                 // 注册配置
 		exampleRouter.InitCustomerRouter(PrivateGroup)                      // 客户路由
 		exampleRouter.InitFileUploadAndDownloadRouter(PrivateGroup)         // 文件上传下载功能路由
 		exampleRouter.InitAttachmentCategoryRouterRouter(PrivateGroup)      // 文件上传下载分类

@@ -1,0 +1,16 @@
+[Unit]
+Description=QR Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/qr-server
+ExecStart=/opt/qr-server/server
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

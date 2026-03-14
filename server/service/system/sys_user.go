@@ -55,6 +55,20 @@ func (userService *UserService) Login(u *system.SysUser) (userInter *system.SysU
 		if ok := utils.BcryptCheck(u.Password, user.Password); !ok {
 			return nil, errors.New("密码错误")
 		}
+		// 地推登录时检查所属团长状态，团长被禁用则地推不可登录
+		if user.AuthorityId == 300 && user.LeaderID != nil {
+			var leader system.SysUser
+			leaderErr := global.GVA_DB.Select("id, authority_id, enable").Where("id = ?", *user.LeaderID).First(&leader).Error
+			if leaderErr != nil {
+				return nil, errors.New("上级团长不存在")
+			}
+			if leader.AuthorityId != 200 {
+				return nil, errors.New("上级账号不是团长")
+			}
+			if leader.Enable != 1 {
+				return nil, errors.New("上级团长已被禁用")
+			}
+		}
 		MenuServiceApp.UserAuthorityDefaultRouter(&user)
 	}
 	return &user, err
@@ -104,6 +118,12 @@ func (userService *UserService) GetUserInfoList(info systemReq.GetUserList) (lis
 	if info.Email != "" {
 		db = db.Where("email LIKE ?", "%"+info.Email+"%")
 	}
+	if info.AuthorityId != 0 {
+		db = db.Where("authority_id = ?", info.AuthorityId)
+	}
+	if info.LeaderID != 0 {
+		db = db.Where("leader_id = ?", info.LeaderID)
+	}
 
 	err = db.Count(&total).Error
 	if err != nil {
@@ -128,7 +148,50 @@ func (userService *UserService) GetUserInfoList(info systemReq.GetUserList) (lis
 	}
 
 	err = db.Limit(limit).Offset(offset).Order(orderStr).Preload("Authorities").Preload("Authority").Find(&userList).Error
-	return userList, total, err
+	if err != nil {
+		return userList, total, err
+	}
+
+	if len(userList) == 0 {
+		return userList, total, nil
+	}
+
+	var userIDs []uint
+	for _, u := range userList {
+		userIDs = append(userIDs, u.ID)
+	}
+
+	type latestLoginLog struct {
+		UserID    uint      `gorm:"column:user_id"`
+		IP        string    `gorm:"column:ip"`
+		CreatedAt time.Time `gorm:"column:created_at"`
+	}
+	var latestLogs []latestLoginLog
+	latestSubQuery := global.GVA_DB.Model(&system.SysLoginLog{}).
+		Select("user_id, MAX(created_at) AS max_created_at").
+		Where("status = ? AND user_id IN ?", true, userIDs).
+		Group("user_id")
+
+	logErr := global.GVA_DB.Table("sys_login_logs AS l").
+		Select("l.user_id, l.ip, l.created_at").
+		Joins("JOIN (?) AS t ON l.user_id = t.user_id AND l.created_at = t.max_created_at", latestSubQuery).
+		Scan(&latestLogs).Error
+	if logErr != nil {
+		return userList, total, logErr
+	}
+
+	logMap := make(map[uint]latestLoginLog)
+	for _, item := range latestLogs {
+		logMap[item.UserID] = item
+	}
+	for i := range userList {
+		if loginInfo, ok := logMap[userList[i].ID]; ok {
+			userList[i].LastLoginIP = loginInfo.IP
+			userList[i].LastLoginAt = &loginInfo.CreatedAt
+		}
+	}
+
+	return userList, total, nil
 }
 
 //@author: [piexlmax](https://github.com/piexlmax)

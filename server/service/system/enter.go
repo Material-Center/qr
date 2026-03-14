@@ -26,4 +26,6 @@ type ServiceGroup struct {
 	SysErrorService
 	LoginLogService
 	ApiTokenService
+	RegisterTaskService
+	RegisterConfigService
 }

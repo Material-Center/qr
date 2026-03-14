@@ -1,0 +1,209 @@
+package system
+
+import (
+	"errors"
+	"strings"
+
+	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
+	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
+	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
+	"github.com/flipped-aurora/gin-vue-admin/server/utils"
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+)
+
+type RegisterTaskApi struct{}
+
+const (
+	rtRoleSuperAdmin = uint(888)
+	rtRoleAdmin      = uint(100)
+	rtRoleLeader     = uint(200)
+	rtRolePromoter   = uint(300)
+)
+
+// CreateRegisterTask
+// @Tags      RegisterTask
+// @Summary   地推创建注册任务
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.RegisterTaskCreate  true  "手机号"
+// @Success   200   {object}  response.Response{data=systemRes.RegisterTaskActiveInfo,msg=string}
+// @Router    /registerTask/create [post]
+func (a *RegisterTaskApi) CreateRegisterTask(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRolePromoter {
+		response.FailWithMessage("仅地推可创建任务", c)
+		return
+	}
+
+	var req systemReq.RegisterTaskCreate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	req.Phone = strings.TrimSpace(req.Phone)
+	if req.Phone == "" {
+		response.FailWithMessage("手机号不能为空", c)
+		return
+	}
+
+	task, err := registerTaskService.CreateTask(utils.GetUserID(c), req.Phone)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildActiveInfo(task), "创建成功", c)
+}
+
+// GetActiveRegisterTask
+// @Tags      RegisterTask
+// @Summary   获取地推当前未完成任务
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200  {object}  response.Response{data=systemRes.RegisterTaskActiveInfo,msg=string}
+// @Router    /registerTask/active [get]
+func (a *RegisterTaskApi) GetActiveRegisterTask(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRolePromoter {
+		response.FailWithMessage("仅地推可查看当前任务", c)
+		return
+	}
+	task, err := registerTaskService.GetActiveTask(utils.GetUserID(c))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.OkWithDetailed(nil, "暂无未完成任务", c)
+			return
+		}
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildActiveInfo(task), "获取成功", c)
+}
+
+// SubmitRegisterTaskStep
+// @Tags      RegisterTask
+// @Summary   提交任务步骤验证码/重试/失败
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.RegisterTaskStep  true  "任务步骤提交"
+// @Success   200   {object}  response.Response{data=systemRes.RegisterTaskActiveInfo,msg=string}
+// @Router    /registerTask/step [post]
+func (a *RegisterTaskApi) SubmitRegisterTaskStep(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRolePromoter {
+		response.FailWithMessage("仅地推可操作任务步骤", c)
+		return
+	}
+	var req systemReq.RegisterTaskStep
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	task, err := registerTaskService.SubmitStep(utils.GetUserID(c), req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildActiveInfo(task), "提交成功", c)
+}
+
+// GetRegisterTaskList
+// @Tags      RegisterTask
+// @Summary   分页查询注册任务
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.RegisterTaskList  true  "分页参数"
+// @Success   200   {object}  response.Response{data=systemRes.RegisterTaskListResponse,msg=string}
+// @Router    /registerTask/list [post]
+func (a *RegisterTaskApi) GetRegisterTaskList(c *gin.Context) {
+	var req systemReq.RegisterTaskList
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	result, err := registerTaskService.GetTaskList(utils.GetUserAuthorityId(c), utils.GetUserID(c), req)
+	if err != nil {
+		global.GVA_LOG.Error("获取注册任务列表失败", zap.Error(err))
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+
+	role := utils.GetUserAuthorityId(c)
+	for i := range result.List {
+		if role == rtRoleLeader || role == rtRolePromoter {
+			result.List[i].Phone = maskPhone(result.List[i].Phone)
+		}
+	}
+	page := req.Page
+	pageSize := req.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 100 {
+		pageSize = 10
+	}
+	response.OkWithDetailed(systemRes.RegisterTaskListResponse{
+		List:            result.List,
+		Total:           result.Total,
+		Page:            page,
+		PageSize:        pageSize,
+		SuccessCount:    result.Success,
+		FailCount:       result.Failed,
+		ProcessingCount: result.Processing,
+	}, "获取成功", c)
+}
+
+// GetRegisterTaskSummary
+// @Tags      RegisterTask
+// @Summary   获取注册任务统计（管理员/团长）
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Param     leaderId  query     int  false  "按团长过滤"
+// @Success   200       {object}  response.Response{data=systemRes.RegisterTaskSummaryResponse,msg=string}
+// @Router    /registerTask/summary [get]
+func (a *RegisterTaskApi) GetRegisterTaskSummary(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRoleSuperAdmin && role != rtRoleAdmin && role != rtRoleLeader {
+		response.FailWithMessage("无权限查看统计", c)
+		return
+	}
+
+	var req systemReq.RegisterTaskSummaryFilter
+	_ = c.ShouldBindQuery(&req)
+	data, err := registerTaskService.GetSummary(role, utils.GetUserID(c), req.LeaderID)
+	if err != nil {
+		global.GVA_LOG.Error("获取注册任务统计失败", zap.Error(err))
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(systemRes.RegisterTaskSummaryResponse{
+		Leaders:   data.Leaders,
+		Promoters: data.Promoters,
+	}, "获取成功", c)
+}
+
+func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveInfo {
+	return systemRes.RegisterTaskActiveInfo{
+		ID:          task.ID,
+		Phone:       task.Phone,
+		CurrentStep: task.CurrentStep,
+		StatusCode:  task.StatusCode,
+		LastError:   task.LastError,
+		RetryCount:  task.RetryCount,
+		ExpiresAt:   task.ExpiresAt,
+		FinishedAt:  task.FinishedAt,
+	}
+}
+
+func maskPhone(phone string) string {
+	if len(phone) < 7 {
+		return phone
+	}
+	return phone[:3] + strings.Repeat("*", len(phone)-7) + phone[len(phone)-4:]
+}

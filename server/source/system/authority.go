@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+
 	sysModel "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	"github.com/flipped-aurora/gin-vue-admin/server/service/system"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils"
@@ -44,9 +45,12 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 		return ctx, system.ErrMissingDBContext
 	}
 	entities := []sysModel.SysAuthority{
-		{AuthorityId: 888, AuthorityName: "普通用户", ParentId: utils.Pointer[uint](0), DefaultRouter: "dashboard"},
-		{AuthorityId: 9528, AuthorityName: "测试角色", ParentId: utils.Pointer[uint](0), DefaultRouter: "dashboard"},
-		{AuthorityId: 8881, AuthorityName: "普通用户子角色", ParentId: utils.Pointer[uint](888), DefaultRouter: "dashboard"},
+		// 保留原有开发用超级管理员角色
+		{AuthorityId: 888, AuthorityName: "超级管理员", ParentId: utils.Pointer[uint](0), DefaultRouter: "accountManage"},
+		// 业务角色
+		{AuthorityId: 100, AuthorityName: "管理员", ParentId: utils.Pointer[uint](0), DefaultRouter: "accountManage"},
+		{AuthorityId: 200, AuthorityName: "团长", ParentId: utils.Pointer[uint](100), DefaultRouter: "accountManage"},
+		{AuthorityId: 300, AuthorityName: "地推", ParentId: utils.Pointer[uint](200), DefaultRouter: "registerTaskCenter"},
 	}
 
 	if err := db.Create(&entities).Error; err != nil {
@@ -56,19 +60,32 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 	if err := db.Model(&entities[0]).Association("DataAuthorityId").Replace(
 		[]*sysModel.SysAuthority{
 			{AuthorityId: 888},
-			{AuthorityId: 9528},
-			{AuthorityId: 8881},
+			{AuthorityId: 100},
+			{AuthorityId: 200},
+			{AuthorityId: 300},
 		}); err != nil {
 		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
 			db.Model(&entities[0]).Association("DataAuthorityId").Relationship.JoinTable.Name)
 	}
+
+	// 管理员可见管理员/团长/地推数据
 	if err := db.Model(&entities[1]).Association("DataAuthorityId").Replace(
 		[]*sysModel.SysAuthority{
-			{AuthorityId: 9528},
-			{AuthorityId: 8881},
+			{AuthorityId: 100},
+			{AuthorityId: 200},
+			{AuthorityId: 300},
 		}); err != nil {
 		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
-			db.Model(&entities[1]).Association("DataAuthorityId").Relationship.JoinTable.Name)
+			db.Model(&entities[3]).Association("DataAuthorityId").Relationship.JoinTable.Name)
+	}
+	// 团长可见团长/地推数据
+	if err := db.Model(&entities[2]).Association("DataAuthorityId").Replace(
+		[]*sysModel.SysAuthority{
+			{AuthorityId: 200},
+			{AuthorityId: 300},
+		}); err != nil {
+		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
+			db.Model(&entities[4]).Association("DataAuthorityId").Relationship.JoinTable.Name)
 	}
 
 	next := context.WithValue(ctx, i.InitializerName(), entities)
@@ -80,7 +97,7 @@ func (i *initAuthority) DataInserted(ctx context.Context) bool {
 	if !ok {
 		return false
 	}
-	if errors.Is(db.Where("authority_id = ?", "8881").
+	if errors.Is(db.Where("authority_id = ?", "300").
 		First(&sysModel.SysAuthority{}).Error, gorm.ErrRecordNotFound) { // 判断是否存在数据
 		return false
 	}

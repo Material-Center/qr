@@ -17,6 +17,26 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	roleSuperAdmin = uint(888)
+	roleAdmin      = uint(100)
+	roleLeader     = uint(200)
+	rolePromoter   = uint(300)
+)
+
+func canManageTarget(operatorAuthorityID, targetAuthorityID uint) bool {
+	switch operatorAuthorityID {
+	case roleSuperAdmin:
+		return true
+	case roleAdmin:
+		return targetAuthorityID == roleLeader || targetAuthorityID == rolePromoter
+	case roleLeader:
+		return targetAuthorityID == rolePromoter
+	default:
+		return false
+	}
+}
+
 // Login
 // @Tags     Base
 // @Summary  用户登录
@@ -108,11 +128,11 @@ func (b *BaseApi) TokenNext(c *gin.Context, user system.SysUser) {
 	}
 	// 记录登录成功日志
 	loginLogService.CreateLoginLog(system.SysLoginLog{
-		Username: user.Username,
-		Ip:       c.ClientIP(),
-		Agent:    c.Request.UserAgent(),
-		Status:   true,
-		UserID:   user.ID,
+		Username:     user.Username,
+		Ip:           c.ClientIP(),
+		Agent:        c.Request.UserAgent(),
+		Status:       true,
+		UserID:       user.ID,
 		ErrorMessage: "登录成功",
 	})
 	if !global.GVA_CONFIG.System.UseMultipoint {
@@ -179,13 +199,62 @@ func (b *BaseApi) Register(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	operatorAuthorityID := utils.GetUserAuthorityId(c)
+	operatorID := utils.GetUserID(c)
+	if !canManageTarget(operatorAuthorityID, r.AuthorityId) {
+		response.FailWithMessage("无权创建该角色账号", c)
+		return
+	}
+
+	var leaderID *uint
+	// 团长创建地推自动绑定自己为上级
+	if operatorAuthorityID == roleLeader && r.AuthorityId == rolePromoter {
+		leaderID = &operatorID
+	}
+	// 管理员/超级管理员创建地推需要显式指定团长
+	if (operatorAuthorityID == roleAdmin || operatorAuthorityID == roleSuperAdmin) && r.AuthorityId == rolePromoter {
+		if r.LeaderID == 0 {
+			response.FailWithMessage("创建地推账号必须指定所属团长", c)
+			return
+		}
+		leaderUser, findErr := userService.FindUserById(int(r.LeaderID))
+		if findErr != nil {
+			response.FailWithMessage("所属团长不存在", c)
+			return
+		}
+		if leaderUser.AuthorityId != roleLeader {
+			response.FailWithMessage("所属上级必须是团长账号", c)
+			return
+		}
+		if leaderUser.Enable != 1 {
+			response.FailWithMessage("所属团长已被禁用", c)
+			return
+		}
+		leaderID = &r.LeaderID
+	}
+
 	var authorities []system.SysAuthority
-	for _, v := range r.AuthorityIds {
+	authorityIDs := r.AuthorityIds
+	if len(authorityIDs) == 0 && r.AuthorityId != 0 {
+		authorityIDs = []uint{r.AuthorityId}
+	}
+	for _, v := range authorityIDs {
 		authorities = append(authorities, system.SysAuthority{
 			AuthorityId: v,
 		})
 	}
-	user := &system.SysUser{Username: r.Username, NickName: r.NickName, Password: r.Password, HeaderImg: r.HeaderImg, AuthorityId: r.AuthorityId, Authorities: authorities, Enable: r.Enable, Phone: r.Phone, Email: r.Email}
+	user := &system.SysUser{
+		Username:    r.Username,
+		NickName:    r.NickName,
+		Password:    r.Password,
+		HeaderImg:   r.HeaderImg,
+		AuthorityId: r.AuthorityId,
+		Authorities: authorities,
+		LeaderID:    leaderID,
+		Enable:      r.Enable,
+		Phone:       r.Phone,
+		Email:       r.Email,
+	}
 	userReturn, err := userService.Register(*user)
 	if err != nil {
 		global.GVA_LOG.Error("注册失败!", zap.Error(err))
@@ -384,9 +453,24 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	operatorID := utils.GetUserID(c)
+	if user.ID == operatorID {
+		response.FailWithMessage("请使用个人信息接口修改当前账号", c)
+		return
+	}
+	operatorAuthorityID := utils.GetUserAuthorityId(c)
+	targetUser, err := userService.FindUserById(int(user.ID))
+	if err != nil {
+		global.GVA_LOG.Error("设置失败! 目标用户不存在", zap.Error(err))
+		response.FailWithMessage("设置失败，目标用户不存在", c)
+		return
+	}
+	if !canManageTarget(operatorAuthorityID, targetUser.AuthorityId) {
+		response.FailWithMessage("无权操作该账号", c)
+		return
+	}
 	if len(user.AuthorityIds) != 0 {
-		authorityID := utils.GetUserAuthorityId(c)
-		err = userService.SetUserAuthorities(authorityID, user.ID, user.AuthorityIds)
+		err = userService.SetUserAuthorities(operatorAuthorityID, user.ID, user.AuthorityIds)
 		if err != nil {
 			global.GVA_LOG.Error("设置失败!", zap.Error(err))
 			response.FailWithMessage("设置失败", c)
@@ -504,6 +588,22 @@ func (b *BaseApi) ResetPassword(c *gin.Context) {
 	err := c.ShouldBindJSON(&rps)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	operatorID := utils.GetUserID(c)
+	if rps.ID == operatorID {
+		response.FailWithMessage("请使用个人修改密码功能", c)
+		return
+	}
+	operatorAuthorityID := utils.GetUserAuthorityId(c)
+	targetUser, err := userService.FindUserById(int(rps.ID))
+	if err != nil {
+		global.GVA_LOG.Error("重置失败! 目标用户不存在", zap.Error(err))
+		response.FailWithMessage("重置失败，目标用户不存在", c)
+		return
+	}
+	if !canManageTarget(operatorAuthorityID, targetUser.AuthorityId) {
+		response.FailWithMessage("无权操作该账号", c)
 		return
 	}
 	err = userService.ResetPassword(rps.ID, rps.Password)

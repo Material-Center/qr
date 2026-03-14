@@ -170,7 +170,7 @@
     port: '3306',
     userName: 'root',
     password: '',
-    dbName: 'gva',
+    dbName: 'qr',
     dbPath: ''
   })
 
@@ -185,7 +185,7 @@
           port: '3306',
           userName: 'root',
           password: '',
-          dbName: 'gva',
+          dbName: 'qr',
           dbPath: ''
         })
         break
@@ -197,7 +197,7 @@
           port: '5432',
           userName: 'postgres',
           password: '',
-          dbName: 'gva',
+          dbName: 'qr',
           dbPath: '',
           template: 'template0'
         })
@@ -210,7 +210,7 @@
           port: '1521',
           userName: 'oracle',
           password: '',
-          dbName: 'gva',
+          dbName: 'qr',
           dbPath: ''
         })
         break
@@ -222,7 +222,7 @@
           port: '1433',
           userName: 'mssql',
           password: '',
-          dbName: 'gva',
+          dbName: 'qr',
           dbPath: ''
         })
         break
@@ -234,7 +234,7 @@
           port: '',
           userName: '',
           password: '',
-          dbName: 'gva',
+          dbName: 'qr',
           dbPath: ''
         })
         break

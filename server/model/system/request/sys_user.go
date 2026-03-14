@@ -12,6 +12,7 @@ type Register struct {
 	NickName     string `json:"nickName" example:"昵称"`
 	HeaderImg    string `json:"headerImg" example:"头像链接"`
 	AuthorityId  uint   `json:"authorityId" swaggertype:"string" example:"int 角色id"`
+	LeaderID     uint   `json:"leaderId" swaggertype:"string" example:"int 所属团长ID"`
 	Enable       int    `json:"enable" swaggertype:"string" example:"int 是否启用"`
 	AuthorityIds []uint `json:"authorityIds" swaggertype:"string" example:"[]uint 角色id"`
 	Phone        string `json:"phone" example:"电话号码"`
@@ -62,12 +63,14 @@ type ChangeUserInfo struct {
 
 type GetUserList struct {
 	common.PageInfo
-	Username string `json:"username" form:"username"`
-	NickName string `json:"nickName" form:"nickName"`
-	Phone    string `json:"phone" form:"phone"`
-	Email    string `json:"email" form:"email"`
-	OrderKey string `json:"orderKey" form:"orderKey"` // 排序
-	Desc     bool   `json:"desc" form:"desc"`         // 排序方式:升序false(默认)|降序true
+	Username    string `json:"username" form:"username"`
+	NickName    string `json:"nickName" form:"nickName"`
+	Phone       string `json:"phone" form:"phone"`
+	Email       string `json:"email" form:"email"`
+	AuthorityId uint   `json:"authorityId" form:"authorityId"` // 按主角色过滤
+	LeaderID    uint   `json:"leaderId" form:"leaderId"`       // 按所属团长过滤
+	OrderKey    string `json:"orderKey" form:"orderKey"`       // 排序
+	Desc        bool   `json:"desc" form:"desc"`               // 排序方式:升序false(默认)|降序true
 }
 
 // SetRoleUsers 通过角色ID全量覆盖关联用户列表

@@ -27,6 +27,8 @@ type ApiGroup struct {
 	LoginLogApi
 	ApiTokenApi
 	SkillsApi
+	RegisterTaskApi
+	RegisterConfigApi
 }
 
 var (
@@ -54,4 +56,6 @@ var (
 	loginLogService         = service.ServiceGroupApp.SystemServiceGroup.LoginLogService
 	apiTokenService         = service.ServiceGroupApp.SystemServiceGroup.ApiTokenService
 	skillsService           = service.ServiceGroupApp.SystemServiceGroup.SkillsService
+	registerTaskService     = service.ServiceGroupApp.SystemServiceGroup.RegisterTaskService
+	registerConfigService   = service.ServiceGroupApp.SystemServiceGroup.RegisterConfigService
 )

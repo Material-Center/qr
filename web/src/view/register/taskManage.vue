@@ -1,0 +1,185 @@
+<template>
+  <div>
+    <div class="gva-search-box">
+      <el-form :inline="true" :model="searchInfo">
+        <el-form-item label="地推ID">
+          <el-input v-model.number="searchInfo.promoterId" placeholder="地推ID" />
+        </el-form-item>
+        <el-form-item label="团长ID">
+          <el-input v-model.number="searchInfo.leaderId" placeholder="团长ID" />
+        </el-form-item>
+        <el-form-item label="是否处理中">
+          <el-select v-model="searchInfo.unfinished" clearable style="width: 120px">
+            <el-option :value="true" label="是" />
+            <el-option :value="false" label="否" />
+          </el-select>
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" icon="search" @click="fetchAll">查询</el-button>
+          <el-button icon="refresh" @click="resetSearch">重置</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
+
+    <div class="gva-table-box">
+      <el-row :gutter="12" class="mb-3">
+        <el-col :span="8">
+          <el-card shadow="never">成功任务：{{ counters.success }}</el-card>
+        </el-col>
+        <el-col :span="8">
+          <el-card shadow="never">失败任务：{{ counters.fail }}</el-card>
+        </el-col>
+        <el-col :span="8">
+          <el-card shadow="never">处理中任务：{{ counters.processing }}</el-card>
+        </el-col>
+      </el-row>
+
+      <el-table :data="tableData" row-key="ID">
+        <el-table-column label="任务ID" min-width="90" prop="ID" />
+        <el-table-column label="手机号" min-width="140" prop="phone" />
+        <el-table-column label="QQ账号" min-width="140" prop="qqAccount" />
+        <el-table-column label="当前步骤" min-width="120" prop="currentStep" />
+        <el-table-column label="状态码" min-width="100" prop="statusCode" />
+        <el-table-column label="地推" min-width="120">
+          <template #default="scope">
+            {{ scope.row.promoter?.nickName || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="团长" min-width="120">
+          <template #default="scope">
+            {{ scope.row.leader?.nickName || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="失败原因" min-width="160" prop="lastError" show-overflow-tooltip />
+        <el-table-column label="完成时间" min-width="170">
+          <template #default="scope">
+            {{ scope.row.finishedAt ? formatDate(scope.row.finishedAt) : '-' }}
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="gva-pagination">
+        <el-pagination
+          :current-page="page"
+          :page-size="pageSize"
+          :page-sizes="[10, 30, 50, 100]"
+          :total="total"
+          layout="total, sizes, prev, pager, next, jumper"
+          @current-change="handleCurrentChange"
+          @size-change="handleSizeChange"
+        />
+      </div>
+
+      <el-divider />
+      <el-row :gutter="12">
+        <el-col :span="12">
+          <el-card shadow="never">
+            <template #header>团长汇总</template>
+            <el-table :data="summary.leaders" size="small">
+              <el-table-column label="团长ID" prop="leaderId" width="90" />
+              <el-table-column label="团长名称" prop="leaderName" min-width="100" />
+              <el-table-column label="成功" prop="successCount" width="80" />
+              <el-table-column label="失败" prop="failCount" width="80" />
+              <el-table-column label="处理中" prop="processingCount" width="90" />
+            </el-table>
+          </el-card>
+        </el-col>
+        <el-col :span="12">
+          <el-card shadow="never">
+            <template #header>地推汇总</template>
+            <el-table :data="summary.promoters" size="small">
+              <el-table-column label="地推ID" prop="promoterId" width="90" />
+              <el-table-column label="地推名称" prop="promoterName" min-width="100" />
+              <el-table-column label="成功" prop="successCount" width="80" />
+              <el-table-column label="失败" prop="failCount" width="80" />
+              <el-table-column label="处理中" prop="processingCount" width="90" />
+            </el-table>
+          </el-card>
+        </el-col>
+      </el-row>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { getRegisterTaskList, getRegisterTaskSummary } from '@/api/registerTask'
+import { formatDate } from '@/utils/format'
+
+defineOptions({
+  name: 'RegisterTaskManage'
+})
+
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+const tableData = ref([])
+const searchInfo = ref({
+  promoterId: undefined,
+  leaderId: undefined,
+  unfinished: undefined
+})
+const counters = ref({
+  success: 0,
+  fail: 0,
+  processing: 0
+})
+const summary = ref({
+  leaders: [],
+  promoters: []
+})
+
+const fetchList = async () => {
+  const { data } = await getRegisterTaskList({
+    page: page.value,
+    pageSize: pageSize.value,
+    ...searchInfo.value
+  })
+  tableData.value = data.list || []
+  total.value = data.total || 0
+  counters.value = {
+    success: data.successCount || 0,
+    fail: data.failCount || 0,
+    processing: data.processingCount || 0
+  }
+}
+
+const fetchSummary = async () => {
+  const { data } = await getRegisterTaskSummary({
+    leaderId: searchInfo.value.leaderId || undefined
+  })
+  summary.value = data || { leaders: [], promoters: [] }
+}
+
+const fetchAll = async () => {
+  try {
+    await Promise.all([fetchList(), fetchSummary()])
+  } catch (e) {
+    ElMessage.error(e?.message || '加载失败')
+  }
+}
+
+const resetSearch = () => {
+  searchInfo.value = {
+    promoterId: undefined,
+    leaderId: undefined,
+    unfinished: undefined
+  }
+  page.value = 1
+  fetchAll()
+}
+
+const handleCurrentChange = (val) => {
+  page.value = val
+  fetchList()
+}
+
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  page.value = 1
+  fetchList()
+}
+
+onMounted(fetchAll)
+</script>
