@@ -58,6 +58,11 @@ server {
     listen 80;
     server_name your-domain.com;
 
+    # 不向外部站点发送 Referer
+    add_header Referrer-Policy "no-referrer" always;
+    # 告知搜索引擎不要收录（建议与 robots.txt 一起使用）
+    add_header X-Robots-Tag "noindex, nofollow, noarchive, nosnippet" always;
+
     root /var/www/qr-web;
     index index.html;
 
