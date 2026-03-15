@@ -1,6 +1,6 @@
 <template>
   <div class="register-config-page">
-    <el-card shadow="never">
+    <el-card shadow="never" style="margin-top: 8px;">
       <template #header>注册配置管理</template>
 
       <el-form label-width="130px">
