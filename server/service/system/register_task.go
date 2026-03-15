@@ -32,8 +32,17 @@ type registerTaskListResult struct {
 }
 
 func (s *RegisterTaskService) CreateTask(promoterID uint, phone string) (task system.SysRegisterTask, err error) {
-	if strings.TrimSpace(phone) == "" {
+	phone = strings.TrimSpace(phone)
+	if phone == "" {
 		return task, errors.New("手机号不能为空")
+	}
+
+	var duplicateCount int64
+	if err = global.GVA_DB.Model(&system.SysRegisterTask{}).Where("phone = ?", phone).Count(&duplicateCount).Error; err != nil {
+		return task, err
+	}
+	if duplicateCount > 0 {
+		return task, errors.New("手机号已提交过任务，不能重复创建")
 	}
 
 	if err = s.timeoutTasksByPromoter(promoterID); err != nil {
@@ -69,6 +78,9 @@ func (s *RegisterTaskService) CreateTask(promoterID uint, phone string) (task sy
 }
 
 func (s *RegisterTaskService) GetActiveTask(promoterID uint) (task system.SysRegisterTask, err error) {
+	if err = s.normalizeTimeoutClosedTasks(); err != nil {
+		return task, err
+	}
 	if err = s.timeoutTasksByPromoter(promoterID); err != nil {
 		return task, err
 	}
@@ -92,7 +104,7 @@ func (s *RegisterTaskService) SubmitStep(promoterID uint, req systemReq.Register
 	if task.FinishedAt != nil {
 		return task, errors.New("任务已完成")
 	}
-	if time.Now().After(task.ExpiresAt) {
+	if !time.Now().Before(task.ExpiresAt) {
 		return s.finishTask(task, system.RegisterTaskFailCodeTimeout, "任务超时自动完成")
 	}
 
@@ -185,6 +197,7 @@ func (s *RegisterTaskService) timeoutTasksByPromoter(promoterID uint) error {
 }
 
 func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, req systemReq.RegisterTaskList) (registerTaskListResult, error) {
+	_ = s.normalizeTimeoutClosedTasks()
 	_ = s.timeoutUnfinishedTasks()
 	db := global.GVA_DB.Model(&system.SysRegisterTask{}).Preload("Promoter").Preload("Leader")
 
@@ -255,17 +268,27 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 	case rolePromoter:
 		statDB = statDB.Where("promoter_id = ?", operatorID)
 	}
-	var success, failed, processing int64
-	_ = statDB.Where("finished_at IS NOT NULL AND status_code = 0").Count(&success).Error
-	_ = statDB.Where("finished_at IS NOT NULL AND status_code <> 0").Count(&failed).Error
-	_ = statDB.Where("finished_at IS NULL").Count(&processing).Error
+	type taskCounter struct {
+		Success    int64 `gorm:"column:success"`
+		Failed     int64 `gorm:"column:failed"`
+		Processing int64 `gorm:"column:processing"`
+	}
+	var counter taskCounter
+	if err := statDB.
+		Select(`
+			COALESCE(SUM(CASE WHEN finished_at IS NOT NULL AND status_code = 0 THEN 1 ELSE 0 END), 0) AS success,
+			COALESCE(SUM(CASE WHEN finished_at IS NOT NULL AND (status_code <> 0 OR status_code IS NULL) THEN 1 ELSE 0 END), 0) AS failed,
+			COALESCE(SUM(CASE WHEN finished_at IS NULL THEN 1 ELSE 0 END), 0) AS processing`).
+		Scan(&counter).Error; err != nil {
+		return registerTaskListResult{}, err
+	}
 
 	return registerTaskListResult{
 		List:       list,
 		Total:      total,
-		Success:    success,
-		Failed:     failed,
-		Processing: processing,
+		Success:    counter.Success,
+		Failed:     counter.Failed,
+		Processing: counter.Processing,
 	}, nil
 }
 
@@ -274,6 +297,7 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, lea
 		return systemRes.RegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
 	}
 
+	_ = s.normalizeTimeoutClosedTasks()
 	_ = s.timeoutUnfinishedTasks()
 
 	type summaryRow struct {
@@ -293,7 +317,7 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, lea
 			t.promoter_id,
 			promoter.nick_name AS promoter_name,
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 THEN 1 ELSE 0 END) AS success_count,
-			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code <> 0 THEN 1 ELSE 0 END) AS fail_count,
+			SUM(CASE WHEN t.finished_at IS NOT NULL AND (t.status_code <> 0 OR t.status_code IS NULL) THEN 1 ELSE 0 END) AS fail_count,
 			SUM(CASE WHEN t.finished_at IS NULL THEN 1 ELSE 0 END) AS processing_count`).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
 		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id")
@@ -355,6 +379,18 @@ func (s *RegisterTaskService) timeoutUnfinishedTasks() error {
 			"status_code": failCode,
 			"last_error":  "任务超时自动完成",
 			"finished_at": now,
+		}).Error
+}
+
+// normalizeTimeoutClosedTasks 兜底修正：已完成且超时，但状态码为空的数据统一标记为超时失败
+func (s *RegisterTaskService) normalizeTimeoutClosedTasks() error {
+	now := time.Now()
+	failCode := system.RegisterTaskFailCodeTimeout
+	return global.GVA_DB.Model(&system.SysRegisterTask{}).
+		Where("finished_at IS NOT NULL AND status_code IS NULL AND expires_at <= ?", now).
+		Updates(map[string]interface{}{
+			"status_code": failCode,
+			"last_error":  "任务超时自动完成",
 		}).Error
 }
 

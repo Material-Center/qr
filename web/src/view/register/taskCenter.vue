@@ -12,7 +12,7 @@
 
       <div v-if="activeTask">
         <el-alert
-          :title="`当前任务 #${activeTask.id}，步骤：${stepText(activeTask.currentStep)}`"
+          :title="taskTitle"
           type="info"
           show-icon
           :closable="false"
@@ -22,17 +22,12 @@
             <el-input v-model="activeTask.phone" disabled />
           </el-form-item>
           <el-form-item label="验证码">
-            <el-input v-model="verifyCode" placeholder="请输入验证码（mock）" />
+            <el-input v-model="verifyCode" placeholder="请输入验证码" />
           </el-form-item>
           <el-form-item>
             <el-button size="small" type="primary" @click="submitStep">提交</el-button>
             <el-button size="small" @click="retryStep">重试</el-button>
             <el-button size="small" type="danger" plain @click="markFail">失败</el-button>
-          </el-form-item>
-          <el-form-item label="提示">
-            <div class="text-sm text-gray-500">
-              mock规则：验证码 `0000` 触发系统失败；`1111` 触发业务失败；其他值视为成功推进步骤。
-            </div>
           </el-form-item>
           <el-form-item v-if="activeTask.lastError" label="最近错误">
             <span class="text-red-500">{{ activeTask.lastError }}</span>
@@ -63,8 +58,18 @@
       <el-table :data="myTasks" row-key="ID" size="small">
         <el-table-column label="任务ID" prop="ID" width="90" />
         <el-table-column label="手机号" prop="phone" min-width="130" />
-        <el-table-column label="步骤" prop="currentStep" min-width="120" />
-        <el-table-column label="状态码" prop="statusCode" width="90" />
+        <el-table-column label="状态" min-width="100">
+          <template #default="scope">
+            <el-tag :type="statusTagType(scope.row)">
+              {{ statusText(scope.row) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="步骤" min-width="100">
+          <template #default="scope">
+            {{ stepText(scope.row.currentStep) }}
+          </template>
+        </el-table-column>
         <el-table-column label="错误" prop="lastError" min-width="140" show-overflow-tooltip />
         <el-table-column label="完成时间" min-width="170">
           <template #default="scope">
@@ -77,7 +82,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createRegisterTask, getActiveRegisterTask, getRegisterTaskList, submitRegisterTaskStep } from '@/api/registerTask'
 import { formatDate } from '@/utils/format'
@@ -93,6 +98,10 @@ const activeTask = ref(null)
 const myTasks = ref([])
 const userStore = useUserStore()
 const currentUser = computed(() => userStore.userInfo || {})
+const refreshTimer = ref(null)
+const countdownTimer = ref(null)
+const refreshing = ref(false)
+const nowTs = ref(Date.now())
 const counters = ref({
   success: 0,
   fail: 0,
@@ -100,11 +109,41 @@ const counters = ref({
 })
 
 const stepText = (step) => {
-  if (step === 'phone_bind') return '手机号绑定QQ'
+  if (step === 'phone_bind') return '查绑'
   if (step === 'change_password') return '改密'
-  if (step === 'login') return '登录并查达人'
+  if (step === 'login') return '登录'
   return step || '-'
 }
+
+const statusText = (task) => {
+  if (!task?.finishedAt) return '处理中'
+  if (task?.statusCode === 0) return '成功'
+  return '失败'
+}
+
+const statusTagType = (task) => {
+  if (!task?.finishedAt) return 'warning'
+  if (task?.statusCode === 0) return 'success'
+  return 'danger'
+}
+
+const remainSeconds = computed(() => {
+  if (!activeTask.value?.expiresAt || activeTask.value?.finishedAt) return null
+  const diff = Math.floor((new Date(activeTask.value.expiresAt).getTime() - nowTs.value) / 1000)
+  return diff > 0 ? diff : 0
+})
+
+const remainText = computed(() => {
+  if (remainSeconds.value === null) return '--:--'
+  const m = Math.floor(remainSeconds.value / 60)
+  const s = remainSeconds.value % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+})
+
+const taskTitle = computed(() => {
+  if (!activeTask.value?.id) return '当前任务'
+  return `当前任务 #${activeTask.value.id}，步骤：${stepText(activeTask.value.currentStep)}，剩余：${remainText.value}`
+})
 
 const loadActiveTask = async () => {
   const res = await getActiveRegisterTask()
@@ -125,7 +164,13 @@ const loadMyTasks = async () => {
 }
 
 const refreshAll = async () => {
-  await Promise.all([loadActiveTask(), loadMyTasks()])
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await Promise.all([loadActiveTask(), loadMyTasks()])
+  } finally {
+    refreshing.value = false
+  }
 }
 
 const createTask = async () => {
@@ -175,12 +220,56 @@ const markFail = async () => {
   })
 }
 
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  refreshTimer.value = window.setInterval(async () => {
+    // 仅在存在未完成任务时自动刷新，避免无效请求
+    if (!activeTask.value?.id || activeTask.value?.finishedAt) return
+    const isTimeout = activeTask.value?.expiresAt
+      ? Date.now() >= new Date(activeTask.value.expiresAt).getTime()
+      : false
+    if (isTimeout) {
+      await refreshAll()
+      return
+    }
+    await refreshAll()
+  }, 5000)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer.value) {
+    clearInterval(refreshTimer.value)
+    refreshTimer.value = null
+  }
+}
+
+const startCountdown = () => {
+  stopCountdown()
+  countdownTimer.value = window.setInterval(() => {
+    nowTs.value = Date.now()
+  }, 1000)
+}
+
+const stopCountdown = () => {
+  if (countdownTimer.value) {
+    clearInterval(countdownTimer.value)
+    countdownTimer.value = null
+  }
+}
+
 onMounted(async () => {
   try {
     await refreshAll()
+    startAutoRefresh()
+    startCountdown()
   } catch (e) {
     ElMessage.error(e?.message || '加载失败')
   }
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  stopCountdown()
 })
 </script>
 

@@ -20,7 +20,7 @@ const (
 
 type SysRegisterTask struct {
 	global.GVA_MODEL
-	Phone            string     `json:"phone" gorm:"index;comment:手机号"`
+	Phone            string     `json:"phone" gorm:"uniqueIndex:idx_register_task_phone;comment:手机号(唯一)"`
 	QQAccount        string     `json:"qqAccount" gorm:"index;comment:QQ账号"`
 	QQPassword       string     `json:"qqPassword" gorm:"comment:QQ密码"`
 	LoginCacheINI    string     `json:"loginCacheIni" gorm:"type:longtext;comment:登录缓存ini"`
