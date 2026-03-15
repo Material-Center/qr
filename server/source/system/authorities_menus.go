@@ -99,9 +99,6 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	}
 
 	var registerPromoterMenus []sysModel.SysBaseMenu
-	if hasRegisterParent {
-		registerPromoterMenus = append(registerPromoterMenus, registerParent)
-	}
 	if hasRegisterCenterChild {
 		registerPromoterMenus = append(registerPromoterMenus, registerCenterChild)
 	}
@@ -121,7 +118,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	}
 
 	// 100 管理员：基础菜单 + 账号管理 + 注册任务统计
-	adminMenus := make([]sysModel.SysBaseMenu, 0)
+	adminMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	adminMenus = append(adminMenus, accountMenus...)
 	adminMenus = append(adminMenus, registerManageMenus...)
 	if err = assignMenus(100, adminMenus, "为管理员分配菜单失败"); err != nil {
@@ -129,7 +126,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	}
 
 	// 200 团长：基础菜单 + 账号管理 + 注册任务统计
-	leaderMenus := make([]sysModel.SysBaseMenu, 0)
+	leaderMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	leaderMenus = append(leaderMenus, accountMenus...)
 	leaderMenus = append(leaderMenus, registerManageMenus...)
 	if err = assignMenus(200, leaderMenus, "为团长分配菜单失败"); err != nil {
@@ -137,7 +134,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	}
 
 	// 300 地推：基础菜单 + 创建任务页面
-	promoterMenus := make([]sysModel.SysBaseMenu, 0)
+	promoterMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	promoterMenus = append(promoterMenus, registerPromoterMenus...)
 	if err = assignMenus(300, promoterMenus, "为地推分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为地推分配菜单失败")

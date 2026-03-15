@@ -1,7 +1,14 @@
 <template>
-  <div class="task-center">
+  <div class="task-center compact-page">
     <el-card shadow="never" class="mb-3">
-      <template #header>创建注册任务（H5友好）</template>
+      <div class="user-bar">
+        <span>当前登录用户：{{ currentUser.nickName || '-' }}</span>
+        <el-button type="danger" link @click="userStore.LoginOut">退出登录</el-button>
+      </div>
+    </el-card>
+
+    <el-card shadow="never" class="mb-3">
+      <template #header>创建注册任务</template>
 
       <div v-if="activeTask">
         <el-alert
@@ -10,7 +17,7 @@
           show-icon
           :closable="false"
         />
-        <el-form label-width="90px" class="mt-3">
+        <el-form label-width="72px" class="mt-2 compact-form">
           <el-form-item label="手机号">
             <el-input v-model="activeTask.phone" disabled />
           </el-form-item>
@@ -18,9 +25,9 @@
             <el-input v-model="verifyCode" placeholder="请输入验证码（mock）" />
           </el-form-item>
           <el-form-item>
-            <el-button type="primary" @click="submitStep">提交当前步骤</el-button>
-            <el-button @click="retryStep">重试</el-button>
-            <el-button type="danger" plain @click="markFail">标记失败</el-button>
+            <el-button size="small" type="primary" @click="submitStep">提交</el-button>
+            <el-button size="small" @click="retryStep">重试</el-button>
+            <el-button size="small" type="danger" plain @click="markFail">失败</el-button>
           </el-form-item>
           <el-form-item label="提示">
             <div class="text-sm text-gray-500">
@@ -36,12 +43,12 @@
         </el-form>
       </div>
 
-      <el-form v-else label-width="90px">
+      <el-form v-else label-width="72px" class="compact-form">
         <el-form-item label="手机号">
           <el-input v-model="phone" placeholder="请输入手机号" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="createTask">创建任务</el-button>
+          <el-button size="small" type="primary" @click="createTask">创建任务</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -53,7 +60,7 @@
         <el-col :span="8">失败：{{ counters.fail }}</el-col>
         <el-col :span="8">处理中：{{ counters.processing }}</el-col>
       </el-row>
-      <el-table :data="myTasks" row-key="ID">
+      <el-table :data="myTasks" row-key="ID" size="small">
         <el-table-column label="任务ID" prop="ID" width="90" />
         <el-table-column label="手机号" prop="phone" min-width="130" />
         <el-table-column label="步骤" prop="currentStep" min-width="120" />
@@ -70,10 +77,11 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { createRegisterTask, getActiveRegisterTask, getRegisterTaskList, submitRegisterTaskStep } from '@/api/registerTask'
 import { formatDate } from '@/utils/format'
+import { useUserStore } from '@/pinia/modules/user'
 
 defineOptions({
   name: 'RegisterTaskCenter'
@@ -83,6 +91,8 @@ const phone = ref('')
 const verifyCode = ref('')
 const activeTask = ref(null)
 const myTasks = ref([])
+const userStore = useUserStore()
+const currentUser = computed(() => userStore.userInfo || {})
 const counters = ref({
   success: 0,
   fail: 0,
@@ -178,5 +188,31 @@ onMounted(async () => {
 .task-center {
   max-width: 720px;
   margin: 0 auto;
+  padding: 8px;
+}
+
+.user-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.compact-page :deep(.el-card__header) {
+  padding: 10px 12px;
+}
+
+.compact-page :deep(.el-card__body) {
+  padding: 10px;
+}
+
+@media (max-width: 768px) {
+  .task-center {
+    max-width: 100%;
+    padding: 6px;
+  }
 }
 </style>
