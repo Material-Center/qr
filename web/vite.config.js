@@ -11,9 +11,21 @@ import vueRootValidator from 'vite-check-multiple-dom'
 import { AddSecret } from './vitePlugin/secret'
 import UnoCSS from '@unocss/vite'
 
+function generateSecRandom(secretCode = '04788f1ea15d305f') {
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyz';
+  let sec = '';
+  for (let i = 0; i < secretCode.length; i++) {
+    sec += secretCode[i];
+    if (i !== secretCode.length - 1) {
+      sec += chars[Math.floor(Math.random() * chars.length)];
+    }
+  }
+  return sec;
+}
+
 // @see https://cn.vitejs.dev/config/
 export default ({ mode }) => {
-  AddSecret('0040708080f010e0a01050d0300050f')
+  AddSecret(generateSecRandom())
   const env = loadEnv(mode, process.cwd())
   viteLogo(env)
 
