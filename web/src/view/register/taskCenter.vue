@@ -50,7 +50,7 @@
 
     <el-card shadow="never">
       <template #header>我的任务记录</template>
-      <el-row :gutter="12" class="mb-3">
+      <el-row :gutter="12" class="mb-3" style="font-size: 12px;">
         <el-col :span="8">成功：{{ counters.success }}</el-col>
         <el-col :span="8">失败：{{ counters.fail }}</el-col>
         <el-col :span="8">处理中：{{ counters.processing }}</el-col>
