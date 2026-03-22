@@ -2,7 +2,9 @@ package system
 
 import (
 	"errors"
+	"strings"
 
+	"github.com/Material-Center/qpi"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
@@ -104,4 +106,99 @@ func getOwnerByRole(role uint, userID uint) (ownerType string, ownerID uint, err
 	default:
 		return "", 0, errors.New("无权限访问配置")
 	}
+}
+
+func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[string]interface{}, error) {
+	cfgModel, err := s.GetMyConfig(role, userID)
+	if err != nil {
+		return nil, err
+	}
+	cfg := systemRegisterConfig{
+		DefaultPassword: cfgModel.DefaultPassword,
+		ProxyPlatform:   cfgModel.ProxyPlatform,
+		ProxyAccount:    cfgModel.ProxyAccount,
+		ProxyPassword:   cfgModel.ProxyPassword,
+		CaptchaPlatform: cfgModel.CaptchaPlatform,
+		CaptchaAccount:  cfgModel.CaptchaAccount,
+		CaptchaPassword: cfgModel.CaptchaPassword,
+		CaptchaToken:    cfgModel.CaptchaToken,
+	}
+
+	result := map[string]interface{}{
+		"proxy": map[string]interface{}{
+			"enabled": strings.TrimSpace(cfg.ProxyPlatform) != "",
+			"ok":      false,
+			"message": "未配置",
+		},
+		"captcha": map[string]interface{}{
+			"enabled": strings.TrimSpace(cfg.CaptchaPlatform) != "",
+			"ok":      false,
+			"message": "未配置",
+		},
+		"defaultPassword": map[string]interface{}{
+			"enabled": role == cfgRoleSuperAdmin || role == cfgRoleAdmin,
+			"ok":      strings.TrimSpace(cfg.DefaultPassword) != "",
+			"message": "",
+		},
+	}
+
+	if role == cfgRoleSuperAdmin || role == cfgRoleAdmin {
+		if strings.TrimSpace(cfg.DefaultPassword) == "" {
+			result["defaultPassword"] = map[string]interface{}{
+				"enabled": true,
+				"ok":      false,
+				"message": "默认改密密码未配置",
+			}
+		} else {
+			result["defaultPassword"] = map[string]interface{}{
+				"enabled": true,
+				"ok":      true,
+				"message": "默认改密密码已配置",
+			}
+		}
+	}
+
+	if role == cfgRoleLeader {
+		proxyResult := map[string]interface{}{
+			"enabled": strings.TrimSpace(cfg.ProxyPlatform) != "",
+			"ok":      false,
+			"message": "未配置",
+		}
+		if strings.TrimSpace(cfg.ProxyPlatform) != "" {
+			addr, pErr := allocateProxyURLFromConfig(cfg)
+			if pErr != nil {
+				proxyResult["message"] = pErr.Error()
+			} else {
+				proxyResult["ok"] = true
+				proxyResult["message"] = "可用: " + addr
+			}
+		}
+		result["proxy"] = proxyResult
+
+		captchaResult := map[string]interface{}{
+			"enabled": strings.TrimSpace(cfg.CaptchaPlatform) != "",
+			"ok":      false,
+			"message": "未配置",
+		}
+		if strings.TrimSpace(cfg.CaptchaPlatform) != "" {
+			var token *captchaToken
+			switch strings.ToLower(strings.TrimSpace(cfg.CaptchaPlatform)) {
+			case captchaProviderYY:
+				token, err = getCaptchaTokenFromYY(cfg, qpi.ChangePasswordAppID)
+			case captchaProviderAC:
+				token, err = getCaptchaTokenFromAC(cfg, qpi.ChangePasswordAppID)
+			default:
+				err = errors.New("不支持的验证码平台")
+			}
+			if err != nil {
+				captchaResult["message"] = err.Error()
+			} else {
+				captchaResult["ok"] = true
+				captchaResult["message"] = "可用: randstr=" + token.Randstr
+			}
+		}
+		result["captcha"] = captchaResult
+	}
+
+	return result, nil
 }

@@ -1,0 +1,3 @@
+[submodule "qpi"]
+	path = qpi
+	url = git@github.com:Material-Center/qpi.git

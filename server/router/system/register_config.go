@@ -15,5 +15,6 @@ func (r *RegisterConfigRouter) InitRegisterConfigRouter(Router *gin.RouterGroup)
 	}
 	{
 		registerConfigRouterWithoutRecord.GET("getMyConfig", registerConfigApi.GetMyRegisterConfig)
+		registerConfigRouterWithoutRecord.GET("checkMyConfig", registerConfigApi.CheckMyRegisterConfig)
 	}
 }

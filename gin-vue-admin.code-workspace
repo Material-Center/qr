@@ -9,6 +9,10 @@
       "name": "frontend"
     },
     {
+      "path": "qpi",
+      "name": "qpi-sdk"
+    },
+    {
       "path": ".",
       "name": "root"
     }

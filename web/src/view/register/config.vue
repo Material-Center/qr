@@ -17,25 +17,33 @@
             </el-select>
           </el-form-item>
           <el-form-item label="代理账号">
-            <el-input v-model="form.proxyAccount" placeholder="请输入代理账号" />
+            <el-input v-model="form.proxyAccount" placeholder="神龙 key" />
           </el-form-item>
           <el-form-item label="代理密码">
-            <el-input v-model="form.proxyPassword" show-password placeholder="请输入代理密码" />
+            <el-input v-model="form.proxyPassword" show-password placeholder="神龙 sign" />
           </el-form-item>
           <el-form-item label="验证码平台">
             <el-select v-model="form.captchaPlatform" style="width: 100%" placeholder="请选择验证码平台">
-              <el-option label="yy" value="yy" />
-              <el-option label="ac" value="ac" />
+              <el-option label="yy（账号密码模式）" value="yy" />
+              <el-option label="ac（baseURL + token 模式）" value="ac" />
             </el-select>
           </el-form-item>
-          <el-form-item label="验证码账号">
-            <el-input v-model="form.captchaAccount" placeholder="请输入验证码账号" />
+          <el-form-item :label="captchaAccountLabel">
+            <el-input v-model="form.captchaAccount" :placeholder="captchaAccountPlaceholder" />
           </el-form-item>
-          <el-form-item label="验证码密码">
-            <el-input v-model="form.captchaPassword" show-password placeholder="请输入验证码密码" />
+          <el-form-item :label="captchaPasswordLabel">
+            <el-input v-model="form.captchaPassword" show-password :placeholder="captchaPasswordPlaceholder" />
           </el-form-item>
-          <el-form-item label="验证码Token">
-            <el-input v-model="form.captchaToken" placeholder="请输入验证码Token（可选）" />
+          <el-form-item :label="captchaTokenLabel">
+            <el-input v-model="form.captchaToken" :placeholder="captchaTokenPlaceholder" />
+          </el-form-item>
+          <el-form-item>
+            <el-alert
+              type="info"
+              show-icon
+              :closable="false"
+              :title="leaderConfigHint"
+            />
           </el-form-item>
         </template>
 
@@ -45,7 +53,16 @@
 
         <el-form-item>
           <el-button type="primary" :disabled="!canEdit" @click="submit">保存配置</el-button>
+          <el-button :loading="checking" :disabled="!canEdit" @click="checkConfig">检测连通性</el-button>
           <el-button @click="loadConfig">刷新</el-button>
+        </el-form-item>
+        <el-form-item v-if="checkResultText">
+          <el-alert
+            :type="checkResultType"
+            :closable="false"
+            show-icon
+            :title="checkResultText"
+          />
         </el-form-item>
       </el-form>
     </el-card>
@@ -56,7 +73,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/pinia/modules/user'
-import { getMyRegisterConfig, setMyRegisterConfig } from '@/api/registerConfig'
+import { checkMyRegisterConfig, getMyRegisterConfig, setMyRegisterConfig } from '@/api/registerConfig'
 
 defineOptions({
   name: 'RegisterConfig'
@@ -71,6 +88,9 @@ const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const isAdminRole = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const isLeaderRole = computed(() => currentRoleId.value === ROLE_LEADER)
 const canEdit = computed(() => isAdminRole.value || isLeaderRole.value)
+const checking = ref(false)
+const checkResultText = ref('')
+const checkResultType = ref('info')
 
 const form = ref({
   defaultPassword: '',
@@ -81,6 +101,28 @@ const form = ref({
   captchaAccount: '',
   captchaPassword: '',
   captchaToken: ''
+})
+
+const captchaAccountLabel = computed(() => (form.value.captchaPlatform === 'ac' ? 'AC地址' : '验证码账号'))
+const captchaAccountPlaceholder = computed(() => {
+  if (form.value.captchaPlatform === 'ac') return '例如: http://39.99.146.154:16168'
+  return 'YY 平台账号'
+})
+const captchaPasswordLabel = computed(() => (form.value.captchaPlatform === 'ac' ? 'AC密码(可空)' : '验证码密码'))
+const captchaPasswordPlaceholder = computed(() => {
+  if (form.value.captchaPlatform === 'ac') return 'AC 模式可留空'
+  return 'YY 平台密码'
+})
+const captchaTokenLabel = computed(() => (form.value.captchaPlatform === 'ac' ? 'AC Token' : '验证码Token'))
+const captchaTokenPlaceholder = computed(() => {
+  if (form.value.captchaPlatform === 'ac') return 'AC 必填 token'
+  return 'YY 模式可留空'
+})
+const leaderConfigHint = computed(() => {
+  if (form.value.captchaPlatform === 'ac') {
+    return 'AC 平台：验证码账号填 baseURL，验证码Token 必填，验证码密码可空。'
+  }
+  return 'YY 平台：验证码账号/验证码密码必填，验证码Token 可留空。'
 })
 
 const loadConfig = async () => {
@@ -106,6 +148,38 @@ const submit = async () => {
   await setMyRegisterConfig(form.value)
   ElMessage.success('保存成功')
   await loadConfig()
+}
+
+const checkConfig = async () => {
+  if (!canEdit.value) return
+  checking.value = true
+  checkResultText.value = ''
+  try {
+    const { data } = await checkMyRegisterConfig()
+    const proxy = data?.proxy || {}
+    const captcha = data?.captcha || {}
+    const defaultPwd = data?.defaultPassword || {}
+    if (isLeaderRole.value) {
+      const lines = [
+        `代理: ${proxy.ok ? '可用' : '不可用'} (${proxy.message || '-'})`,
+        `验证码: ${captcha.ok ? '可用' : '不可用'} (${captcha.message || '-'})`
+      ]
+      checkResultText.value = lines.join('；')
+      checkResultType.value = proxy.ok && captcha.ok ? 'success' : 'warning'
+    } else if (isAdminRole.value) {
+      checkResultText.value = defaultPwd.ok
+        ? '默认改密密码已配置，可用于注册任务改密步骤'
+        : `默认改密密码未配置：${defaultPwd.message || '请先设置'}`
+      checkResultType.value = defaultPwd.ok ? 'success' : 'warning'
+    }
+    ElMessage.success('检测完成')
+  } catch (e) {
+    checkResultType.value = 'error'
+    checkResultText.value = e?.message || '检测失败'
+    ElMessage.error(e?.message || '检测失败')
+  } finally {
+    checking.value = false
+  }
 }
 
 onMounted(async () => {

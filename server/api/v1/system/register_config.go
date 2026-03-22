@@ -50,3 +50,20 @@ func (a *RegisterConfigApi) SetMyRegisterConfig(c *gin.Context) {
 	}
 	response.OkWithDetailed(data, "保存成功", c)
 }
+
+// CheckMyRegisterConfig
+// @Tags      RegisterConfig
+// @Summary   检测我的注册配置连通性
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200  {object}  response.Response{data=map[string]interface{},msg=string}
+// @Router    /registerConfig/checkMyConfig [get]
+func (a *RegisterConfigApi) CheckMyRegisterConfig(c *gin.Context) {
+	data, err := registerConfigService.CheckMyConfig(utils.GetUserAuthorityId(c), utils.GetUserID(c))
+	if err != nil {
+		global.GVA_LOG.Error("检测注册配置失败", zap.Error(err))
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(data, "检测完成", c)
+}

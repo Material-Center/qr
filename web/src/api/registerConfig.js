@@ -14,3 +14,10 @@ export const setMyRegisterConfig = (data) => {
     data
   })
 }
+
+export const checkMyRegisterConfig = () => {
+  return service({
+    url: '/registerConfig/checkMyConfig',
+    method: 'get'
+  })
+}
