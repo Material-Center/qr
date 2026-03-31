@@ -5,6 +5,8 @@ type RegisterConfigUpsert struct {
 	NaichaAppID     string `json:"naichaAppId" form:"naichaAppId"`
 	NaichaSecret    string `json:"naichaSecret" form:"naichaSecret"`
 	NaichaCKMd5     string `json:"naichaCkMd5" form:"naichaCkMd5"`
+	ApiBase         string `json:"apiBase" form:"apiBase"`
+	ApiToken        string `json:"apiToken" form:"apiToken"`
 
 	ProxyPlatform string `json:"proxyPlatform" form:"proxyPlatform"`
 	ProxyAccount  string `json:"proxyAccount" form:"proxyAccount"`

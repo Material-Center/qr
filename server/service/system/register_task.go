@@ -306,6 +306,14 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 		if len(changedQQList) == 0 {
 			return task, errors.New("无可登录QQ账号，请先完成改密")
 		}
+		tlv544Provider, pErr := buildTLV544ProviderFromConfig(runtimeCfg)
+		if pErr != nil {
+			return task, pErr
+		}
+		tlv553Provider, pErr := buildTLV553ProviderFromConfig(runtimeCfg)
+		if pErr != nil {
+			return task, pErr
+		}
 		loggedQQList := splitQQList(task.QQLoggedList)
 		if len(loggedQQList) > len(changedQQList) {
 			loggedQQList = loggedQQList[:len(changedQQList)]
@@ -328,8 +336,10 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 			}
 		}
 		loginReq := qpi.PasswordLoginRequest{
-			UIN:      currentQQ,
-			Password: task.QQPassword,
+			UIN:            currentQQ,
+			Password:       task.QQPassword,
+			TLV544Provider: tlv544Provider,
+			TLV553Provider: tlv553Provider,
 			CaptchaProvider: func(captchaURL string) (string, error) {
 				cap, err := s.getCaptchaToken(runtimeCfg, qpi.ChangePasswordAppID)
 				if err != nil {

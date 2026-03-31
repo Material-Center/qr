@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Material-Center/qpi"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 )
@@ -313,11 +315,92 @@ func buildCacheINI(cache map[string]string) string {
 	return sb.String()
 }
 
+func buildTLV544ProviderFromConfig(cfg systemRegisterConfig) (qpi.TLV544Provider, error) {
+	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
+	apiToken := strings.TrimSpace(cfg.ApiToken)
+	if apiBase == "" || apiToken == "" {
+		return nil, errors.New("登录签名服务 apiBase/apiToken 未配置")
+	}
+	return func(req qpi.TLV544Request) ([]byte, error) {
+		retries := 3
+		for attempts := 0; ; attempts++ {
+			form := url.Values{}
+			form.Set("token", apiToken)
+			form.Set("uin", strings.TrimSpace(req.UIN))
+			form.Set("salt", strings.TrimSpace(req.Salt))
+			form.Set("data", strings.ReplaceAll(strings.TrimSpace(req.SaltData), " ", ""))
+
+			respText, err := doPostForm(apiBase+"/energy", form.Encode())
+			if err != nil {
+				if attempts < retries {
+					continue
+				}
+				return nil, fmt.Errorf("makeTLV544 energy request failed: %w", err)
+			}
+			respText = strings.TrimSpace(respText)
+			if respText == "" {
+				return nil, errors.New("makeTLV544 energy response is empty")
+			}
+			return hex.DecodeString(strings.ReplaceAll(respText, " ", ""))
+		}
+	}, nil
+}
+
+func buildTLV553ProviderFromConfig(cfg systemRegisterConfig) (func(uin uint32) ([]byte, error), error) {
+	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
+	if apiBase == "" {
+		return nil, errors.New("登录签名服务 apiBase 未配置")
+	}
+	return func(uin uint32) ([]byte, error) {
+		endpoint := apiBase + "/get_xw_debug_id"
+		bodyRaw := "uin=" + strconv.FormatUint(uint64(uin), 10)
+		respText, err := doPostForm(endpoint, bodyRaw)
+		if err != nil {
+			return nil, fmt.Errorf("tlv553 request failed: %w", err)
+		}
+		var payload struct {
+			Code int    `json:"code"`
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(respText), &payload); err != nil {
+			return nil, fmt.Errorf("parse tlv553 failed: %w, body=%s", err, respText)
+		}
+		if payload.Code != 0 {
+			return nil, fmt.Errorf("tlv553 failed: code=%d body=%s", payload.Code, respText)
+		}
+		return hex.DecodeString(strings.ReplaceAll(payload.Data, " ", ""))
+	}, nil
+}
+
+func doPostForm(targetURL string, bodyRaw string) (string, error) {
+	req, err := http.NewRequest(http.MethodPost, targetURL, bytes.NewBufferString(bodyRaw))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("doPOST request failed: %s", resp.Status)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
 type systemRegisterConfig struct {
 	DefaultPassword string
 	NaichaAppID     string
 	NaichaSecret    string
 	NaichaCKMd5     string
+	ApiBase         string
+	ApiToken        string
 	ProxyPlatform   string
 	ProxyAccount    string
 	ProxyPassword   string
@@ -358,15 +441,19 @@ func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRe
 		NaichaAppID     string
 		NaichaSecret    string
 		NaichaCKMd5     string
+		ApiBase         string
+		ApiToken        string
 	}
 	if err := global.GVA_DB.Model(&system.SysRegisterConfig{}).
-		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5").
+		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5, api_base, api_token").
 		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
 		First(&adminCfg).Error; err == nil {
 		cfg.DefaultPassword = adminCfg.DefaultPassword
 		cfg.NaichaAppID = adminCfg.NaichaAppID
 		cfg.NaichaSecret = adminCfg.NaichaSecret
 		cfg.NaichaCKMd5 = adminCfg.NaichaCKMd5
+		cfg.ApiBase = adminCfg.ApiBase
+		cfg.ApiToken = adminCfg.ApiToken
 	}
 	return cfg, nil
 }

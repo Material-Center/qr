@@ -16,6 +16,8 @@ type SysRegisterConfig struct {
 	NaichaAppID     string `json:"naichaAppId" gorm:"size:64;comment:奶茶平台appid(管理员配置)"`
 	NaichaSecret    string `json:"naichaSecret" gorm:"size:256;comment:奶茶平台secret(管理员配置)"`
 	NaichaCKMd5     string `json:"naichaCkMd5" gorm:"size:128;comment:奶茶平台cookie md5(管理员配置)"`
+	ApiBase         string `json:"apiBase" gorm:"size:256;comment:登录签名服务apiBase(管理员配置)"`
+	ApiToken        string `json:"apiToken" gorm:"size:256;comment:登录签名服务apiToken(管理员配置)"`
 
 	ProxyPlatform string `json:"proxyPlatform" gorm:"size:32;comment:代理平台"`
 	ProxyAccount  string `json:"proxyAccount" gorm:"size:128;comment:代理账号"`

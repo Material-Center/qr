@@ -17,6 +17,12 @@
           <el-form-item label="奶茶 CKMd5">
             <el-input v-model="form.naichaCkMd5" placeholder="请输入奶茶平台 ckmd5（可选）" />
           </el-form-item>
+          <el-form-item label="签名 ApiBase">
+            <el-input v-model="form.apiBase" placeholder="例如: http://sign9.owo.vin" />
+          </el-form-item>
+          <el-form-item label="签名 ApiToken">
+            <el-input v-model="form.apiToken" show-password placeholder="请输入签名服务 apiToken" />
+          </el-form-item>
         </template>
 
         <template v-else-if="isLeaderRole">
@@ -106,6 +112,8 @@ const form = ref({
   naichaAppId: '',
   naichaSecret: '',
   naichaCkMd5: '',
+  apiBase: '',
+  apiToken: '',
   proxyPlatform: '',
   proxyAccount: '',
   proxyPassword: '',
@@ -144,6 +152,8 @@ const loadConfig = async () => {
     naichaAppId: data?.naichaAppId || '',
     naichaSecret: data?.naichaSecret || '',
     naichaCkMd5: data?.naichaCkMd5 || '',
+    apiBase: data?.apiBase || '',
+    apiToken: data?.apiToken || '',
     proxyPlatform: data?.proxyPlatform || '',
     proxyAccount: data?.proxyAccount || '',
     proxyPassword: data?.proxyPassword || '',
@@ -164,6 +174,10 @@ const submit = async () => {
     ElMessage.warning('奶茶平台 appId 和 secret 不能为空')
     return
   }
+  if (isAdminRole.value && (!form.value.apiBase || !form.value.apiToken)) {
+    ElMessage.warning('签名服务 apiBase 和 apiToken 不能为空')
+    return
+  }
   await setMyRegisterConfig(form.value)
   ElMessage.success('保存成功')
   await loadConfig()
@@ -179,6 +193,7 @@ const checkConfig = async () => {
     const captcha = data?.captcha || {}
     const defaultPwd = data?.defaultPassword || {}
     const naicha = data?.naicha || {}
+    const qsign = data?.qsign || {}
     if (isLeaderRole.value) {
       const lines = [
         `代理: ${proxy.ok ? '可用' : '不可用'} (${proxy.message || '-'})`,
@@ -193,10 +208,13 @@ const checkConfig = async () => {
           : `默认改密密码未配置：${defaultPwd.message || '请先设置'}`,
         naicha.ok
           ? '奶茶平台配置已就绪'
-          : `奶茶平台未配置：${naicha.message || '请先设置 appId/secret'}`
+          : `奶茶平台未配置：${naicha.message || '请先设置 appId/secret'}`,
+        qsign.ok
+          ? '签名服务配置已就绪'
+          : `签名服务未配置：${qsign.message || '请先设置 apiBase/apiToken'}`
       ]
       checkResultText.value = lines.join('；')
-      checkResultType.value = defaultPwd.ok && naicha.ok ? 'success' : 'warning'
+      checkResultType.value = defaultPwd.ok && naicha.ok && qsign.ok ? 'success' : 'warning'
     }
     ElMessage.success('检测完成')
   } catch (e) {

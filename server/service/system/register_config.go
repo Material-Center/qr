@@ -50,10 +50,15 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		if strings.TrimSpace(req.NaichaAppID) == "" || strings.TrimSpace(req.NaichaSecret) == "" {
 			return system.SysRegisterConfig{}, errors.New("奶茶平台 appId 和 secret 不能为空")
 		}
+		if strings.TrimSpace(req.ApiBase) == "" || strings.TrimSpace(req.ApiToken) == "" {
+			return system.SysRegisterConfig{}, errors.New("登录签名服务 apiBase 和 apiToken 不能为空")
+		}
 		data["default_password"] = req.DefaultPassword
 		data["naicha_app_id"] = req.NaichaAppID
 		data["naicha_secret"] = req.NaichaSecret
 		data["naicha_ck_md5"] = req.NaichaCKMd5
+		data["api_base"] = req.ApiBase
+		data["api_token"] = req.ApiToken
 	case cfgRoleLeader:
 		data["proxy_platform"] = req.ProxyPlatform
 		data["proxy_account"] = req.ProxyAccount
@@ -79,6 +84,8 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.NaichaAppID = req.NaichaAppID
 			cfg.NaichaSecret = req.NaichaSecret
 			cfg.NaichaCKMd5 = req.NaichaCKMd5
+			cfg.ApiBase = req.ApiBase
+			cfg.ApiToken = req.ApiToken
 		case cfgRoleLeader:
 			cfg.ProxyPlatform = req.ProxyPlatform
 			cfg.ProxyAccount = req.ProxyAccount
@@ -127,6 +134,8 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 		NaichaAppID:     cfgModel.NaichaAppID,
 		NaichaSecret:    cfgModel.NaichaSecret,
 		NaichaCKMd5:     cfgModel.NaichaCKMd5,
+		ApiBase:         cfgModel.ApiBase,
+		ApiToken:        cfgModel.ApiToken,
 		ProxyPlatform:   cfgModel.ProxyPlatform,
 		ProxyAccount:    cfgModel.ProxyAccount,
 		ProxyPassword:   cfgModel.ProxyPassword,
@@ -157,6 +166,11 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 			"ok":      strings.TrimSpace(cfg.NaichaAppID) != "" && strings.TrimSpace(cfg.NaichaSecret) != "",
 			"message": "",
 		},
+		"qsign": map[string]interface{}{
+			"enabled": role == cfgRoleSuperAdmin || role == cfgRoleAdmin,
+			"ok":      strings.TrimSpace(cfg.ApiBase) != "" && strings.TrimSpace(cfg.ApiToken) != "",
+			"message": "",
+		},
 	}
 
 	if role == cfgRoleSuperAdmin || role == cfgRoleAdmin {
@@ -184,6 +198,19 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 				"enabled": true,
 				"ok":      true,
 				"message": "奶茶平台配置已就绪",
+			}
+		}
+		if strings.TrimSpace(cfg.ApiBase) == "" || strings.TrimSpace(cfg.ApiToken) == "" {
+			result["qsign"] = map[string]interface{}{
+				"enabled": true,
+				"ok":      false,
+				"message": "登录签名服务 apiBase/apiToken 未配置",
+			}
+		} else {
+			result["qsign"] = map[string]interface{}{
+				"enabled": true,
+				"ok":      true,
+				"message": "登录签名服务配置已就绪",
 			}
 		}
 	}
