@@ -2,6 +2,9 @@ package request
 
 type RegisterConfigUpsert struct {
 	DefaultPassword string `json:"defaultPassword" form:"defaultPassword"`
+	NaichaAppID     string `json:"naichaAppId" form:"naichaAppId"`
+	NaichaSecret    string `json:"naichaSecret" form:"naichaSecret"`
+	NaichaCKMd5     string `json:"naichaCkMd5" form:"naichaCkMd5"`
 
 	ProxyPlatform string `json:"proxyPlatform" form:"proxyPlatform"`
 	ProxyAccount  string `json:"proxyAccount" form:"proxyAccount"`

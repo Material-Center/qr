@@ -8,6 +8,15 @@
           <el-form-item label="默认改密密码">
             <el-input v-model="form.defaultPassword" show-password placeholder="请输入默认改密密码" />
           </el-form-item>
+          <el-form-item label="奶茶 AppID">
+            <el-input v-model="form.naichaAppId" placeholder="请输入奶茶平台 appId" />
+          </el-form-item>
+          <el-form-item label="奶茶 Secret">
+            <el-input v-model="form.naichaSecret" show-password placeholder="请输入奶茶平台 secret" />
+          </el-form-item>
+          <el-form-item label="奶茶 CKMd5">
+            <el-input v-model="form.naichaCkMd5" placeholder="请输入奶茶平台 ckmd5（可选）" />
+          </el-form-item>
         </template>
 
         <template v-else-if="isLeaderRole">
@@ -94,6 +103,9 @@ const checkResultType = ref('info')
 
 const form = ref({
   defaultPassword: '',
+  naichaAppId: '',
+  naichaSecret: '',
+  naichaCkMd5: '',
   proxyPlatform: '',
   proxyAccount: '',
   proxyPassword: '',
@@ -129,6 +141,9 @@ const loadConfig = async () => {
   const { data } = await getMyRegisterConfig()
   form.value = {
     defaultPassword: data?.defaultPassword || '',
+    naichaAppId: data?.naichaAppId || '',
+    naichaSecret: data?.naichaSecret || '',
+    naichaCkMd5: data?.naichaCkMd5 || '',
     proxyPlatform: data?.proxyPlatform || '',
     proxyAccount: data?.proxyAccount || '',
     proxyPassword: data?.proxyPassword || '',
@@ -145,6 +160,10 @@ const submit = async () => {
     ElMessage.warning('默认改密密码不能为空')
     return
   }
+  if (isAdminRole.value && (!form.value.naichaAppId || !form.value.naichaSecret)) {
+    ElMessage.warning('奶茶平台 appId 和 secret 不能为空')
+    return
+  }
   await setMyRegisterConfig(form.value)
   ElMessage.success('保存成功')
   await loadConfig()
@@ -159,6 +178,7 @@ const checkConfig = async () => {
     const proxy = data?.proxy || {}
     const captcha = data?.captcha || {}
     const defaultPwd = data?.defaultPassword || {}
+    const naicha = data?.naicha || {}
     if (isLeaderRole.value) {
       const lines = [
         `代理: ${proxy.ok ? '可用' : '不可用'} (${proxy.message || '-'})`,
@@ -167,10 +187,16 @@ const checkConfig = async () => {
       checkResultText.value = lines.join('；')
       checkResultType.value = proxy.ok && captcha.ok ? 'success' : 'warning'
     } else if (isAdminRole.value) {
-      checkResultText.value = defaultPwd.ok
-        ? '默认改密密码已配置，可用于注册任务改密步骤'
-        : `默认改密密码未配置：${defaultPwd.message || '请先设置'}`
-      checkResultType.value = defaultPwd.ok ? 'success' : 'warning'
+      const lines = [
+        defaultPwd.ok
+          ? '默认改密密码已配置'
+          : `默认改密密码未配置：${defaultPwd.message || '请先设置'}`,
+        naicha.ok
+          ? '奶茶平台配置已就绪'
+          : `奶茶平台未配置：${naicha.message || '请先设置 appId/secret'}`
+      ]
+      checkResultText.value = lines.join('；')
+      checkResultType.value = defaultPwd.ok && naicha.ok ? 'success' : 'warning'
     }
     ElMessage.success('检测完成')
   } catch (e) {

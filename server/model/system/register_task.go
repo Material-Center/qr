@@ -23,8 +23,10 @@ type SysRegisterTask struct {
 	Phone            string     `json:"phone" gorm:"uniqueIndex:idx_register_task_phone;comment:手机号(唯一)"`
 	QQAccount        string     `json:"qqAccount" gorm:"index;comment:QQ账号"`
 	QQPassword       string     `json:"qqPassword" gorm:"comment:QQ密码"`
-	QQProfile        string     `json:"qqProfile" gorm:"type:text;comment:QQ账号资料(JSON)"`
 	LoginCacheINI    string     `json:"loginCacheIni" gorm:"type:longtext;comment:登录缓存ini"`
+	QQCandidates     string     `json:"-" gorm:"type:text;comment:查绑后候选QQ(JSON)"`
+	QQChangedList    string     `json:"-" gorm:"type:text;comment:改密成功QQ(JSON)"`
+	QQLoggedList     string     `json:"-" gorm:"type:text;comment:登录成功QQ(JSON)"`
 	CaptchaRandstr   string     `json:"-" gorm:"size:128;comment:流程滑块randstr"`
 	CaptchaTicket    string     `json:"-" gorm:"size:512;comment:流程滑块ticket"`
 	IsDaren          *bool      `json:"isDaren" gorm:"comment:是否达人"`

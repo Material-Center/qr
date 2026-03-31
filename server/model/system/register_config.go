@@ -13,6 +13,9 @@ type SysRegisterConfig struct {
 	OwnerID   uint   `json:"ownerId" gorm:"index;comment:归属ID，admin为0，leader为用户ID"`
 
 	DefaultPassword string `json:"defaultPassword" gorm:"size:128;comment:默认改密密码(管理员配置)"`
+	NaichaAppID     string `json:"naichaAppId" gorm:"size:64;comment:奶茶平台appid(管理员配置)"`
+	NaichaSecret    string `json:"naichaSecret" gorm:"size:256;comment:奶茶平台secret(管理员配置)"`
+	NaichaCKMd5     string `json:"naichaCkMd5" gorm:"size:128;comment:奶茶平台cookie md5(管理员配置)"`
 
 	ProxyPlatform string `json:"proxyPlatform" gorm:"size:32;comment:代理平台"`
 	ProxyAccount  string `json:"proxyAccount" gorm:"size:128;comment:代理账号"`

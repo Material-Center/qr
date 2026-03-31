@@ -1,0 +1,23 @@
+---
+description: Register task integration and execution flow standards
+alwaysApply: true
+---
+
+# Register Task + QPI Flow Rule
+
+- 所有注册任务改动必须优先对齐 `qpi/tool/naicha.go` 的业务流程，不允许保留 mock 分支。
+- 注册主流程固定为：手机号查绑QQ -> 奶茶条件筛选 -> 对候选QQ逐个改密 -> 改密成功账号逐个登录并保存缓存。
+- 手机号查绑QQ的条件为
+  - 达人（手机连续在线<1d）
+  - q龄 (>1)
+  - 等级 (>1)
+- 任务日志必须可按 `phone` 串联，至少输出 `taskId/phone/step/action/statusCode`。
+- 外部依赖配置必须仅来自 `RegisterConfig`（代理、验证码、默认密码），禁止硬编码生产凭据。
+- 失败处理要求：
+  - 单个QQ失败不应中断整批候选处理；
+  - 整体无成功账号时任务标记失败，并记录聚合失败原因；
+  - 至少一个账号完成登录并保存缓存时，任务可判定成功。
+- 代码落地要求：
+  - 流程编排放在 `server/service/system/register_task.go`；
+  - 第三方/协议适配放在独立文件（如 `register_task_qpi.go`）；
+  - 新增逻辑必须保持可测试与可替换（函数拆分、避免大段内联）。

@@ -2,6 +2,7 @@ package system
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
@@ -189,16 +190,74 @@ func (a *RegisterTaskApi) GetRegisterTaskSummary(c *gin.Context) {
 }
 
 func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveInfo {
+	stepTitle, stepHint, progress, verifyLabel, verifyPlace, submitText := buildStepTexts(task)
 	return systemRes.RegisterTaskActiveInfo{
 		ID:          task.ID,
 		Phone:       task.Phone,
 		CurrentStep: task.CurrentStep,
+		StepTitle:   stepTitle,
+		StepHint:    stepHint,
+		Progress:    progress,
+		VerifyLabel: verifyLabel,
+		VerifyPlace: verifyPlace,
+		SubmitText:  submitText,
+		RetryText:   "重试当前步骤",
+		FailText:    "标记任务失败",
 		StatusCode:  task.StatusCode,
 		LastError:   task.LastError,
 		RetryCount:  task.RetryCount,
 		ExpiresAt:   task.ExpiresAt,
 		FinishedAt:  task.FinishedAt,
 	}
+}
+
+func buildStepTexts(task system.SysRegisterTask) (title string, hint string, progress string, verifyLabel string, verifyPlace string, submitText string) {
+	switch task.CurrentStep {
+	case system.RegisterTaskStepPhoneBind:
+		return "手机号查绑QQ", "提交当前短信验证码后，系统会自动查绑并进行奶茶筛选。", "", "短信验证码", "请输入手机号收到的验证码", "提交并查绑"
+	case system.RegisterTaskStepChangePassword:
+		candidates := splitPipe(task.QQCandidates)
+		changed := splitPipe(task.QQChangedList)
+		total := len(candidates)
+		done := len(changed)
+		progressText := ""
+		if total > 0 {
+			progressText = "改密进度 " + itoa(done) + "/" + itoa(total)
+		}
+		return "候选QQ改密", "每次提交一个验证码，后端按顺序处理一个QQ改密。", progressText, "改密验证码", "请输入当前待改密QQ对应验证码", "提交并改密下一个QQ"
+	case system.RegisterTaskStepLogin:
+		changed := splitPipe(task.QQChangedList)
+		logged := splitPipe(task.QQLoggedList)
+		total := len(changed)
+		done := len(logged)
+		progressText := ""
+		if total > 0 {
+			progressText = "登录进度 " + itoa(done) + "/" + itoa(total)
+		}
+		return "改密后QQ登录", "每次提交一个验证码，后端按顺序处理一个QQ登录并保存缓存。", progressText, "登录验证码", "请输入当前待登录QQ对应验证码", "提交并登录下一个QQ"
+	default:
+		return "任务处理中", "请按后端流程提示操作。", "", "验证码", "请输入验证码", "提交"
+	}
+}
+
+func splitPipe(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, "|")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func itoa(v int) string {
+	return strconv.Itoa(v)
 }
 
 func maskPhone(phone string) string {

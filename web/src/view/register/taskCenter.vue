@@ -13,6 +13,7 @@
       <div v-if="activeTask">
         <el-alert
           :title="taskTitle"
+          :description="taskHint"
           type="info"
           show-icon
           :closable="false"
@@ -21,13 +22,13 @@
           <el-form-item label="手机号">
             <el-input v-model="activeTask.phone" disabled />
           </el-form-item>
-          <el-form-item label="验证码">
-            <el-input v-model="verifyCode" placeholder="请输入验证码" />
+          <el-form-item :label="verifyLabel">
+            <el-input v-model="verifyCode" :placeholder="verifyPlaceholder" />
           </el-form-item>
           <el-form-item>
-            <el-button size="small" type="primary" @click="submitStep">提交</el-button>
-            <el-button size="small" @click="retryStep">重试</el-button>
-            <el-button size="small" type="danger" plain @click="markFail">失败</el-button>
+            <el-button size="small" type="primary" @click="submitStep">{{ submitText }}</el-button>
+            <el-button size="small" @click="retryStep">{{ retryText }}</el-button>
+            <el-button size="small" type="danger" plain @click="markFail">{{ failText }}</el-button>
           </el-form-item>
           <el-form-item v-if="activeTask.lastError" label="最近错误">
             <span class="text-red-500">{{ activeTask.lastError }}</span>
@@ -115,6 +116,13 @@ const stepText = (step) => {
   return step || '-'
 }
 
+const verifyLabel = computed(() => activeTask.value?.verifyLabel || '验证码')
+const verifyPlaceholder = computed(() => activeTask.value?.verifyPlace || '请输入验证码')
+const submitText = computed(() => activeTask.value?.submitText || '提交')
+const retryText = computed(() => activeTask.value?.retryText || '重试')
+const failText = computed(() => activeTask.value?.failText || '失败')
+const taskHint = computed(() => activeTask.value?.stepHint || '')
+
 const statusText = (task) => {
   if (!task?.finishedAt) return '处理中'
   if (task?.statusCode === 0) return '成功'
@@ -142,7 +150,9 @@ const remainText = computed(() => {
 
 const taskTitle = computed(() => {
   if (!activeTask.value?.id) return '当前任务'
-  return `当前任务 #${activeTask.value.id}，步骤：${stepText(activeTask.value.currentStep)}，剩余：${remainText.value}`
+  const title = activeTask.value?.stepTitle || stepText(activeTask.value.currentStep)
+  const progress = activeTask.value?.progress ? `，${activeTask.value.progress}` : ''
+  return `当前任务 #${activeTask.value.id}，${title}${progress}，剩余：${remainText.value}`
 })
 
 const loadActiveTask = async () => {
@@ -198,7 +208,7 @@ const submitStepCommon = async (payload) => {
 
 const submitStep = async () => {
   if (!verifyCode.value) {
-    ElMessage.warning('请输入验证码')
+    ElMessage.warning(`${verifyLabel.value}不能为空`)
     return
   }
   await submitStepCommon({

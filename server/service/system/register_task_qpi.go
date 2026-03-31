@@ -301,9 +301,6 @@ func buildCacheINI(cache map[string]string) string {
 	}
 	sb := strings.Builder{}
 	uin := strings.TrimSpace(cache["uin"])
-	if uin == "" {
-		uin = "session"
-	}
 	sb.WriteString("[")
 	sb.WriteString(uin)
 	sb.WriteString("]\n")
@@ -318,6 +315,9 @@ func buildCacheINI(cache map[string]string) string {
 
 type systemRegisterConfig struct {
 	DefaultPassword string
+	NaichaAppID     string
+	NaichaSecret    string
+	NaichaCKMd5     string
 	ProxyPlatform   string
 	ProxyAccount    string
 	ProxyPassword   string
@@ -355,12 +355,18 @@ func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRe
 	}
 	var adminCfg struct {
 		DefaultPassword string
+		NaichaAppID     string
+		NaichaSecret    string
+		NaichaCKMd5     string
 	}
 	if err := global.GVA_DB.Model(&system.SysRegisterConfig{}).
-		Select("default_password").
+		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5").
 		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
 		First(&adminCfg).Error; err == nil {
 		cfg.DefaultPassword = adminCfg.DefaultPassword
+		cfg.NaichaAppID = adminCfg.NaichaAppID
+		cfg.NaichaSecret = adminCfg.NaichaSecret
+		cfg.NaichaCKMd5 = adminCfg.NaichaCKMd5
 	}
 	return cfg, nil
 }

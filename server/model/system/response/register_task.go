@@ -23,6 +23,14 @@ type RegisterTaskActiveInfo struct {
 	ID          uint       `json:"id"`
 	Phone       string     `json:"phone"`
 	CurrentStep string     `json:"currentStep"`
+	StepTitle   string     `json:"stepTitle"`
+	StepHint    string     `json:"stepHint"`
+	Progress    string     `json:"progress"`
+	VerifyLabel string     `json:"verifyLabel"`
+	VerifyPlace string     `json:"verifyPlace"`
+	SubmitText  string     `json:"submitText"`
+	RetryText   string     `json:"retryText"`
+	FailText    string     `json:"failText"`
 	StatusCode  *int       `json:"statusCode"`
 	LastError   string     `json:"lastError"`
 	RetryCount  int        `json:"retryCount"`

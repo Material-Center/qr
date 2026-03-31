@@ -1,10 +1,7 @@
 package system
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -223,157 +220,115 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 		if len(loginResp.QQList) == 0 {
 			return s.finishTask(task, system.RegisterTaskFailCodeNoQQBound, "手机号无可用QQ账号")
 		}
-		task.QQAccount = loginResp.QQList[0]
+		global.GVA_LOG.Info("register_task_phone_bind_qq_list", append(taskLogFields(task), zap.Strings("qqList", loginResp.QQList))...)
+		filteredQQList, err := s.filterQualifiedQQByNaicha(runtimeCfg, loginResp.QQList)
+		if err != nil {
+			global.GVA_LOG.Error("register_task_phone_bind_naicha_filter_failed", append(taskLogFields(task), zap.Error(err))...)
+			return task, err
+		}
+		if len(filteredQQList) == 0 {
+			return s.finishTask(task, system.RegisterTaskFailCodeNoQQBound, "奶茶筛选后无符合条件QQ")
+		}
+		task.QQCandidates = strings.Join(filteredQQList, "|")
+		task.QQAccount = filteredQQList[0]
 		task.CaptchaRandstr = captcha.Randstr
 		task.CaptchaTicket = captcha.Ticket
 		task.CurrentStep = system.RegisterTaskStepChangePassword
 		task.LastError = ""
 		global.GVA_LOG.Info("register_task_phone_bind_success",
 			append(taskLogFields(task),
-				zap.String("qqAccount", task.QQAccount),
+				zap.Strings("qualifiedQQList", filteredQQList),
 			)...,
 		)
 	case system.RegisterTaskStepChangePassword:
 		global.GVA_LOG.Info("register_task_change_password_begin", taskLogFields(task)...)
-		if strings.TrimSpace(task.QQAccount) == "" {
-			return task, errors.New("请先完成QQ查绑步骤")
+		candidateQQList := splitQQList(task.QQCandidates)
+		if len(candidateQQList) == 0 {
+			candidateQQList = splitQQList(task.QQAccount)
 		}
-		captcha, err := s.getCaptchaToken(runtimeCfg, qpi.ChangePasswordAppID)
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_get_captcha_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
+		if len(candidateQQList) == 0 {
+			return task, errors.New("请先完成QQ查绑及筛选步骤")
 		}
 		changePwd := strings.TrimSpace(runtimeCfg.DefaultPassword)
 		if changePwd == "" {
 			global.GVA_LOG.Warn("register_task_change_password_missing_default_password", taskLogFields(task)...)
 			return task, errors.New("管理员未配置默认改密密码")
 		}
-
+		changedQQList := splitQQList(task.QQChangedList)
+		if len(changedQQList) > len(candidateQQList) {
+			changedQQList = changedQQList[:len(candidateQQList)]
+		}
+		if len(changedQQList) >= len(candidateQQList) {
+			task.CurrentStep = system.RegisterTaskStepLogin
+			task.LastError = ""
+			break
+		}
+		currentQQ := candidateQQList[len(changedQQList)]
+		captcha, capErr := s.getCaptchaToken(runtimeCfg, qpi.ChangePasswordAppID)
+		if capErr != nil {
+			global.GVA_LOG.Error("register_task_change_password_get_captcha_failed", append(taskLogFields(task), zap.String("qq", currentQQ), zap.Error(capErr))...)
+			return task, capErr
+		}
 		client := qpi.NewClient()
 		if proxyURL != "" {
-			if err := client.SetProxy(proxyURL); err != nil {
-				return task, err
+			if proxyErr := client.SetProxy(proxyURL); proxyErr != nil {
+				global.GVA_LOG.Error("register_task_change_password_set_proxy_failed", append(taskLogFields(task), zap.String("qq", currentQQ), zap.Error(proxyErr))...)
+				return task, proxyErr
 			}
 		}
-		verifyCaptchaResp, err := client.VerifyCaptcha(qpi.CaptchaVerifyRequest{
-			QQ:      task.QQAccount,
-			Randstr: captcha.Randstr,
-			Ticket:  captcha.Ticket,
-		})
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_verify_captcha_failed", append(taskLogFields(task), zap.Error(err))...)
+		if err = s.changePasswordForQQ(client, currentQQ, task.Phone, req.VerifyCode, captcha, changePwd); err != nil {
+			global.GVA_LOG.Error("register_task_change_password_single_failed", append(taskLogFields(task), zap.String("qq", currentQQ), zap.Error(err))...)
 			return task, err
 		}
-		if err := verifyCaptchaResp.Error(); err != nil {
-			global.GVA_LOG.Error("register_task_change_password_verify_captcha_business_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		riskResp, err := client.CheckRisk(qpi.RiskCheckRequest{
-			QQ:      task.QQAccount,
-			Randstr: captcha.Randstr,
-			Ticket:  captcha.Ticket,
-		})
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_check_risk_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		if err := riskResp.Error(); err != nil {
-			global.GVA_LOG.Error("register_task_change_password_check_risk_business_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		queryPhoneResp, err := client.QueryPhone(qpi.PhoneQueryRequest{
-			QQ:      task.QQAccount,
-			Randstr: captcha.Randstr,
-		})
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_query_phone_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		if err := queryPhoneResp.Error(); err != nil {
-			global.GVA_LOG.Error("register_task_change_password_query_phone_business_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		verifyPhoneResp, err := client.VerifyPhone(qpi.PhoneVerifyRequest{
-			QQ:       task.QQAccount,
-			Randstr:  captcha.Randstr,
-			Ticket:   captcha.Ticket,
-			Phone:    task.Phone,
-			AreaCode: "+86",
-		})
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_verify_phone_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		if err := verifyPhoneResp.Error(); err != nil {
-			global.GVA_LOG.Error("register_task_change_password_verify_phone_business_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		sendSMSResp, err := client.SendSMS(qpi.SMSSendRequest{
-			QQ:       task.QQAccount,
-			Randstr:  captcha.Randstr,
-			Ticket:   captcha.Ticket,
-			Phone:    task.Phone,
-			AreaCode: "+86",
-		})
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_send_sms_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		if err := sendSMSResp.Error(); err != nil {
-			global.GVA_LOG.Error("register_task_change_password_send_sms_business_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		verifySMSResp, err := client.VerifySMSCode(qpi.SMSCodeVerifyRequest{
-			QQ:       task.QQAccount,
-			Randstr:  captcha.Randstr,
-			Ticket:   captcha.Ticket,
-			Phone:    task.Phone,
-			Code:     req.VerifyCode,
-			AreaCode: "+86",
-		})
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_verify_sms_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		if err := verifySMSResp.Error(); err != nil {
-			global.GVA_LOG.Error("register_task_change_password_verify_sms_business_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		changePwdResp, err := client.ChangePassword(qpi.PasswordChangeRequest{
-			QQ:       task.QQAccount,
-			Randstr:  captcha.Randstr,
-			Password: changePwd,
-			Key:      verifySMSResp.Key,
-			Phone:    task.Phone,
-			AreaCode: "+86",
-		})
-		if err != nil {
-			global.GVA_LOG.Error("register_task_change_password_commit_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		if err := changePwdResp.Error(); err != nil {
-			global.GVA_LOG.Error("register_task_change_password_commit_business_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
+		changedQQList = append(changedQQList, currentQQ)
+		global.GVA_LOG.Info("register_task_change_password_single_success", append(taskLogFields(task), zap.String("qq", currentQQ))...)
 		task.QQPassword = changePwd
-		task.ChangePasswordAt = &now
-		task.CurrentStep = system.RegisterTaskStepLogin
-		task.LastError = ""
-		global.GVA_LOG.Info("register_task_change_password_success", taskLogFields(task)...)
+		task.QQChangedList = strings.Join(changedQQList, "|")
+		task.QQAccount = changedQQList[0]
+		if len(changedQQList) >= len(candidateQQList) {
+			task.ChangePasswordAt = &now
+			task.CurrentStep = system.RegisterTaskStepLogin
+			task.LastError = ""
+			global.GVA_LOG.Info("register_task_change_password_success", append(taskLogFields(task), zap.Strings("changedQQList", changedQQList))...)
+		} else {
+			task.LastError = ""
+			global.GVA_LOG.Info("register_task_change_password_progress", append(taskLogFields(task), zap.Int("done", len(changedQQList)), zap.Int("total", len(candidateQQList)))...)
+		}
 	case system.RegisterTaskStepLogin:
 		global.GVA_LOG.Info("register_task_login_begin", taskLogFields(task)...)
-		if strings.TrimSpace(task.QQAccount) == "" || strings.TrimSpace(task.QQPassword) == "" {
+		if strings.TrimSpace(task.QQPassword) == "" {
 			return task, errors.New("QQ账号或密码为空，请先完成前置步骤")
 		}
+		changedQQList := splitQQList(task.QQChangedList)
+		if len(changedQQList) == 0 {
+			changedQQList = splitQQList(task.QQAccount)
+		}
+		if len(changedQQList) == 0 {
+			return task, errors.New("无可登录QQ账号，请先完成改密")
+		}
+		loggedQQList := splitQQList(task.QQLoggedList)
+		if len(loggedQQList) > len(changedQQList) {
+			loggedQQList = loggedQQList[:len(changedQQList)]
+		}
+		if len(loggedQQList) >= len(changedQQList) {
+			isDaren := true
+			task.IsDaren = &isDaren
+			task.QQAccount = loggedQQList[0]
+			task.LoginAt = &now
+			global.GVA_LOG.Info("register_task_login_success", append(taskLogFields(task), zap.Strings("loginSuccessQQ", loggedQQList), zap.Bool("isDaren", isDaren))...)
+			return s.finishTask(task, 0, "")
+		}
+		currentQQ := changedQQList[len(loggedQQList)]
 		loginClient := qpi.NewPasswordLoginClient()
-		defer loginClient.Close()
 		if proxyURL != "" {
-			if err := loginClient.SetProxy(proxyURL); err != nil {
-				return task, err
+			if proxyErr := loginClient.SetProxy(proxyURL); proxyErr != nil {
+				_ = loginClient.Close()
+				global.GVA_LOG.Error("register_task_login_set_proxy_failed", append(taskLogFields(task), zap.String("qq", currentQQ), zap.Error(proxyErr))...)
+				return task, proxyErr
 			}
 		}
 		loginReq := qpi.PasswordLoginRequest{
-			UIN:      task.QQAccount,
+			UIN:      currentQQ,
 			Password: task.QQPassword,
 			CaptchaProvider: func(captchaURL string) (string, error) {
 				cap, err := s.getCaptchaToken(runtimeCfg, qpi.ChangePasswordAppID)
@@ -386,40 +341,30 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				return req.VerifyCode, nil
 			},
 		}
-		loginResp, err := loginClient.Login(loginReq)
-		if err != nil {
-			global.GVA_LOG.Error("register_task_login_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
+		loginResp, loginErr := loginClient.Login(loginReq)
+		_ = loginClient.Close()
+		if loginErr != nil {
+			global.GVA_LOG.Error("register_task_login_single_failed", append(taskLogFields(task), zap.String("qq", currentQQ), zap.Error(loginErr))...)
+			return task, loginErr
 		}
-		uin, convErr := strconv.ParseInt(task.QQAccount, 10, 64)
-		if convErr != nil {
-			return task, errors.New("QQ账号格式非法，无法查询达人信息")
-		}
-		cardInfo, queryErr := loginClient.QuerySummaryCard(uin)
-		if queryErr != nil {
-			global.GVA_LOG.Error("register_task_query_daren_profile_failed", append(taskLogFields(task), zap.Error(queryErr))...)
-			return task, fmt.Errorf("查询当前登录账号信息失败: %w", queryErr)
-		}
-		isDaren := isDarenBySummaryCard(cardInfo)
-		profileJSON, marshalErr := json.Marshal(cardInfo)
-		if marshalErr != nil {
-			global.GVA_LOG.Warn("register_task_query_daren_profile_marshal_failed", append(taskLogFields(task), zap.Error(marshalErr))...)
-			task.QQProfile = ""
+		global.GVA_LOG.Info("register_task_login_single_success", append(taskLogFields(task), zap.String("qq", currentQQ))...)
+		loggedQQList = append(loggedQQList, currentQQ)
+		task.QQLoggedList = strings.Join(loggedQQList, "|")
+		if task.LoginCacheINI == "" {
+			task.LoginCacheINI = buildCacheINI(loginResp.Cache.ToHexMap())
 		} else {
-			task.QQProfile = string(profileJSON)
+			task.LoginCacheINI = task.LoginCacheINI + "\n" + buildCacheINI(loginResp.Cache.ToHexMap())
 		}
-		task.IsDaren = &isDaren
-		task.LoginAt = &now
-		task.LoginCacheINI = buildCacheINI(loginResp.Cache.ToHexMap())
-		global.GVA_LOG.Info("register_task_query_daren_profile_success",
-			append(taskLogFields(task),
-				zap.Bool("isDaren", isDaren),
-				zap.Int64("qLevel", cardInfo.QLevel),
-				zap.String("nickname", cardInfo.Nickname),
-			)...,
-		)
-		global.GVA_LOG.Info("register_task_login_success", append(taskLogFields(task), zap.Bool("isDaren", isDaren))...)
-		return s.finishTask(task, 0, "")
+		if len(loggedQQList) >= len(changedQQList) {
+			isDaren := true
+			task.IsDaren = &isDaren
+			task.QQAccount = loggedQQList[0]
+			task.LoginAt = &now
+			global.GVA_LOG.Info("register_task_login_success", append(taskLogFields(task), zap.Strings("loginSuccessQQ", loggedQQList), zap.Bool("isDaren", isDaren))...)
+			return s.finishTask(task, 0, "")
+		}
+		task.LastError = ""
+		global.GVA_LOG.Info("register_task_login_progress", append(taskLogFields(task), zap.Int("done", len(loggedQQList)), zap.Int("total", len(changedQQList)))...)
 	default:
 		return task, errors.New("未知任务步骤")
 	}
@@ -660,24 +605,142 @@ func (s *RegisterTaskService) normalizeTimeoutClosedTasks() error {
 		}).Error
 }
 
-func tailN(val string, n int) string {
-	if len(val) <= n {
-		return val
+func (s *RegisterTaskService) filterQualifiedQQByNaicha(cfg systemRegisterConfig, qqList []string) ([]string, error) {
+	appID := strings.TrimSpace(cfg.NaichaAppID)
+	secret := strings.TrimSpace(cfg.NaichaSecret)
+	ckMd5 := strings.TrimSpace(cfg.NaichaCKMd5)
+	if appID == "" || secret == "" {
+		return nil, errors.New("管理员未配置奶茶平台 appId/secret")
 	}
-	return val[len(val)-n:]
-}
+	client := NewNCClient(appID, secret, ckMd5)
+	drResults, err := client.NcQueryDR(qqList, 120000, 4)
+	if err != nil {
+		return nil, err
+	}
+	qlResults, err := client.NcQueryQL(qqList, 120000, 4)
+	if err != nil {
+		return nil, err
+	}
 
-func isDarenBySummaryCard(cardInfo *qpi.FriendInfo) bool {
-	if cardInfo == nil {
-		return false
+	drMap := make(map[string]NCDRResult)
+	for _, item := range drResults {
+		drMap[item.UIN] = item
 	}
-	if cardInfo.QLevel >= 64 {
-		return true
+	qlMap := make(map[string]NCQLResult)
+	for _, item := range qlResults {
+		qlMap[item.UIN] = item
 	}
-	for _, svc := range cardInfo.ServiceList {
-		if svc.Level >= 1 {
-			return true
+
+	filtered := make([]string, 0, len(qqList))
+	for _, qq := range qqList {
+		dr, ok1 := drMap[qq]
+		ql, ok2 := qlMap[qq]
+		if !ok1 || !ok2 {
+			continue
+		}
+		// 按需求过滤：达人(连续在线<1天) 且 q龄>1 且 等级>1级
+		if dr.PhoneOnlineDay < 1 && ql.Age > 1 && ql.Level > 1 {
+			filtered = append(filtered, qq)
 		}
 	}
-	return false
+	return filtered, nil
+}
+
+func (s *RegisterTaskService) changePasswordForQQ(client *qpi.Client, qq string, phone string, verifyCode string, captcha *captchaToken, newPassword string) error {
+	verifyCaptchaResp, err := client.VerifyCaptcha(qpi.CaptchaVerifyRequest{
+		QQ:      qq,
+		Randstr: captcha.Randstr,
+		Ticket:  captcha.Ticket,
+	})
+	if err != nil {
+		return err
+	}
+	if err := verifyCaptchaResp.Error(); err != nil {
+		return err
+	}
+	riskResp, err := client.CheckRisk(qpi.RiskCheckRequest{
+		QQ:      qq,
+		Randstr: captcha.Randstr,
+		Ticket:  captcha.Ticket,
+	})
+	if err != nil {
+		return err
+	}
+	if err := riskResp.Error(); err != nil {
+		return err
+	}
+	queryPhoneResp, err := client.QueryPhone(qpi.PhoneQueryRequest{
+		QQ:      qq,
+		Randstr: captcha.Randstr,
+	})
+	if err != nil {
+		return err
+	}
+	if err := queryPhoneResp.Error(); err != nil {
+		return err
+	}
+	verifyPhoneResp, err := client.VerifyPhone(qpi.PhoneVerifyRequest{
+		QQ:       qq,
+		Randstr:  captcha.Randstr,
+		Ticket:   captcha.Ticket,
+		Phone:    phone,
+		AreaCode: "+86",
+	})
+	if err != nil {
+		return err
+	}
+	if err := verifyPhoneResp.Error(); err != nil {
+		return err
+	}
+	sendSMSResp, err := client.SendSMS(qpi.SMSSendRequest{
+		QQ:       qq,
+		Randstr:  captcha.Randstr,
+		Ticket:   captcha.Ticket,
+		Phone:    phone,
+		AreaCode: "+86",
+	})
+	if err != nil {
+		return err
+	}
+	if err := sendSMSResp.Error(); err != nil {
+		return err
+	}
+	verifySMSResp, err := client.VerifySMSCode(qpi.SMSCodeVerifyRequest{
+		QQ:       qq,
+		Randstr:  captcha.Randstr,
+		Ticket:   captcha.Ticket,
+		Phone:    phone,
+		Code:     verifyCode,
+		AreaCode: "+86",
+	})
+	if err != nil {
+		return err
+	}
+	if err := verifySMSResp.Error(); err != nil {
+		return err
+	}
+	changePwdResp, err := client.ChangePassword(qpi.PasswordChangeRequest{
+		QQ:       qq,
+		Randstr:  captcha.Randstr,
+		Password: newPassword,
+		Key:      verifySMSResp.Key,
+		Phone:    phone,
+		AreaCode: "+86",
+	})
+	if err != nil {
+		return err
+	}
+	return changePwdResp.Error()
+}
+
+func splitQQList(raw string) []string {
+	parts := strings.Split(strings.TrimSpace(raw), "|")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
