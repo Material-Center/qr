@@ -8,32 +8,32 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/service"
 	astutil "github.com/flipped-aurora/gin-vue-admin/server/utils/ast"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils/stacktrace"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"os"
 	"strings"
 	"time"
 )
 
+// 合并所有级别到同一日志文件时的文件名前缀（形如 server-2006-01-02.log）
+const unifiedLogFilePrefix = "server"
+
 type ZapCore struct {
-	level zapcore.Level
+	level zapcore.Level // 配置的最低输出级别；Level 同时实现 LevelEnabler（>= 该级别的日志均输出）
 	zapcore.Core
 }
 
-func NewZapCore(level zapcore.Level) *ZapCore {
-	entity := &ZapCore{level: level}
+func NewZapCore(minLevel zapcore.Level) *ZapCore {
+	entity := &ZapCore{level: minLevel}
 	syncer := entity.WriteSyncer()
-	levelEnabler := zap.LevelEnablerFunc(func(l zapcore.Level) bool {
-		return l == level
-	})
-	entity.Core = zapcore.NewCore(global.GVA_CONFIG.Zap.Encoder(), syncer, levelEnabler)
+	// minLevel 作为 LevelEnabler：输出 minLevel 及以上级别，全部写入同一文件
+	entity.Core = zapcore.NewCore(global.GVA_CONFIG.Zap.Encoder(), syncer, minLevel)
 	return entity
 }
 
 func (z *ZapCore) WriteSyncer(formats ...string) zapcore.WriteSyncer {
 	cutter := NewCutter(
 		global.GVA_CONFIG.Zap.Director,
-		z.level.String(),
+		unifiedLogFilePrefix,
 		global.GVA_CONFIG.Zap.RetentionDay,
 		CutterWithLayout(time.DateOnly),
 		CutterWithFormats(formats...),
@@ -46,7 +46,7 @@ func (z *ZapCore) WriteSyncer(formats ...string) zapcore.WriteSyncer {
 }
 
 func (z *ZapCore) Enabled(level zapcore.Level) bool {
-	return z.level == level
+	return z.level.Enabled(level)
 }
 
 func (z *ZapCore) With(fields []zapcore.Field) zapcore.Core {

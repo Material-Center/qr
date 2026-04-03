@@ -41,6 +41,7 @@
             <el-select v-model="form.captchaPlatform" style="width: 100%" placeholder="请选择验证码平台">
               <el-option label="yy（账号密码模式）" value="yy" />
               <el-option label="ac（baseURL + token 模式）" value="ac" />
+              <el-option label="fj（服务器地址 + token 模式）" value="fj" />
             </el-select>
           </el-form-item>
           <el-form-item :label="captchaAccountLabel">
@@ -123,24 +124,42 @@ const form = ref({
   captchaToken: ''
 })
 
-const captchaAccountLabel = computed(() => (form.value.captchaPlatform === 'ac' ? 'AC地址' : '验证码账号'))
+const captchaAccountLabel = computed(() => {
+  if (form.value.captchaPlatform === 'ac') return 'AC地址'
+  if (form.value.captchaPlatform === 'fj') return 'FJ地址(可空)'
+  return '验证码账号'
+})
 const captchaAccountPlaceholder = computed(() => {
   if (form.value.captchaPlatform === 'ac') return '例如: http://39.99.146.154:16168'
+  if (form.value.captchaPlatform === 'fj') return '可留空，默认: http://156.238.235.35:8860/'
   return 'YY 平台账号'
 })
-const captchaPasswordLabel = computed(() => (form.value.captchaPlatform === 'ac' ? 'AC密码(可空)' : '验证码密码'))
+const captchaPasswordLabel = computed(() => {
+  if (form.value.captchaPlatform === 'ac') return 'AC密码(可空)'
+  if (form.value.captchaPlatform === 'fj') return 'FJ密码(可空)'
+  return '验证码密码'
+})
 const captchaPasswordPlaceholder = computed(() => {
   if (form.value.captchaPlatform === 'ac') return 'AC 模式可留空'
+  if (form.value.captchaPlatform === 'fj') return 'FJ 模式可留空'
   return 'YY 平台密码'
 })
-const captchaTokenLabel = computed(() => (form.value.captchaPlatform === 'ac' ? 'AC Token' : '验证码Token'))
+const captchaTokenLabel = computed(() => {
+  if (form.value.captchaPlatform === 'ac') return 'AC Token'
+  if (form.value.captchaPlatform === 'fj') return 'FJ Token'
+  return '验证码Token'
+})
 const captchaTokenPlaceholder = computed(() => {
   if (form.value.captchaPlatform === 'ac') return 'AC 必填 token'
+  if (form.value.captchaPlatform === 'fj') return 'FJ 必填 token'
   return 'YY 模式可留空'
 })
 const leaderConfigHint = computed(() => {
   if (form.value.captchaPlatform === 'ac') {
     return 'AC 平台：验证码账号填 baseURL，验证码Token 必填，验证码密码可空。'
+  }
+  if (form.value.captchaPlatform === 'fj') {
+    return 'FJ 平台：验证码账号(服务器地址)可留空使用默认值，验证码Token 必填，验证码密码可空。'
   }
   return 'YY 平台：验证码账号/验证码密码必填，验证码Token 可留空。'
 })

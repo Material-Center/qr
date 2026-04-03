@@ -23,6 +23,7 @@ import (
 const (
 	captchaProviderYY = "yy"
 	captchaProviderAC = "ac"
+	captchaProviderFJ = "fj"
 )
 
 type captchaToken struct {
@@ -37,6 +38,8 @@ func (s *RegisterTaskService) getCaptchaToken(cfg systemRegisterConfig, appID st
 		return getCaptchaTokenFromYY(cfg, appID)
 	case captchaProviderAC:
 		return getCaptchaTokenFromAC(cfg, appID)
+	case captchaProviderFJ:
+		return getCaptchaTokenFromFJ(cfg, appID)
 	default:
 		return nil, fmt.Errorf("不支持的验证码平台: %s", cfg.CaptchaPlatform)
 	}
@@ -176,6 +179,50 @@ func getCaptchaTokenFromAC(cfg systemRegisterConfig, appID string) (*captchaToke
 		return nil, errors.New("AC未返回有效randstr/ticket")
 	}
 	return &captchaToken{Randstr: acResp.Randstr, Ticket: acResp.Ticket}, nil
+}
+
+func getCaptchaTokenFromFJ(cfg systemRegisterConfig, appID string) (*captchaToken, error) {
+	baseURL := strings.TrimSpace(cfg.CaptchaAccount)
+	token := strings.TrimSpace(cfg.CaptchaToken)
+	if baseURL == "" {
+		baseURL = "http://156.238.235.35:8860/"
+	}
+	if token == "" {
+		return nil, errors.New("验证码平台FJ token未配置")
+	}
+
+	var buf bytes.Buffer
+	buf.WriteString("token=" + url.QueryEscape(token))
+	buf.WriteString("&newMethod=xkdth")
+	buf.WriteString("&content=")
+	content := "aid=" + strings.TrimSpace(appID) + "&sid=&ip=&Url=" + "&uin="
+	buf.WriteString(content)
+
+	req, err := http.NewRequest(http.MethodPost, baseURL, strings.NewReader(buf.String()))
+	if err != nil {
+		return nil, fmt.Errorf("create fj request failed: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Timeout: 50 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fj request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read fj response failed: %w", err)
+	}
+	bodyText := strings.TrimSpace(string(body))
+	ticket := substringBetween(bodyText, "ticket=", "&")
+	randstr := substringBetween(bodyText, "randStr=", "&")
+	if randstr == "" {
+		randstr = substringBetween(bodyText, "randstr=", "&")
+	}
+	if ticket == "" || randstr == "" {
+		return nil, fmt.Errorf("fj解析失败: %s", bodyText)
+	}
+	return &captchaToken{Randstr: randstr, Ticket: ticket}, nil
 }
 
 func (s *RegisterTaskService) allocateProxyURL(cfg systemRegisterConfig) (string, error) {
@@ -392,6 +439,20 @@ func doPostForm(targetURL string, bodyRaw string) (string, error) {
 		return "", err
 	}
 	return string(body), nil
+}
+
+func substringBetween(s, left, right string) string {
+	start := strings.Index(s, left)
+	if start < 0 {
+		return ""
+	}
+	start += len(left)
+	remain := s[start:]
+	end := strings.Index(remain, right)
+	if end < 0 {
+		return strings.TrimSpace(remain)
+	}
+	return strings.TrimSpace(remain[:end])
 }
 
 type systemRegisterConfig struct {
