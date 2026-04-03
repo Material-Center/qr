@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
 // Cutter 实现 io.Writer 接口
-// 用于日志切割, strings.Join([]string{director,layout, formats..., level+".log"}, os.PathSeparator)
+// 用于日志切割：路径为 director/[formats...]/level-{layout}.log（layout 为时间格式串时写入文件名，不再按日期建子目录）
 type Cutter struct {
 	level        string        // 日志级别(debug, info, warn, error, dpanic, panic, fatal)
 	layout       string        // 时间格式 2006-01-02 15:04:05
@@ -64,17 +65,15 @@ func (c *Cutter) Write(bytes []byte) (n int, err error) {
 		}
 		c.mutex.Unlock()
 	}()
-	length := len(c.formats)
-	values := make([]string, 0, 3+length)
-	values = append(values, c.director)
+	parts := make([]string, 0, 2+len(c.formats))
+	parts = append(parts, c.director)
+	parts = append(parts, c.formats...)
+	var filename string
 	if c.layout != "" {
-		values = append(values, time.Now().Format(c.layout))
+		filename = filepath.Join(append(parts, fmt.Sprintf("%s-%s.log", c.level, time.Now().Format(c.layout)))...)
+	} else {
+		filename = filepath.Join(append(parts, c.level+".log")...)
 	}
-	for i := 0; i < length; i++ {
-		values = append(values, c.formats[i])
-	}
-	values = append(values, c.level+".log")
-	filename := filepath.Join(values...)
 	director := filepath.Dir(filename)
 	err = os.MkdirAll(director, os.ModePerm)
 	if err != nil {
@@ -104,7 +103,7 @@ func (c *Cutter) Sync() error {
 	return nil
 }
 
-// 增加日志目录文件清理 小于等于零的值默认忽略不再处理
+// 增加日志目录清理：删除过期子目录，并删除 director 下过期的 *.log（按文件修改时间）
 func removeNDaysFolders(dir string, days int) error {
 	if days <= 0 {
 		return nil
@@ -114,11 +113,17 @@ func removeNDaysFolders(dir string, days int) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() && info.ModTime().Before(cutoff) && path != dir {
-			err = os.RemoveAll(path)
-			if err != nil {
-				return err
+		if path == dir {
+			return nil
+		}
+		if info.IsDir() {
+			if info.ModTime().Before(cutoff) {
+				return os.RemoveAll(path)
 			}
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(info.Name()), ".log") && info.ModTime().Before(cutoff) {
+			return os.Remove(path)
 		}
 		return nil
 	})

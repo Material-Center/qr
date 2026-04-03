@@ -3,6 +3,7 @@ package system
 import (
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Material-Center/qpi"
@@ -32,6 +33,13 @@ type registerTaskListResult struct {
 	Processing int64
 }
 
+type phoneBindSession struct {
+	Client    *qpi.LoginClient
+	CreatedAt time.Time
+}
+
+var registerTaskPhoneBindSessions sync.Map // map[taskID]*phoneBindSession
+
 func taskLogFields(task system.SysRegisterTask) []zap.Field {
 	fields := []zap.Field{
 		zap.Uint("taskId", task.ID),
@@ -43,6 +51,10 @@ func taskLogFields(task system.SysRegisterTask) []zap.Field {
 		fields = append(fields, zap.Uint("leaderId", *task.LeaderID))
 	}
 	return fields
+}
+
+func init() {
+	qpi.SetLogger(global.GVA_LOG)
 }
 
 func (s *RegisterTaskService) CreateTask(promoterID uint, phone string) (task system.SysRegisterTask, err error) {
@@ -92,6 +104,13 @@ func (s *RegisterTaskService) CreateTask(promoterID uint, phone string) (task sy
 		global.GVA_LOG.Error("register_task_create_failed", zap.Uint("promoterId", promoterID), zap.String("phone", phone), zap.Error(err))
 		return task, err
 	}
+	runtimeCfg, cfgErr := s.getRegisterRuntimeConfig(task.LeaderID)
+	if cfgErr != nil {
+		return task, cfgErr
+	}
+	if prepErr := s.preparePhoneBindSMS(&task, runtimeCfg); prepErr != nil {
+		return task, prepErr
+	}
 	global.GVA_LOG.Info("register_task_create_success", taskLogFields(task)...)
 	return task, nil
 }
@@ -106,6 +125,12 @@ func (s *RegisterTaskService) GetActiveTask(promoterID uint) (task system.SysReg
 	err = global.GVA_DB.Where("promoter_id = ? AND finished_at IS NULL", promoterID).
 		Order("id desc").
 		First(&task).Error
+	if err != nil {
+		return task, err
+	}
+	if recoverErr := s.restorePhoneBindSessionIfNeeded(&task); recoverErr != nil {
+		return task, recoverErr
+	}
 	return
 }
 
@@ -135,6 +160,16 @@ func (s *RegisterTaskService) SubmitStep(promoterID uint, req systemReq.Register
 
 	switch req.Action {
 	case "retry":
+		if task.CurrentStep == system.RegisterTaskStepPhoneBind {
+			runtimeCfg, cfgErr := s.getRegisterRuntimeConfig(task.LeaderID)
+			if cfgErr != nil {
+				return task, cfgErr
+			}
+			if prepErr := s.preparePhoneBindSMS(&task, runtimeCfg); prepErr != nil {
+				return task, prepErr
+			}
+			return task, nil
+		}
 		task.RetryCount++
 		if err = global.GVA_DB.Save(&task).Error; err != nil {
 			global.GVA_LOG.Error("register_task_retry_save_failed", append(taskLogFields(task), zap.Error(err))...)
@@ -186,33 +221,19 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 	switch task.CurrentStep {
 	case system.RegisterTaskStepPhoneBind:
 		global.GVA_LOG.Info("register_task_phone_bind_begin", taskLogFields(task)...)
-		captcha, err := s.getCaptchaToken(runtimeCfg, qpi.FindBindAppID)
-		if err != nil {
-			global.GVA_LOG.Error("register_task_phone_bind_get_captcha_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		client := qpi.NewLoginClient()
-		defer client.Close()
-		if proxyURL != "" {
-			if err := client.SetProxy(proxyURL); err != nil {
-				return task, err
+		ps, ok := popPhoneBindSession(task.ID)
+		if !ok || ps == nil || ps.Client == nil {
+			if recoverErr := s.restorePhoneBindSessionIfNeeded(&task); recoverErr != nil {
+				return task, recoverErr
 			}
+			return task, errors.New("服务重启后已重新发送验证码，请填写新验证码后再次提交")
 		}
-
-		if _, err := client.GetLoginSMS(qpi.LoginSMSRequest{
-			AreaCode: "+86",
-			Phone:    task.Phone,
-			Randstr:  captcha.Randstr,
-			Ticket:   captcha.Ticket,
-		}); err != nil {
-			global.GVA_LOG.Error("register_task_phone_bind_get_login_sms_failed", append(taskLogFields(task), zap.Error(err))...)
-			return task, err
-		}
-		if err := client.SubmitSMS(qpi.SubmitSMSRequest{SMSCode: req.VerifyCode}); err != nil {
+		defer ps.Client.Close()
+		if err := ps.Client.SubmitSMS(qpi.SubmitSMSRequest{SMSCode: req.VerifyCode}); err != nil {
 			global.GVA_LOG.Error("register_task_phone_bind_submit_sms_failed", append(taskLogFields(task), zap.Error(err))...)
 			return task, err
 		}
-		loginResp, err := client.LoginAccount(qpi.LoginAccountRequest{SkipList: ""})
+		loginResp, err := ps.Client.LoginAccount(qpi.LoginAccountRequest{SkipList: ""})
 		if err != nil {
 			global.GVA_LOG.Error("register_task_phone_bind_login_account_failed", append(taskLogFields(task), zap.Error(err))...)
 			return task, err
@@ -231,8 +252,6 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 		}
 		task.QQCandidates = strings.Join(filteredQQList, "|")
 		task.QQAccount = filteredQQList[0]
-		task.CaptchaRandstr = captcha.Randstr
-		task.CaptchaTicket = captcha.Ticket
 		task.CurrentStep = system.RegisterTaskStepChangePassword
 		task.LastError = ""
 		global.GVA_LOG.Info("register_task_phone_bind_success",
@@ -753,4 +772,88 @@ func splitQQList(raw string) []string {
 		}
 	}
 	return result
+}
+
+func setPhoneBindSession(taskID uint, client *qpi.LoginClient) {
+	registerTaskPhoneBindSessions.Store(taskID, &phoneBindSession{
+		Client:    client,
+		CreatedAt: time.Now(),
+	})
+}
+
+func hasPhoneBindSession(taskID uint) bool {
+	_, ok := registerTaskPhoneBindSessions.Load(taskID)
+	return ok
+}
+
+func popPhoneBindSession(taskID uint) (*phoneBindSession, bool) {
+	v, ok := registerTaskPhoneBindSessions.LoadAndDelete(taskID)
+	if !ok {
+		return nil, false
+	}
+	ps, ok := v.(*phoneBindSession)
+	if !ok || ps == nil {
+		return nil, false
+	}
+	return ps, true
+}
+
+func (s *RegisterTaskService) preparePhoneBindSMS(task *system.SysRegisterTask, runtimeCfg systemRegisterConfig) error {
+	captcha, err := s.getCaptchaToken(runtimeCfg, qpi.FindBindAppID)
+	if err != nil {
+		return err
+	}
+	proxyURL, err := s.allocateProxyURL(runtimeCfg)
+	if err != nil {
+		global.GVA_LOG.Error("allocate proxy url failed", zap.Error(err))
+		return err
+	}
+
+	client := qpi.NewLoginClient()
+	if proxyURL != "" {
+		if err := client.SetProxy(proxyURL); err != nil {
+			_ = client.Close()
+			global.GVA_LOG.Error("set proxy failed", zap.Error(err))
+			return err
+		}
+	}
+	if _, err := client.GetLoginSMS(qpi.LoginSMSRequest{
+		AreaCode: "+86",
+		Phone:    task.Phone,
+		Randstr:  captcha.Randstr,
+		Ticket:   captcha.Ticket,
+	}); err != nil {
+		_ = client.Close()
+		global.GVA_LOG.Error("get login sms failed", zap.Error(err))
+		return err
+	}
+
+	setPhoneBindSession(task.ID, client)
+	task.CaptchaRandstr = captcha.Randstr
+	task.CaptchaTicket = captcha.Ticket
+	task.LastError = "验证码已发送，请输入后提交"
+	if err := global.GVA_DB.Save(task).Error; err != nil {
+		global.GVA_LOG.Error("save task failed", zap.Error(err))
+		return err
+	}
+	global.GVA_LOG.Info("phone send sms success", taskLogFields(*task)...)
+	return nil
+}
+
+func (s *RegisterTaskService) restorePhoneBindSessionIfNeeded(task *system.SysRegisterTask) error {
+	if task == nil || task.FinishedAt != nil || task.CurrentStep != system.RegisterTaskStepPhoneBind {
+		return nil
+	}
+	if hasPhoneBindSession(task.ID) {
+		return nil
+	}
+	runtimeCfg, err := s.getRegisterRuntimeConfig(task.LeaderID)
+	if err != nil {
+		return err
+	}
+	if err := s.preparePhoneBindSMS(task, runtimeCfg); err != nil {
+		return err
+	}
+	global.GVA_LOG.Info("phone bind session recovered after restart", taskLogFields(*task)...)
+	return nil
 }

@@ -141,7 +141,7 @@ func getCaptchaTokenFromAC(cfg systemRegisterConfig, appID string) (*captchaToke
 	if token == "" {
 		return nil, errors.New("验证码平台AC token未配置")
 	}
-	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api/tencent/captcha/run")
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/captcha/run")
 	if err != nil {
 		return nil, err
 	}

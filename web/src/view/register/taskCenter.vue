@@ -1,13 +1,23 @@
 <template>
   <div class="task-center compact-page">
-    <el-card shadow="never" class="mb-3">
+    <el-card
+      shadow="never"
+      class="mb-3"
+    >
       <div class="user-bar">
         <span>当前登录用户：{{ currentUser.nickName || '-' }}</span>
-        <el-button type="danger" link @click="userStore.LoginOut">退出登录</el-button>
+        <el-button
+          type="danger"
+          link
+          @click="userStore.LoginOut"
+        >退出登录</el-button>
       </div>
     </el-card>
 
-    <el-card shadow="never" class="mb-3">
+    <el-card
+      shadow="never"
+      class="mb-3"
+    >
       <template #header>创建注册任务</template>
 
       <div v-if="activeTask">
@@ -18,19 +28,43 @@
           show-icon
           :closable="false"
         />
-        <el-form label-width="72px" class="mt-2 compact-form">
+        <el-form
+          label-width="72px"
+          class="mt-2 compact-form"
+        >
           <el-form-item label="手机号">
-            <el-input v-model="activeTask.phone" disabled />
+            <el-input
+              v-model="activeTask.phone"
+              disabled
+            />
           </el-form-item>
           <el-form-item :label="verifyLabel">
-            <el-input v-model="verifyCode" :placeholder="verifyPlaceholder" />
+            <el-input
+              v-model="verifyCode"
+              :placeholder="verifyPlaceholder"
+            />
           </el-form-item>
           <el-form-item>
-            <el-button size="small" type="primary" @click="submitStep">{{ submitText }}</el-button>
-            <el-button size="small" @click="retryStep">{{ retryText }}</el-button>
-            <el-button size="small" type="danger" plain @click="markFail">{{ failText }}</el-button>
+            <el-button
+              size="small"
+              type="primary"
+              @click="submitStep"
+            >{{ submitText }}</el-button>
+            <el-button
+              size="small"
+              @click="retryStep"
+            >{{ retryText }}</el-button>
+            <el-button
+              size="small"
+              type="danger"
+              plain
+              @click="markFail"
+            >{{ failText }}</el-button>
           </el-form-item>
-          <el-form-item v-if="activeTask.lastError" label="最近错误">
+          <el-form-item
+            v-if="activeTask.lastError"
+            label="最近错误"
+          >
             <span class="text-red-500">{{ activeTask.lastError }}</span>
           </el-form-item>
           <el-form-item label="过期时间">
@@ -39,40 +73,81 @@
         </el-form>
       </div>
 
-      <el-form v-else label-width="72px" class="compact-form">
+      <el-form
+        v-else
+        label-width="72px"
+        class="compact-form"
+      >
         <el-form-item label="手机号">
-          <el-input v-model="phone" placeholder="请输入手机号" />
+          <el-input
+            v-model="phone"
+            placeholder="请输入手机号"
+          />
         </el-form-item>
         <el-form-item>
-          <el-button size="small" type="primary" @click="createTask">创建任务</el-button>
+          <el-button
+            size="small"
+            type="primary"
+            @click="createTask"
+          >创建任务</el-button>
         </el-form-item>
       </el-form>
     </el-card>
 
     <el-card shadow="never">
       <template #header>我的任务记录</template>
-      <el-row :gutter="12" class="mb-3" style="font-size: 12px;">
+      <el-row
+        :gutter="12"
+        class="mb-3"
+        style="font-size: 12px;"
+      >
         <el-col :span="8">成功：{{ counters.success }}</el-col>
         <el-col :span="8">失败：{{ counters.fail }}</el-col>
         <el-col :span="8">处理中：{{ counters.processing }}</el-col>
       </el-row>
-      <el-table :data="myTasks" row-key="ID" size="small">
-        <el-table-column label="任务ID" prop="ID" width="90" />
-        <el-table-column label="手机号" prop="phone" min-width="130" />
-        <el-table-column label="状态" min-width="100">
+      <el-table
+        :data="myTasks"
+        row-key="ID"
+        size="small"
+      >
+        <el-table-column
+          label="任务ID"
+          prop="ID"
+          width="90"
+        />
+        <el-table-column
+          label="手机号"
+          prop="phone"
+          min-width="130"
+        />
+        <el-table-column
+          label="状态"
+          min-width="100"
+        >
           <template #default="scope">
             <el-tag :type="statusTagType(scope.row)">
               {{ statusText(scope.row) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="步骤" min-width="100">
+        <el-table-column
+          label="步骤"
+          min-width="100"
+        >
           <template #default="scope">
             {{ stepText(scope.row.currentStep) }}
           </template>
         </el-table-column>
-        <el-table-column label="错误" prop="lastError" min-width="140" show-overflow-tooltip />
-        <el-table-column label="完成时间" min-width="170">
+        <el-table-column
+          label="错误"
+          prop="lastError"
+          min-width="140"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          label="完成时间"
+          min-width="170"
+        >
           <template #default="scope">
             {{ scope.row.finishedAt ? formatDate(scope.row.finishedAt) : '-' }}
           </template>
@@ -85,7 +160,12 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { createRegisterTask, getActiveRegisterTask, getRegisterTaskList, submitRegisterTaskStep } from '@/api/registerTask'
+import {
+  createRegisterTask,
+  getActiveRegisterTask,
+  getRegisterTaskList,
+  submitRegisterTaskStep
+} from '@/api/registerTask'
 import { formatDate } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
 
@@ -117,7 +197,9 @@ const stepText = (step) => {
 }
 
 const verifyLabel = computed(() => activeTask.value?.verifyLabel || '验证码')
-const verifyPlaceholder = computed(() => activeTask.value?.verifyPlace || '请输入验证码')
+const verifyPlaceholder = computed(
+  () => activeTask.value?.verifyPlace || '请输入验证码'
+)
 const submitText = computed(() => activeTask.value?.submitText || '提交')
 const retryText = computed(() => activeTask.value?.retryText || '重试')
 const failText = computed(() => activeTask.value?.failText || '失败')
@@ -137,7 +219,9 @@ const statusTagType = (task) => {
 
 const remainSeconds = computed(() => {
   if (!activeTask.value?.expiresAt || activeTask.value?.finishedAt) return null
-  const diff = Math.floor((new Date(activeTask.value.expiresAt).getTime() - nowTs.value) / 1000)
+  const diff = Math.floor(
+    (new Date(activeTask.value.expiresAt).getTime() - nowTs.value) / 1000
+  )
   return diff > 0 ? diff : 0
 })
 
@@ -150,8 +234,11 @@ const remainText = computed(() => {
 
 const taskTitle = computed(() => {
   if (!activeTask.value?.id) return '当前任务'
-  const title = activeTask.value?.stepTitle || stepText(activeTask.value.currentStep)
-  const progress = activeTask.value?.progress ? `，${activeTask.value.progress}` : ''
+  const title =
+    activeTask.value?.stepTitle || stepText(activeTask.value.currentStep)
+  const progress = activeTask.value?.progress
+    ? `，${activeTask.value.progress}`
+    : ''
   return `当前任务 #${activeTask.value.id}，${title}${progress}，剩余：${remainText.value}`
 })
 
@@ -188,8 +275,12 @@ const createTask = async () => {
     ElMessage.warning('请先输入手机号')
     return
   }
-  await createRegisterTask({ phone: phone.value })
-  ElMessage.success('任务创建成功')
+  await createRegisterTask({ phone: phone.value }).then(async () => {
+    const res = await reloadSystem()
+    if (res.code === 0) {
+      ElMessage.success('任务创建成功')
+    }
+  })
   phone.value = ''
   await refreshAll()
 }
