@@ -227,8 +227,8 @@ system:
     addr: 8888
     iplimit-count: 15000
     iplimit-time: 3600
-    use-multipoint: false
-    use-redis: false
+    use-multipoint: true
+    use-redis: true
     use-mongo: false
     use-strict-auth: false
     disable-auto-migrate: false
