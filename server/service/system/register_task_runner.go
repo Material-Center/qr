@@ -15,6 +15,26 @@ import (
 
 const registerTaskRunnerRecoverAction = "__recover__"
 const registerTaskRunnerIdleTTL = 5 * time.Minute
+const registerTaskLastErrorMaxLen = 1024
+
+// persistRunnerStepError 异步 runner 中 handleSubmit/retry 失败时写入 last_error，便于前端轮询 GetActiveTask 展示
+func persistRunnerStepError(taskID uint, promoterID uint, err error) {
+	if err == nil || taskID == 0 {
+		return
+	}
+	msg := strings.TrimSpace(err.Error())
+	if len(msg) > registerTaskLastErrorMaxLen {
+		msg = msg[:registerTaskLastErrorMaxLen] + "…"
+	}
+	db := global.GVA_DB.Model(&system.SysRegisterTask{}).Where("id = ? AND finished_at IS NULL", taskID)
+	if promoterID != 0 {
+		db = db.Where("promoter_id = ?", promoterID)
+	}
+	if db.Update("last_error", msg).Error != nil {
+		global.GVA_LOG.Warn("【注册任务】runner失败写入last_error失败",
+			zap.Uint("taskId", taskID), zap.Uint("promoterId", promoterID), zap.Error(err))
+	}
+}
 
 type registerTaskEvent struct {
 	Action      string
@@ -188,9 +208,16 @@ func (s *RegisterTaskService) processRunnerEvent(runner *registerTaskRunner, eve
 			req.Step = strings.TrimSpace(event.Step)
 		}
 		_, err := s.handleSubmit(task, req)
+		if err != nil {
+			persistRunnerStepError(runner.taskID, runner.promoterID, err)
+		}
 		return false, err
 	case "retry":
-		return false, s.executeRetryAction(&task)
+		err := s.executeRetryAction(&task)
+		if err != nil {
+			persistRunnerStepError(runner.taskID, runner.promoterID, err)
+		}
+		return false, err
 	case "fail":
 		failMsg := strings.TrimSpace(event.FailMessage)
 		if failMsg == "" {
@@ -209,6 +236,9 @@ func (s *RegisterTaskService) processRunnerEvent(runner *registerTaskRunner, eve
 					Step:   task.CurrentStep,
 					Action: "submit",
 				})
+				if err != nil {
+					persistRunnerStepError(runner.taskID, runner.promoterID, err)
+				}
 				return false, err
 			}
 		}
