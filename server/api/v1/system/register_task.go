@@ -85,6 +85,31 @@ func (a *RegisterTaskApi) GetActiveRegisterTask(c *gin.Context) {
 	response.OkWithDetailed(buildActiveInfo(task), "获取成功", c)
 }
 
+// GetActiveRegisterTasks
+// @Tags      RegisterTask
+// @Summary   获取地推全部未完成任务
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200  {object}  response.Response{data=[]systemRes.RegisterTaskActiveInfo,msg=string}
+// @Router    /registerTask/actives [get]
+func (a *RegisterTaskApi) GetActiveRegisterTasks(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRolePromoter {
+		response.FailWithMessage("仅地推可查看当前任务", c)
+		return
+	}
+	tasks, err := registerTaskService.GetActiveTasks(utils.GetUserID(c))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	items := make([]systemRes.RegisterTaskActiveInfo, 0, len(tasks))
+	for _, t := range tasks {
+		items = append(items, buildActiveInfo(t))
+	}
+	response.OkWithDetailed(items, "获取成功", c)
+}
+
 // SubmitRegisterTaskStep
 // @Tags      RegisterTask
 // @Summary   提交任务步骤验证码/重试/失败

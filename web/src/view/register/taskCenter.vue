@@ -20,67 +20,13 @@
     >
       <template #header>创建注册任务</template>
 
-      <div v-if="activeTask">
-        <el-alert
-          :title="taskTitle"
-          :description="taskHint"
-          type="info"
-          show-icon
-          :closable="false"
-        />
-        <el-form
-          label-width="72px"
-          class="mt-2 compact-form"
-        >
-          <el-form-item label="手机号">
-            <el-input
-              v-model="activeTask.phone"
-              disabled
-            />
-          </el-form-item>
-          <el-form-item :label="verifyLabel">
-            <el-input
-              v-model="verifyCode"
-              :placeholder="verifyPlaceholder"
-            />
-          </el-form-item>
-          <el-form-item>
-            <el-button
-              size="small"
-              type="primary"
-              @click="submitStep"
-            >{{ submitText }}</el-button>
-            <el-button
-              size="small"
-              @click="retryStep"
-            >{{ retryText }}</el-button>
-            <el-button
-              size="small"
-              type="danger"
-              plain
-              @click="markFail"
-            >{{ failText }}</el-button>
-          </el-form-item>
-          <el-form-item
-            v-if="activeTask.lastError"
-            label="最近错误"
-          >
-            <span class="text-red-500">{{ activeTask.lastError }}</span>
-          </el-form-item>
-          <el-form-item label="过期时间">
-            <span>{{ safeFormatDate(activeTask.expiresAt) }}</span>
-          </el-form-item>
-        </el-form>
-      </div>
-
       <el-form
-        v-else
         label-width="72px"
         class="compact-form"
       >
         <el-form-item label="手机号">
           <el-input
-            v-model="phone"
+            v-model="phoneInput"
             placeholder="请输入手机号"
           />
         </el-form-item>
@@ -92,6 +38,67 @@
           >创建任务</el-button>
         </el-form-item>
       </el-form>
+
+      <div v-if="activeTasks.length">
+        <el-divider class="my-2">当前可操作任务</el-divider>
+        <el-card
+          v-for="task in activeTasks"
+          :key="task.id"
+          shadow="never"
+          class="mb-3"
+        >
+          <el-alert
+            :title="taskTitle(task)"
+            :description="task.stepHint || ''"
+            type="info"
+            show-icon
+            :closable="false"
+          />
+          <el-form
+            label-width="72px"
+            class="mt-2 compact-form"
+          >
+            <el-form-item label="手机号">
+              <el-input
+                :model-value="task.phone"
+                disabled
+              />
+            </el-form-item>
+            <el-form-item :label="task.verifyLabel || '验证码'">
+              <el-input
+                v-model="verifyCodeMap[task.id]"
+                :placeholder="task.verifyPlace || '请输入验证码'"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                size="small"
+                type="primary"
+                @click="submitStep(task)"
+              >{{ task.submitText || '提交' }}</el-button>
+              <el-button
+                size="small"
+                @click="retryStep(task)"
+              >{{ task.retryText || '重试' }}</el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                @click="markFail(task)"
+              >{{ task.failText || '失败' }}</el-button>
+            </el-form-item>
+            <el-form-item
+              v-if="task.lastError"
+              label="最近错误"
+            >
+              <span class="text-red-500">{{ task.lastError }}</span>
+            </el-form-item>
+            <el-form-item label="过期时间">
+              <span>{{ safeFormatDate(task.expiresAt) }}</span>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </div>
     </el-card>
 
     <el-card shadow="never">
@@ -162,7 +169,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   createRegisterTask,
-  getActiveRegisterTask,
+  getActiveRegisterTasks,
   getRegisterTaskList,
   submitRegisterTaskStep
 } from '@/api/registerTask'
@@ -173,9 +180,9 @@ defineOptions({
   name: 'RegisterTaskCenter'
 })
 
-const phone = ref('')
-const verifyCode = ref('')
-const activeTask = ref(null)
+const phoneInput = ref('')
+const activeTasks = ref([])
+const verifyCodeMap = ref({})
 const myTasks = ref([])
 const userStore = useUserStore()
 const currentUser = computed(() => userStore.userInfo || {})
@@ -195,16 +202,6 @@ const stepText = (step) => {
   if (step === 'login') return '登录'
   return step || '-'
 }
-
-const verifyLabel = computed(() => activeTask.value?.verifyLabel || '验证码')
-const verifyPlaceholder = computed(
-  () => activeTask.value?.verifyPlace || '请输入验证码'
-)
-const submitText = computed(() => activeTask.value?.submitText || '提交')
-const retryText = computed(() => activeTask.value?.retryText || '重试')
-const failText = computed(() => activeTask.value?.failText || '失败')
-const taskHint = computed(() => activeTask.value?.stepHint || '')
-const needVerifyCode = computed(() => activeTask.value?.needVerifyCode !== false)
 
 const statusText = (task) => {
   if (!task?.finishedAt) return '处理中'
@@ -226,33 +223,38 @@ const safeFormatDate = (value) => {
 }
 
 const remainSeconds = computed(() => {
-  if (!activeTask.value?.expiresAt || activeTask.value?.finishedAt) return null
-  const diff = Math.floor(
-    (new Date(activeTask.value.expiresAt).getTime() - nowTs.value) / 1000
-  )
-  return diff > 0 ? diff : 0
+  return (expiresAt, finishedAt) => {
+    if (!expiresAt || finishedAt) return null
+    const diff = Math.floor((new Date(expiresAt).getTime() - nowTs.value) / 1000)
+    return diff > 0 ? diff : 0
+  }
 })
 
-const remainText = computed(() => {
-  if (remainSeconds.value === null) return '--:--'
-  const m = Math.floor(remainSeconds.value / 60)
-  const s = remainSeconds.value % 60
+const remainText = (task) => {
+  const seconds = remainSeconds.value(task?.expiresAt, task?.finishedAt)
+  if (seconds === null) return '--:--'
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-})
+}
 
-const taskTitle = computed(() => {
-  if (!activeTask.value?.id) return '当前任务'
-  const title =
-    activeTask.value?.stepTitle || stepText(activeTask.value.currentStep)
-  const progress = activeTask.value?.progress
-    ? `，${activeTask.value.progress}`
+const taskTitle = (task) => {
+  if (!task?.id) return '当前任务'
+  const title = task?.stepTitle || stepText(task.currentStep)
+  const progress = task?.progress
+    ? `，${task.progress}`
     : ''
-  return `当前任务 #${activeTask.value.id}，${title}${progress}，剩余：${remainText.value}`
-})
+  return `当前任务 #${task.id}，${title}${progress}，剩余：${remainText(task)}`
+}
 
 const loadActiveTask = async () => {
-  const res = await getActiveRegisterTask()
-  activeTask.value = res.data || null
+  const res = await getActiveRegisterTasks()
+  activeTasks.value = Array.isArray(res.data) ? res.data : []
+  const nextMap = {}
+  activeTasks.value.forEach((task) => {
+    nextMap[task.id] = verifyCodeMap.value?.[task.id] || ''
+  })
+  verifyCodeMap.value = nextMap
 }
 
 const loadMyTasks = async () => {
@@ -279,59 +281,54 @@ const refreshAll = async () => {
 }
 
 const createTask = async () => {
-  if (!phone.value) {
+  const phone = String(phoneInput.value || '').trim()
+  if (!phone) {
     ElMessage.warning('请先输入手机号')
     return
   }
-  const res = await createRegisterTask({ phone: phone.value })
+  const res = await createRegisterTask({ phone })
   if (res?.code !== 0) {
     ElMessage.error(res?.msg || '任务创建失败')
     return
   }
   ElMessage.success('任务创建成功')
-  phone.value = ''
+  phoneInput.value = ''
   await refreshAll()
-  // 创建后可能存在短暂写库/状态同步延迟，补一次短轮询确保拿到最新进度
-  if (!activeTask.value?.id) {
-    for (let i = 0; i < 3; i++) {
-      await new Promise((resolve) => window.setTimeout(resolve, 800))
-      await loadActiveTask()
-      if (activeTask.value?.id) break
-    }
-  }
 }
 
-const submitStepCommon = async (payload) => {
-  if (!activeTask.value) return
-  const { data } = await submitRegisterTaskStep({
-    taskId: activeTask.value.id,
-    step: activeTask.value.currentStep,
+const submitStepCommon = async (task, payload) => {
+  if (!task?.id) return
+  await submitRegisterTaskStep({
+    taskId: task.id,
+    step: task.currentStep,
     ...payload
   })
-  activeTask.value = data?.finishedAt ? null : data
-  verifyCode.value = ''
-  await loadMyTasks()
+  verifyCodeMap.value[task.id] = ''
+  await refreshAll()
 }
 
-const submitStep = async () => {
-  if (needVerifyCode.value && !verifyCode.value) {
-    ElMessage.warning(`${verifyLabel.value}不能为空`)
+const submitStep = async (task) => {
+  const needVerify = task?.needVerifyCode !== false
+  const code = String(verifyCodeMap.value?.[task.id] || '').trim()
+  const label = task?.verifyLabel || '验证码'
+  if (needVerify && !code) {
+    ElMessage.warning(`${label}不能为空`)
     return
   }
-  await submitStepCommon({
+  await submitStepCommon(task, {
     action: 'submit',
-    verifyCode: verifyCode.value
+    verifyCode: code
   })
 }
 
-const retryStep = async () => {
-  await submitStepCommon({
+const retryStep = async (task) => {
+  await submitStepCommon(task, {
     action: 'retry'
   })
 }
 
-const markFail = async () => {
-  await submitStepCommon({
+const markFail = async (task) => {
+  await submitStepCommon(task, {
     action: 'fail',
     failMessage: '地推手动标记失败'
   })
@@ -340,15 +337,6 @@ const markFail = async () => {
 const startAutoRefresh = () => {
   stopAutoRefresh()
   refreshTimer.value = window.setInterval(async () => {
-    if (activeTask.value?.id && !activeTask.value?.finishedAt) {
-      const isTimeout = activeTask.value?.expiresAt
-        ? Date.now() >= new Date(activeTask.value.expiresAt).getTime()
-        : false
-      if (isTimeout) {
-        await refreshAll()
-        return
-      }
-    }
     await refreshAll()
   }, 5000)
 }

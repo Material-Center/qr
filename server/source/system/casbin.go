@@ -251,6 +251,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/registerTask/create", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/registerTask/step", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/registerTask/active", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/registerTask/actives", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/registerTask/list", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/registerTask/summary", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/registerConfig/getMyConfig", V2: "GET"},
@@ -307,6 +308,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "300", V1: "/registerTask/create", V2: "POST"},
 		{Ptype: "p", V0: "300", V1: "/registerTask/step", V2: "POST"},
 		{Ptype: "p", V0: "300", V1: "/registerTask/active", V2: "GET"},
+		{Ptype: "p", V0: "300", V1: "/registerTask/actives", V2: "GET"},
 		{Ptype: "p", V0: "300", V1: "/registerTask/list", V2: "POST"},
 		{Ptype: "p", V0: "300", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 	}

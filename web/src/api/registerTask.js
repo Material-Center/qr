@@ -15,6 +15,13 @@ export const getActiveRegisterTask = () => {
   })
 }
 
+export const getActiveRegisterTasks = () => {
+  return service({
+    url: '/registerTask/actives',
+    method: 'get'
+  })
+}
+
 export const submitRegisterTaskStep = (data) => {
   return service({
     url: '/registerTask/step',

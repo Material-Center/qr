@@ -16,6 +16,7 @@ func (r *RegisterTaskRouter) InitRegisterTaskRouter(Router *gin.RouterGroup) {
 	}
 	{
 		registerTaskRouterWithoutRecord.GET("active", registerTaskApi.GetActiveRegisterTask)
+		registerTaskRouterWithoutRecord.GET("actives", registerTaskApi.GetActiveRegisterTasks)
 		registerTaskRouterWithoutRecord.POST("list", registerTaskApi.GetRegisterTaskList)
 		registerTaskRouterWithoutRecord.GET("summary", registerTaskApi.GetRegisterTaskSummary)
 	}

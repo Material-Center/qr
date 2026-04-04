@@ -94,18 +94,6 @@ func (s *RegisterTaskService) CreateTask(promoterID uint, phone string) (task sy
 		return task, err
 	}
 
-	var unfinishedCount int64
-	if err = global.GVA_DB.Model(&system.SysRegisterTask{}).
-		Where("promoter_id = ? AND finished_at IS NULL", promoterID).
-		Count(&unfinishedCount).Error; err != nil {
-		global.GVA_LOG.Error("【注册任务】查询未完成数失败", zap.Uint("promoterId", promoterID), zap.String("phone", phone), zap.Error(err))
-		return task, err
-	}
-	if unfinishedCount > 0 {
-		global.GVA_LOG.Warn("【注册任务】存在未完成单拒绝创建", zap.Uint("promoterId", promoterID), zap.String("phone", phone), zap.Int64("unfinishedCount", unfinishedCount))
-		return task, errors.New("存在未完成任务，请先完成当前任务")
-	}
-
 	var promoter system.SysUser
 	if err = global.GVA_DB.Select("id, leader_id").Where("id = ?", promoterID).First(&promoter).Error; err != nil {
 		global.GVA_LOG.Warn("【注册任务】地推账号不存在", zap.Uint("promoterId", promoterID), zap.String("phone", phone), zap.Error(err))
@@ -187,6 +175,25 @@ func (s *RegisterTaskService) GetActiveTask(promoterID uint) (task system.SysReg
 	}
 	global.GVA_LOG.Info("【注册任务】拉取当前任务成功", taskLogFields(task)...)
 	return
+}
+
+func (s *RegisterTaskService) GetActiveTasks(promoterID uint) (tasks []system.SysRegisterTask, err error) {
+	if err = s.normalizeTimeoutClosedTasks(); err != nil {
+		global.GVA_LOG.Error("【注册任务】拉取当前任务列表-修正超时状态失败", zap.Uint("promoterId", promoterID), zap.Error(err))
+		return nil, err
+	}
+	if err = s.timeoutTasksByPromoter(promoterID); err != nil {
+		global.GVA_LOG.Error("【注册任务】拉取当前任务列表-地推超时批量失败", zap.Uint("promoterId", promoterID), zap.Error(err))
+		return nil, err
+	}
+	err = global.GVA_DB.Where("promoter_id = ? AND finished_at IS NULL", promoterID).
+		Order("id desc").
+		Find(&tasks).Error
+	if err != nil {
+		global.GVA_LOG.Error("【注册任务】拉取当前任务列表-查询失败", zap.Uint("promoterId", promoterID), zap.Error(err))
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func (s *RegisterTaskService) SubmitStep(promoterID uint, req systemReq.RegisterTaskStep) (task system.SysRegisterTask, err error) {
