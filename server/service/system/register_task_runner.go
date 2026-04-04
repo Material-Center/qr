@@ -74,6 +74,23 @@ func ensureRegisterTaskRunner(taskID uint, promoterID uint) {
 	_ = enqueueRegisterTaskEvent(taskID, promoterID, registerTaskEvent{Action: registerTaskRunnerRecoverAction})
 }
 
+// enqueueContinueLoginAfterChangePassword 改密步骤已落库为 login 后，再投递一次 submit/login，
+// 否则 runner 只处理完改密就空闲，必须等前端再点提交才会进入登录（用户会感觉「卡住」）。
+func enqueueContinueLoginAfterChangePassword(task system.SysRegisterTask) {
+	if task.ID == 0 || task.PromoterID == 0 {
+		return
+	}
+	if err := enqueueRegisterTaskEvent(task.ID, task.PromoterID, registerTaskEvent{
+		Action: "submit",
+		Step:   system.RegisterTaskStepLogin,
+	}); err != nil {
+		global.GVA_LOG.Warn("【注册任务】改密完成-自动进入登录投递失败",
+			append(taskLogFields(task), zap.Error(err))...)
+		return
+	}
+	global.GVA_LOG.Info("【注册任务】改密完成-已自动投递登录步骤", taskLogFields(task)...)
+}
+
 func enqueueRegisterTaskEvent(taskID uint, promoterID uint, event registerTaskEvent) error {
 	if taskID == 0 {
 		return errors.New("任务ID不能为空")

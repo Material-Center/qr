@@ -385,6 +385,7 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				global.GVA_LOG.Error("【注册任务】改密-切换登录步骤保存失败", append(taskLogFields(task), zap.Error(err))...)
 				return task, err
 			}
+			enqueueContinueLoginAfterChangePassword(task)
 			break
 		}
 		currentQQ := candidateQQList[len(changedQQList)]
@@ -424,6 +425,7 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				global.GVA_LOG.Error("【注册任务】改密-切换登录步骤保存失败", append(taskLogFields(task), zap.Error(err))...)
 				return task, err
 			}
+			enqueueContinueLoginAfterChangePassword(task)
 		} else {
 			task.LastError = ""
 			if err = global.GVA_DB.Save(&task).Error; err != nil {
@@ -453,6 +455,7 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 			append(taskLogFields(task),
 				zap.Int("toLoginCount", len(changedQQList)),
 				zap.Int("alreadyLoggedCount", len(loggedQQList)),
+				zap.Bool("verifyProvided", verifyCode != ""),
 			)...,
 		)
 		if len(loggedQQList) >= len(changedQQList) {
@@ -463,12 +466,22 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 			return s.finishTask(task, 0, "")
 		}
 		currentQQ := changedQQList[len(loggedQQList)]
-		global.GVA_LOG.Info("【注册任务】登录-尝试当前QQ", taskLogFieldsWithOpQQ(task, currentQQ)...)
+		global.GVA_LOG.Info("【注册任务】登录-定位当前QQ",
+			append(taskLogFieldsWithOpQQ(task, currentQQ),
+				zap.Int("currentIndex", len(loggedQQList)+1),
+				zap.Int("totalCount", len(changedQQList)),
+			)...,
+		)
 
 		const needVerifyCodeTip = registerTaskLoginNeedVerifyTip
 		const waitTimeoutTip = "登录验证码等待超时，请点击重试重新获取验证码"
 		const sessionExpiredTip = "登录会话已失效，请点击重试重新获取验证码"
 		if strings.TrimSpace(verifyCode) != "" {
+			global.GVA_LOG.Info("【注册任务】登录-提交验证码",
+				append(taskLogFieldsWithOpQQ(task, currentQQ),
+					zap.Int("codeLength", len(verifyCode)),
+				)...,
+			)
 			delivered, deliverErr := offerLoginVerifyCode(task.ID, currentQQ, verifyCode)
 			if deliverErr != nil {
 				global.GVA_LOG.Warn("【注册任务】登录-投递验证码失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(deliverErr))...)
@@ -488,13 +501,24 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 		if hasLoginSession && loginSession != nil && loginSession.LoginQQ == currentQQ && loginSession.LoginCodeCh != nil {
 			task.LastError = needVerifyCodeTip
 			_ = global.GVA_DB.Save(&task).Error
-			global.GVA_LOG.Info("【注册任务】登录-当前QQ正在等待验证码", taskLogFieldsWithOpQQ(task, currentQQ)...)
+			global.GVA_LOG.Info("【注册任务】登录-当前QQ正在等待验证码",
+				append(taskLogFieldsWithOpQQ(task, currentQQ),
+					zap.Bool("hasLoginSession", true),
+				)...,
+			)
 			return task, errors.New(needVerifyCodeTip)
 		}
 		// 严格状态保护：进入登录待验证码态后，除 retry 外不允许重复触发登录发码。
 		if strings.Contains(strings.TrimSpace(task.LastError), registerTaskLoginNeedVerifyTip) {
+			global.GVA_LOG.Warn("【注册任务】登录-状态守卫阻止重复发码",
+				append(taskLogFieldsWithOpQQ(task, currentQQ),
+					zap.String("lastError", task.LastError),
+					zap.Bool("hasLoginSession", hasLoginSession),
+				)...,
+			)
 			return task, errors.New(sessionExpiredTip)
 		} else {
+			global.GVA_LOG.Info("【注册任务】登录-初始化本轮会话", taskLogFieldsWithOpQQ(task, currentQQ)...)
 			// 清理非当前QQ的旧会话，避免串号
 			clearLoginSession(task.ID)
 			tlv544Provider, pErr := buildTLV544ProviderFromConfig(runtimeCfg)
@@ -517,6 +541,8 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				global.GVA_LOG.Error("【注册任务】登录-InitProvider初始化失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(pErr))...)
 				return task, pErr
 			}
+
+			clearLoginSession(task.ID)
 			loginClient := qpi.NewPasswordLoginClient()
 			if proxyURL != "" {
 				if proxyErr := loginClient.SetProxy(proxyURL); proxyErr != nil {
@@ -569,6 +595,7 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				},
 			}
 			setLoginSession(task.ID, loginClient, currentQQ, loginCodeCh)
+			global.GVA_LOG.Info("【注册任务】登录-会话创建完成，开始登录协议", taskLogFieldsWithOpQQ(task, currentQQ)...)
 			var loginErr error
 			loginResp, loginErr = loginClient.Login(loginReq)
 			if loginErr != nil {
@@ -582,8 +609,71 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				if strings.Contains(loginErr.Error(), "短信验证码") || strings.Contains(loginErr.Error(), "触发短信验证") || strings.Contains(loginErr.Error(), needVerifyCodeTip) {
 					task.LastError = needVerifyCodeTip
 					_ = global.GVA_DB.Save(&task).Error
-					global.GVA_LOG.Warn("【注册任务】登录-等待验证码中", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(loginErr))...)
+					global.GVA_LOG.Warn("【注册任务】登录-协议触发短信验证，进入待码态", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(loginErr))...)
 					return task, errors.New(needVerifyCodeTip)
+				}
+				if isRetryableLoginNetworkErr(loginErr) {
+					clearLoginSession(task.ID)
+					refreshedProxyURL, pErr := s.allocateProxyURL(runtimeCfg)
+					if pErr != nil {
+						global.GVA_LOG.Error("【注册任务】登录-刷新代理失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(pErr))...)
+						return task, pErr
+					}
+					global.GVA_LOG.Warn("【注册任务】登录-网络异常，刷新代理后重试一次",
+						append(taskLogFieldsWithOpQQ(task, currentQQ),
+							zap.String("oldProxyURL", proxyURL),
+							zap.String("newProxyURL", refreshedProxyURL),
+							zap.Error(loginErr),
+						)...,
+					)
+					retryClient := qpi.NewPasswordLoginClient()
+					if refreshedProxyURL != "" {
+						if proxyErr := retryClient.SetProxy(refreshedProxyURL); proxyErr != nil {
+							_ = retryClient.Close()
+							return task, proxyErr
+						}
+					}
+					retryCodeCh := make(chan string, 1)
+					retryReq := loginReq
+					retryReq.SMSCodeProvider = func() (string, error) {
+						task.LastError = needVerifyCodeTip
+						_ = global.GVA_DB.Save(&task).Error
+						global.GVA_LOG.Info("【注册任务】登录-重试后等待验证码输入", taskLogFieldsWithOpQQ(task, currentQQ)...)
+						select {
+						case code, ok := <-retryCodeCh:
+							if !ok {
+								return "", errors.New(sessionExpiredTip)
+							}
+							code = strings.TrimSpace(code)
+							if code == "" {
+								return "", errors.New(needVerifyCodeTip)
+							}
+							return code, nil
+						case <-time.After(registerTaskLoginVerifyWaitTimeout):
+							return "", errors.New(waitTimeoutTip)
+						}
+					}
+					setLoginSession(task.ID, retryClient, currentQQ, retryCodeCh)
+					loginResp, loginErr = retryClient.Login(retryReq)
+					if loginErr == nil {
+						clearLoginSession(task.ID)
+						global.GVA_LOG.Info("【注册任务】登录-刷新代理后重试成功", taskLogFieldsWithOpQQ(task, currentQQ)...)
+						goto loginSuccess
+					}
+					if strings.Contains(loginErr.Error(), waitTimeoutTip) {
+						task.LastError = waitTimeoutTip
+						_ = global.GVA_DB.Save(&task).Error
+						clearLoginSession(task.ID)
+						return task, errors.New(waitTimeoutTip)
+					}
+					if strings.Contains(loginErr.Error(), "短信验证码") || strings.Contains(loginErr.Error(), "触发短信验证") || strings.Contains(loginErr.Error(), needVerifyCodeTip) {
+						task.LastError = needVerifyCodeTip
+						_ = global.GVA_DB.Save(&task).Error
+						return task, errors.New(needVerifyCodeTip)
+					}
+					clearLoginSession(task.ID)
+					global.GVA_LOG.Error("【注册任务】登录-刷新代理后重试仍失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(loginErr))...)
+					return task, loginErr
 				}
 				clearLoginSession(task.ID)
 				global.GVA_LOG.Error("【注册任务】登录-当前QQ失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(loginErr))...)
@@ -591,6 +681,7 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 			}
 			clearLoginSession(task.ID)
 		}
+	loginSuccess:
 		global.GVA_LOG.Info("【注册任务】登录-当前QQ成功", taskLogFieldsWithOpQQ(task, currentQQ)...)
 		loggedQQList = append(loggedQQList, currentQQ)
 		task.QQLoggedList = strings.Join(loggedQQList, "|")
@@ -1532,4 +1623,27 @@ func parseCaptchaAidSid(captchaURL string) (aid, sid string) {
 	}
 	q := u.Query()
 	return strings.TrimSpace(q.Get("aid")), strings.TrimSpace(q.Get("sid"))
+}
+
+func isRetryableLoginNetworkErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	// 优先使用 qpi 的结构化错误类型进行判断，避免仅靠字符串匹配。
+	var ce *qpi.CommonError
+	if errors.As(err, &ce) && ce != nil {
+		if ce.Type == qpi.ErrorTypeBusiness && ce.Code == 237 {
+			return true
+		}
+	}
+	var be *qpi.BusinessError
+	if errors.As(err, &be) && be != nil && be.Code == 237 {
+		return true
+	}
+	// 兜底兼容：上游返回文本错误时仍可识别。
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if msg == "" {
+		return false
+	}
+	return strings.Contains(msg, "code=237") || strings.Contains(msg, "网络不稳定") || strings.Contains(msg, "network")
 }

@@ -211,7 +211,7 @@ func getCaptchaTokenFromFJ(cfg systemRegisterConfig, appID string) (*captchaToke
 		return nil, fmt.Errorf("create fj request failed: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	client := &http.Client{Timeout: 50 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fj request failed: %w", err)

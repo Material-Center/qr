@@ -1,8 +1,9 @@
 package config
 
 import (
-	"go.uber.org/zap/zapcore"
 	"time"
+
+	"go.uber.org/zap/zapcore"
 )
 
 type Zap struct {
@@ -42,8 +43,9 @@ func (c *Zap) Encoder() zapcore.Encoder {
 		EncodeTime: func(t time.Time, encoder zapcore.PrimitiveArrayEncoder) {
 			encoder.AppendString(c.Prefix + t.Format("2006-01-02 15:04:05.000"))
 		},
-		EncodeLevel:    c.LevelEncoder(),
-		EncodeCaller:   zapcore.FullCallerEncoder,
+		EncodeLevel: c.LevelEncoder(),
+		// ShortCaller：仅保留路径末尾两段（如 system/register_task.go:188），避免完整模块路径过长
+		EncodeCaller:   zapcore.ShortCallerEncoder,
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 	}
 	if c.Format == "json" {
