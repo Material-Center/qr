@@ -33,16 +33,24 @@ type captchaToken struct {
 
 func (s *RegisterTaskService) getCaptchaToken(cfg systemRegisterConfig, appID string) (*captchaToken, error) {
 	provider := strings.ToLower(strings.TrimSpace(cfg.CaptchaPlatform))
-	switch provider {
-	case captchaProviderYY:
-		return getCaptchaTokenFromYY(cfg, appID)
-	case captchaProviderAC:
-		return getCaptchaTokenFromAC(cfg, appID)
-	case captchaProviderFJ:
-		return getCaptchaTokenFromFJ(cfg, appID)
-	default:
-		return nil, fmt.Errorf("不支持的验证码平台: %s", cfg.CaptchaPlatform)
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ { // 首次 + 失败后重试1次
+		var token *captchaToken
+		switch provider {
+		case captchaProviderYY:
+			token, lastErr = getCaptchaTokenFromYY(cfg, appID)
+		case captchaProviderAC:
+			token, lastErr = getCaptchaTokenFromAC(cfg, appID)
+		case captchaProviderFJ:
+			token, lastErr = getCaptchaTokenFromFJ(cfg, appID)
+		default:
+			return nil, fmt.Errorf("不支持的验证码平台: %s", cfg.CaptchaPlatform)
+		}
+		if lastErr == nil {
+			return token, nil
+		}
 	}
+	return nil, fmt.Errorf("验证码获取失败(已重试1次): %w", lastErr)
 }
 
 func getCaptchaTokenFromYY(cfg systemRegisterConfig, appID string) (*captchaToken, error) {
@@ -416,6 +424,66 @@ func buildTLV553ProviderFromConfig(cfg systemRegisterConfig) (func(uin uint32) (
 			return nil, fmt.Errorf("tlv553 failed: code=%d body=%s", payload.Code, respText)
 		}
 		return hex.DecodeString(strings.ReplaceAll(payload.Data, " ", ""))
+	}, nil
+}
+
+func buildSignProviderFromConfig(cfg systemRegisterConfig) (qpi.SignProvider, error) {
+	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
+	apiToken := strings.TrimSpace(cfg.ApiToken)
+	if apiBase == "" || apiToken == "" {
+		return nil, errors.New("登录签名服务 apiBase/apiToken 未配置")
+	}
+	return func(req qpi.SignRequest) ([]byte, error) {
+		form := url.Values{}
+		form.Set("token", apiToken)
+		form.Set("uin", strconv.FormatUint(uint64(req.UIN), 10))
+		form.Set("cmd", req.Cmd)
+		form.Set("data", strings.ToLower(hex.EncodeToString(req.Body)))
+		form.Set("qua", strings.TrimSpace(req.QUA))
+		form.Set("seq", strconv.Itoa(req.Seq))
+		form.Set("guid", strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(req.GUIDHex)), " ", ""))
+		form.Set("android_id", strings.TrimSpace(req.AndroidID))
+		form.Set("qimei36", strings.TrimSpace(req.QIMEI36))
+		respText, err := doPostForm(apiBase+"/qsign", form.Encode())
+		if err != nil {
+			return nil, fmt.Errorf("sign provider request failed: %w", err)
+		}
+		return hex.DecodeString(strings.ReplaceAll(strings.TrimSpace(respText), " ", ""))
+	}, nil
+}
+
+func buildInitProviderFromConfig(cfg systemRegisterConfig) (qpi.InitProvider, error) {
+	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
+	apiToken := strings.TrimSpace(cfg.ApiToken)
+	if apiBase == "" || apiToken == "" {
+		return nil, errors.New("登录签名服务 apiBase/apiToken 未配置")
+	}
+	return func(req qpi.InitRequest) error {
+		form := url.Values{}
+		form.Set("token", apiToken)
+		form.Set("uin", req.UIN)
+		form.Set("ssoseq", strconv.Itoa(req.SSOSeq))
+		form.Set("appid", strconv.Itoa(req.AppID))
+		form.Set("appids", strconv.Itoa(req.AppID2))
+		form.Set("qqver", req.QQVer)
+		form.Set("guid", req.GUIDHex)
+		form.Set("qimei36", req.QIMEI36)
+		form.Set("qua", req.QUA)
+		form.Set("apkver", req.APKVer)
+		form.Set("code", strconv.Itoa(req.Code))
+		form.Set("android_id", req.AndroidID)
+		form.Set("brand", req.Brand)
+		form.Set("model", req.Model)
+		form.Set("osver", req.OSVer)
+		form.Set("cookie", req.CookieHex)
+		rsp, err := doPostForm(apiBase+"/init", form.Encode())
+		if err != nil {
+			return fmt.Errorf("init provider request failed: %w", err)
+		}
+		if strings.TrimSpace(rsp) != "error" {
+			return nil
+		}
+		return fmt.Errorf("init provider response failed: %s", rsp)
 	}, nil
 }
 

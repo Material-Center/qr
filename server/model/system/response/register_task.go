@@ -28,6 +28,7 @@ type RegisterTaskActiveInfo struct {
 	Progress    string     `json:"progress"`
 	VerifyLabel string     `json:"verifyLabel"`
 	VerifyPlace string     `json:"verifyPlace"`
+	NeedVerify  bool       `json:"needVerifyCode"`
 	SubmitText  string     `json:"submitText"`
 	RetryText   string     `json:"retryText"`
 	FailText    string     `json:"failText"`

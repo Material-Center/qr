@@ -200,6 +200,7 @@ func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveIn
 		Progress:    progress,
 		VerifyLabel: verifyLabel,
 		VerifyPlace: verifyPlace,
+		NeedVerify:  needVerifyCode(task),
 		SubmitText:  submitText,
 		RetryText:   "重试当前步骤",
 		FailText:    "标记任务失败",
@@ -208,6 +209,17 @@ func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveIn
 		RetryCount:  task.RetryCount,
 		ExpiresAt:   task.ExpiresAt,
 		FinishedAt:  task.FinishedAt,
+	}
+}
+
+func needVerifyCode(task system.SysRegisterTask) bool {
+	switch task.CurrentStep {
+	case system.RegisterTaskStepPhoneBind, system.RegisterTaskStepChangePassword:
+		return true
+	case system.RegisterTaskStepLogin:
+		return strings.Contains(task.LastError, "触发短信验证")
+	default:
+		return true
 	}
 }
 
@@ -224,7 +236,7 @@ func buildStepTexts(task system.SysRegisterTask) (title string, hint string, pro
 		if total > 0 {
 			progressText = "改密进度 " + itoa(done) + "/" + itoa(total)
 		}
-		return "候选QQ改密", "每次提交一个验证码，后端按顺序处理一个QQ改密。", progressText, "改密验证码", "请输入当前待改密QQ对应验证码", "提交并改密下一个QQ"
+		return "候选QQ改密", "进入改密后会自动发送当前QQ的改密验证码，输入验证码提交即可；全部改密完成后自动进入登录。", progressText, "改密验证码", "请输入当前待改密QQ对应验证码", "提交并改密下一个QQ"
 	case system.RegisterTaskStepLogin:
 		changed := splitPipe(task.QQChangedList)
 		logged := splitPipe(task.QQLoggedList)
@@ -234,7 +246,7 @@ func buildStepTexts(task system.SysRegisterTask) (title string, hint string, pro
 		if total > 0 {
 			progressText = "登录进度 " + itoa(done) + "/" + itoa(total)
 		}
-		return "改密后QQ登录", "每次提交一个验证码，后端按顺序处理一个QQ登录并保存缓存。", progressText, "登录验证码", "请输入当前待登录QQ对应验证码", "提交并登录下一个QQ"
+		return "改密后QQ登录", "改密完成后自动进入登录流程；每次提交后端会按顺序处理一个QQ登录并保存缓存。", progressText, "登录验证码", "请输入当前待登录QQ对应验证码", "提交并登录下一个QQ"
 	default:
 		return "任务处理中", "请按后端流程提示操作。", "", "验证码", "请输入验证码", "提交"
 	}

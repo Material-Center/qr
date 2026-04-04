@@ -64,7 +64,6 @@
       <el-table :data="tableData" row-key="ID">
         <el-table-column label="任务ID" min-width="90" prop="ID" />
         <el-table-column label="手机号" min-width="140" prop="phone" />
-        <el-table-column label="QQ账号" min-width="140" prop="qqAccount" />
         <el-table-column label="当前步骤" min-width="120">
           <template #default="scope">
             {{ stepText(scope.row.currentStep) }}

@@ -21,14 +21,11 @@ const (
 type SysRegisterTask struct {
 	global.GVA_MODEL
 	Phone            string     `json:"phone" gorm:"uniqueIndex:idx_register_task_phone;comment:手机号(唯一)"`
-	QQAccount        string     `json:"qqAccount" gorm:"index;comment:QQ账号"`
 	QQPassword       string     `json:"qqPassword" gorm:"comment:QQ密码"`
 	LoginCacheINI    string     `json:"loginCacheIni" gorm:"type:longtext;comment:登录缓存ini"`
 	QQCandidates     string     `json:"-" gorm:"type:text;comment:查绑后候选QQ(JSON)"`
 	QQChangedList    string     `json:"-" gorm:"type:text;comment:改密成功QQ(JSON)"`
 	QQLoggedList     string     `json:"-" gorm:"type:text;comment:登录成功QQ(JSON)"`
-	CaptchaRandstr   string     `json:"-" gorm:"size:128;comment:流程滑块randstr"`
-	CaptchaTicket    string     `json:"-" gorm:"size:512;comment:流程滑块ticket"`
 	IsDaren          *bool      `json:"isDaren" gorm:"comment:是否达人"`
 	StatusCode       *int       `json:"statusCode" gorm:"index;comment:状态码 >0业务失败 <0系统失败 ==0成功"`
 	CurrentStep      string     `json:"currentStep" gorm:"index;comment:当前步骤"`

@@ -68,7 +68,7 @@
             <span class="text-red-500">{{ activeTask.lastError }}</span>
           </el-form-item>
           <el-form-item label="过期时间">
-            <span>{{ formatDate(activeTask.expiresAt) }}</span>
+            <span>{{ safeFormatDate(activeTask.expiresAt) }}</span>
           </el-form-item>
         </el-form>
       </div>
@@ -149,7 +149,7 @@
           min-width="170"
         >
           <template #default="scope">
-            {{ scope.row.finishedAt ? formatDate(scope.row.finishedAt) : '-' }}
+            {{ safeFormatDate(scope.row.finishedAt) }}
           </template>
         </el-table-column>
       </el-table>
@@ -204,6 +204,7 @@ const submitText = computed(() => activeTask.value?.submitText || '提交')
 const retryText = computed(() => activeTask.value?.retryText || '重试')
 const failText = computed(() => activeTask.value?.failText || '失败')
 const taskHint = computed(() => activeTask.value?.stepHint || '')
+const needVerifyCode = computed(() => activeTask.value?.needVerifyCode !== false)
 
 const statusText = (task) => {
   if (!task?.finishedAt) return '处理中'
@@ -215,6 +216,13 @@ const statusTagType = (task) => {
   if (!task?.finishedAt) return 'warning'
   if (task?.statusCode === 0) return 'success'
   return 'danger'
+}
+
+const safeFormatDate = (value) => {
+  if (!value) return '-'
+  const ts = new Date(value).getTime()
+  if (Number.isNaN(ts)) return '-'
+  return formatDate(value)
 }
 
 const remainSeconds = computed(() => {
@@ -275,14 +283,22 @@ const createTask = async () => {
     ElMessage.warning('请先输入手机号')
     return
   }
-  await createRegisterTask({ phone: phone.value }).then(async () => {
-    const res = await reloadSystem()
-    if (res.code === 0) {
-      ElMessage.success('任务创建成功')
-    }
-  })
+  const res = await createRegisterTask({ phone: phone.value })
+  if (res?.code !== 0) {
+    ElMessage.error(res?.msg || '任务创建失败')
+    return
+  }
+  ElMessage.success('任务创建成功')
   phone.value = ''
   await refreshAll()
+  // 创建后可能存在短暂写库/状态同步延迟，补一次短轮询确保拿到最新进度
+  if (!activeTask.value?.id) {
+    for (let i = 0; i < 3; i++) {
+      await new Promise((resolve) => window.setTimeout(resolve, 800))
+      await loadActiveTask()
+      if (activeTask.value?.id) break
+    }
+  }
 }
 
 const submitStepCommon = async (payload) => {
@@ -298,7 +314,7 @@ const submitStepCommon = async (payload) => {
 }
 
 const submitStep = async () => {
-  if (!verifyCode.value) {
+  if (needVerifyCode.value && !verifyCode.value) {
     ElMessage.warning(`${verifyLabel.value}不能为空`)
     return
   }
@@ -324,14 +340,14 @@ const markFail = async () => {
 const startAutoRefresh = () => {
   stopAutoRefresh()
   refreshTimer.value = window.setInterval(async () => {
-    // 仅在存在未完成任务时自动刷新，避免无效请求
-    if (!activeTask.value?.id || activeTask.value?.finishedAt) return
-    const isTimeout = activeTask.value?.expiresAt
-      ? Date.now() >= new Date(activeTask.value.expiresAt).getTime()
-      : false
-    if (isTimeout) {
-      await refreshAll()
-      return
+    if (activeTask.value?.id && !activeTask.value?.finishedAt) {
+      const isTimeout = activeTask.value?.expiresAt
+        ? Date.now() >= new Date(activeTask.value.expiresAt).getTime()
+        : false
+      if (isTimeout) {
+        await refreshAll()
+        return
+      }
     }
     await refreshAll()
   }, 5000)
