@@ -12,6 +12,7 @@ import (
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 const registerTaskTimeout = 10 * time.Minute
@@ -145,7 +146,9 @@ func (s *RegisterTaskService) GetActiveTask(promoterID uint) (task system.SysReg
 		Order("id desc").
 		First(&task).Error
 	if err != nil {
-		global.GVA_LOG.Error("【注册任务】拉取当前任务-查询失败", zap.Uint("promoterId", promoterID), zap.Error(err))
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			global.GVA_LOG.Error("【注册任务】拉取当前任务-查询失败", zap.Uint("promoterId", promoterID), zap.Error(err))
+		}
 		return task, err
 	}
 	if recoverErr := s.restorePhoneBindSessionIfNeeded(&task); recoverErr != nil {

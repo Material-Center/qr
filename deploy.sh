@@ -13,14 +13,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ###############################################################################
 # Deploy config (edit here)
 ###############################################################################
-REMOTE_HOST="38.95.75.253"
+REMOTE_HOST="210.16.170.132"
 REMOTE_USER="root"
 REMOTE_PORT="22"
 # 认证方式二选一：
 # 1) 密钥：填写 SSH_KEY，REMOTE_PASSWORD 留空
 # 2) 密码：填写 REMOTE_PASSWORD，SSH_KEY 留空
 SSH_KEY=""
-REMOTE_PASSWORD="DOVPkF2RuS1xYHym"
+REMOTE_PASSWORD="Ca9B0VXUhkLoNleF"
 
 # web
 REMOTE_WEB_DIR="/var/www/qr-web"
