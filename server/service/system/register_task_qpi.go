@@ -2,6 +2,8 @@ package system
 
 import (
 	"bytes"
+	"context"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,18 +15,38 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Material-Center/qpi"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	"go.uber.org/zap"
 )
 
 const (
-	captchaProviderYY = "yy"
-	captchaProviderAC = "ac"
-	captchaProviderFJ = "fj"
+	captchaProviderYY   = "yy"
+	captchaProviderAC   = "ac"
+	captchaProviderFJ   = "fj"
+	defaultShenlongArea = "210100,210200,210300,210400,210500,210600,210700,210800,210900,211000,211100,211200,211300,211400" // 辽宁省城市代码列表
+	ip138GeoCachePrefix = "register:ip138:geo:"
 )
+
+//go:embed pcc.json
+var pccRawJSON []byte
+
+var (
+	pccInitOnce       sync.Once
+	pccInitErr        error
+	pccProvinceByName map[string]string   // 省名(归一化) -> 省code
+	pccCityCodesByKey map[string][]string // 市名(归一化) -> 可能的市code
+)
+
+type shenlongGeo struct {
+	Area   string `json:"area"`
+	ISP    string `json:"isp"`
+	Source string `json:"source"`
+}
 
 type captchaToken struct {
 	Randstr string
@@ -233,11 +255,18 @@ func getCaptchaTokenFromFJ(cfg systemRegisterConfig, appID string) (*captchaToke
 	return &captchaToken{Randstr: randstr, Ticket: ticket}, nil
 }
 
-func (s *RegisterTaskService) allocateProxyURL(cfg systemRegisterConfig) (string, error) {
-	return allocateProxyURLFromConfig(cfg)
+func (s *RegisterTaskService) allocateProxyURL(cfg systemRegisterConfig, phone string) (string, error) {
+	geo := s.resolveProxyGeo(cfg, phone)
+	global.GVA_LOG.Info("【注册任务】代理地区解析结果",
+		zap.String("phone", strings.TrimSpace(phone)),
+		zap.String("area", geo.Area),
+		zap.String("isp", geo.ISP),
+		zap.String("source", geo.Source),
+	)
+	return allocateProxyURLFromConfig(cfg, geo.Area, geo.ISP)
 }
 
-func allocateProxyURLFromConfig(cfg systemRegisterConfig) (string, error) {
+func allocateProxyURLFromConfig(cfg systemRegisterConfig, area string, isp string) (string, error) {
 	if strings.TrimSpace(cfg.ProxyPlatform) == "" {
 		return "", nil
 	}
@@ -258,11 +287,273 @@ func allocateProxyURLFromConfig(cfg systemRegisterConfig) (string, error) {
 	if err := addShenlongWhitelist(client, sign, publicIP); err != nil {
 		return "", err
 	}
-	addr, err := fetchShenlongSocks5(client, key, sign)
+	addr, err := fetchShenlongSocks5(client, key, sign, area, isp)
 	if err != nil {
 		return "", err
 	}
 	return addr, nil
+}
+
+func (s *RegisterTaskService) resolveProxyGeo(cfg systemRegisterConfig, phone string) shenlongGeo {
+	geo := shenlongGeo{
+		Area:   strings.TrimSpace(defaultShenlongArea),
+		ISP:    "",
+		Source: "default",
+	}
+	phone = strings.TrimSpace(phone)
+	if phone == "" || len(phone) != 11 {
+		return geo
+	}
+	if cached, ok := getPhoneGeoFromCache(phone); ok {
+		cached.Source = "cache"
+		return cached
+	}
+	token := strings.TrimSpace(cfg.IP138Token)
+	if token == "" {
+		return geo
+	}
+	province, city, carrier, err := queryPhoneRegionFromIP138(token, phone)
+	if err != nil {
+		global.GVA_LOG.Warn(fmt.Sprintf("【注册任务】代理地区解析失败，回退默认地区 phone=%s err=%v", phone, err))
+		return geo
+	}
+	if code, ok, resolveErr := resolveCityCodeFromPCC(province, city); resolveErr == nil && ok {
+		geo.Area = code
+	}
+	geo.ISP = normalizeShenlongISP(carrier)
+	geo.Source = "ip138"
+	setPhoneGeoCache(phone, geo)
+	return geo
+}
+
+func getPhoneGeoFromCache(phone string) (shenlongGeo, bool) {
+	if global.GVA_REDIS == nil {
+		return shenlongGeo{}, false
+	}
+	key := ip138GeoCachePrefix + strings.TrimSpace(phone)
+	val, err := global.GVA_REDIS.Get(context.Background(), key).Result()
+	if err != nil {
+		return shenlongGeo{}, false
+	}
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return shenlongGeo{}, false
+	}
+	var geo shenlongGeo
+	if err := json.Unmarshal([]byte(val), &geo); err != nil {
+		return shenlongGeo{}, false
+	}
+	geo.Area = strings.TrimSpace(geo.Area)
+	geo.ISP = normalizeShenlongISP(geo.ISP)
+	if !isShenlongAreaValueValid(geo.Area) {
+		return shenlongGeo{}, false
+	}
+	return geo, true
+}
+
+func setPhoneGeoCache(phone string, geo shenlongGeo) {
+	if global.GVA_REDIS == nil {
+		return
+	}
+	geo.Area = strings.TrimSpace(geo.Area)
+	geo.ISP = normalizeShenlongISP(geo.ISP)
+	geo.Source = ""
+	if !isShenlongAreaValueValid(geo.Area) {
+		return
+	}
+	raw, err := json.Marshal(geo)
+	if err != nil {
+		return
+	}
+	key := ip138GeoCachePrefix + strings.TrimSpace(phone)
+	_ = global.GVA_REDIS.Set(context.Background(), key, string(raw), 24*time.Hour).Err()
+}
+
+func queryPhoneRegionFromIP138(token string, phone string) (province string, city string, carrier string, err error) {
+	token = strings.TrimSpace(token)
+	phone = strings.TrimSpace(phone)
+	if token == "" || phone == "" {
+		return "", "", "", errors.New("ip138 token或手机号为空")
+	}
+	u, err := url.Parse("https://api.ip138.com/mobile/")
+	if err != nil {
+		return "", "", "", err
+	}
+	q := u.Query()
+	q.Set("mobile", phone)
+	q.Set("datatype", "jsonp")
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", "", "", err
+	}
+	req.Header.Set("token", token)
+	client := &http.Client{Timeout: 1500 * time.Millisecond}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", "", err
+	}
+	if resp.StatusCode/100 != 2 {
+		return "", "", "", fmt.Errorf("ip138请求失败: %s", resp.Status)
+	}
+	payload := strings.TrimSpace(string(body))
+	if payload == "" {
+		return "", "", "", errors.New("ip138响应为空")
+	}
+	jsonBody := payload
+	if !strings.HasPrefix(jsonBody, "{") {
+		start := strings.Index(jsonBody, "{")
+		end := strings.LastIndex(jsonBody, "}")
+		if start < 0 || end <= start {
+			return "", "", "", fmt.Errorf("ip138响应格式异常: %s", payload)
+		}
+		jsonBody = jsonBody[start : end+1]
+	}
+	var ret struct {
+		Ret    string   `json:"ret"`
+		Msg    string   `json:"msg"`
+		Mobile string   `json:"mobile"`
+		Data   []string `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(jsonBody), &ret); err != nil {
+		return "", "", "", err
+	}
+	if strings.ToLower(strings.TrimSpace(ret.Ret)) != "ok" {
+		return "", "", "", fmt.Errorf("ip138返回失败: %s", strings.TrimSpace(ret.Msg))
+	}
+	if len(ret.Data) < 3 {
+		return "", "", "", fmt.Errorf("ip138数据异常: %s", jsonBody)
+	}
+	province = strings.TrimSpace(ret.Data[0])
+	city = strings.TrimSpace(ret.Data[1])
+	carrier = strings.TrimSpace(ret.Data[2])
+	return province, city, carrier, nil
+}
+
+func resolveCityCodeFromPCC(province, city string) (string, bool, error) {
+	if err := initPCCIndexes(); err != nil {
+		return "", false, err
+	}
+	cityKey := normalizeRegionName(city)
+	if cityKey == "" {
+		return "", false, nil
+	}
+	cityCandidates := pccCityCodesByKey[cityKey]
+	if len(cityCandidates) == 0 {
+		return "", false, nil
+	}
+
+	provinceKey := normalizeRegionName(province)
+	if provinceKey != "" {
+		if provinceCode, ok := pccProvinceByName[provinceKey]; ok && len(provinceCode) >= 2 {
+			prefix := provinceCode[:2]
+			for _, code := range cityCandidates {
+				if strings.HasPrefix(code, prefix) {
+					return code, true, nil
+				}
+			}
+		}
+	}
+	return cityCandidates[0], true, nil
+}
+
+func initPCCIndexes() error {
+	pccInitOnce.Do(func() {
+		var kv map[string]string
+		if err := json.Unmarshal(pccRawJSON, &kv); err != nil {
+			pccInitErr = fmt.Errorf("解析pcc.json失败: %w", err)
+			return
+		}
+		pccProvinceByName = map[string]string{}
+		pccCityCodesByKey = map[string][]string{}
+		for code, name := range kv {
+			code = strings.TrimSpace(code)
+			name = strings.TrimSpace(name)
+			if !isStrictCityCode(code) || name == "" {
+				continue
+			}
+			if isProvinceLevelCode(code) {
+				pccProvinceByName[normalizeRegionName(name)] = code
+				continue
+			}
+			if isCityLevelCode(code) {
+				key := normalizeRegionName(name)
+				if key == "" {
+					continue
+				}
+				pccCityCodesByKey[key] = append(pccCityCodesByKey[key], code)
+			}
+		}
+	})
+	return pccInitErr
+}
+
+func normalizeRegionName(name string) string {
+	name = strings.TrimSpace(strings.ReplaceAll(name, " ", ""))
+	if name == "" {
+		return ""
+	}
+	for _, suffix := range []string{
+		"维吾尔自治区", "壮族自治区", "回族自治区", "自治区", "特别行政区",
+		"自治州", "地区", "盟", "省", "市", "州",
+	} {
+		name = strings.TrimSuffix(name, suffix)
+	}
+	return strings.TrimSpace(name)
+}
+
+func normalizeShenlongISP(raw string) string {
+	s := strings.TrimSpace(raw)
+	switch {
+	case strings.Contains(s, "联通"):
+		return "联通"
+	case strings.Contains(s, "电信"):
+		return "电信"
+	case strings.Contains(s, "移动"):
+		return "移动"
+	default:
+		return ""
+	}
+}
+
+func isStrictCityCode(code string) bool {
+	if len(code) != 6 {
+		return false
+	}
+	for _, ch := range code {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func isProvinceLevelCode(code string) bool {
+	return isStrictCityCode(code) && strings.HasSuffix(code, "0000")
+}
+
+func isCityLevelCode(code string) bool {
+	return isStrictCityCode(code) && strings.HasSuffix(code, "00") && !strings.HasSuffix(code, "0000")
+}
+
+func isShenlongAreaValueValid(area string) bool {
+	area = strings.TrimSpace(area)
+	if area == "" {
+		return false
+	}
+	for _, part := range strings.Split(area, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" || !isStrictCityCode(part) {
+			return false
+		}
+	}
+	return true
 }
 
 func fetchPublicIP(client *http.Client) (string, error) {
@@ -310,7 +601,7 @@ func addShenlongWhitelist(client *http.Client, sign string, ip string) error {
 	return nil
 }
 
-func fetchShenlongSocks5(client *http.Client, key, sign string) (string, error) {
+func fetchShenlongSocks5(client *http.Client, key, sign, area, isp string) (string, error) {
 	u, _ := url.Parse("http://api.shenlongip.com/ip")
 	q := u.Query()
 	q.Set("key", key)
@@ -320,6 +611,13 @@ func fetchShenlongSocks5(client *http.Client, key, sign string) (string, error) 
 	q.Set("mr", "1")
 	q.Set("protocol", "3")
 	q.Set("type", "3")
+	if strings.TrimSpace(area) != "" {
+		q.Set("area", strings.TrimSpace(area))
+	}
+	ispRet := normalizeShenlongISP(isp)
+	if ispRet != "" {
+		q.Set("isp", ispRet)
+	}
 	u.RawQuery = q.Encode()
 
 	for i := 0; i < 3; i++ {
@@ -528,6 +826,7 @@ type systemRegisterConfig struct {
 	NaichaAppID     string
 	NaichaSecret    string
 	NaichaCKMd5     string
+	IP138Token      string
 	ApiBase         string
 	ApiToken        string
 	ProxyPlatform   string
@@ -570,17 +869,19 @@ func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRe
 		NaichaAppID     string
 		NaichaSecret    string
 		NaichaCKMd5     string
+		IP138Token      string
 		ApiBase         string
 		ApiToken        string
 	}
 	if err := global.GVA_DB.Model(&system.SysRegisterConfig{}).
-		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5, api_base, api_token").
+		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5, ip138_token, api_base, api_token").
 		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
 		First(&adminCfg).Error; err == nil {
 		cfg.DefaultPassword = adminCfg.DefaultPassword
 		cfg.NaichaAppID = adminCfg.NaichaAppID
 		cfg.NaichaSecret = adminCfg.NaichaSecret
 		cfg.NaichaCKMd5 = adminCfg.NaichaCKMd5
+		cfg.IP138Token = adminCfg.IP138Token
 		cfg.ApiBase = adminCfg.ApiBase
 		cfg.ApiToken = adminCfg.ApiToken
 	}

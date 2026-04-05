@@ -291,7 +291,7 @@ func (s *RegisterTaskService) executeRetryAction(task *system.SysRegisterTask) e
 		if cfgErr != nil {
 			return cfgErr
 		}
-		proxyURL, pErr := s.allocateProxyURL(runtimeCfg)
+		proxyURL, pErr := s.allocateProxyURL(runtimeCfg, task.Phone)
 		if pErr != nil {
 			return pErr
 		}

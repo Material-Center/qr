@@ -5,7 +5,7 @@
       class="mb-3"
     >
       <div class="user-bar">
-        <span>当前登录用户：{{ currentUser.nickName || '-' }}</span>
+        <span>当前登录：{{ currentUser.nickName || '-' }}</span>
         <el-button
           type="danger"
           link
@@ -71,21 +71,26 @@
               />
             </el-form-item>
             <el-form-item>
-              <el-button
-                size="small"
-                type="primary"
-                @click="submitStep(task)"
-              >{{ task.submitText || '提交' }}</el-button>
-              <el-button
-                size="small"
-                @click="retryStep(task)"
-              >{{ task.retryText || '重试' }}</el-button>
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                @click="markFail(task)"
-              >{{ task.failText || '失败' }}</el-button>
+              <div class="task-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  class="action-btn"
+                  @click="submitStep(task)"
+                >{{ task.submitText || '提交' }}</el-button>
+                <el-button
+                  size="small"
+                  class="action-btn"
+                  @click="retryStep(task)"
+                >{{ task.retryText || '重试' }}</el-button>
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  class="action-btn action-btn-danger"
+                  @click="markFail(task)"
+                >{{ task.failText || '失败' }}</el-button>
+              </div>
             </el-form-item>
             <el-form-item
               v-if="task.lastError"
@@ -112,54 +117,56 @@
         <el-col :span="8">失败：{{ counters.fail }}</el-col>
         <el-col :span="8">处理中：{{ counters.processing }}</el-col>
       </el-row>
-      <el-table
-        :data="myTasks"
-        row-key="ID"
-        size="small"
-      >
-        <el-table-column
-          label="任务ID"
-          prop="ID"
-          width="90"
-        />
-        <el-table-column
-          label="手机号"
-          prop="phone"
-          min-width="130"
-        />
-        <el-table-column
-          label="状态"
-          min-width="100"
+      <div class="table-wrap">
+        <el-table
+          :data="myTasks"
+          row-key="ID"
+          size="small"
         >
-          <template #default="scope">
-            <el-tag :type="statusTagType(scope.row)">
-              {{ statusText(scope.row) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="步骤"
-          min-width="100"
-        >
-          <template #default="scope">
-            {{ stepText(scope.row.currentStep) }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="错误"
-          prop="lastError"
-          min-width="140"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          label="完成时间"
-          min-width="170"
-        >
-          <template #default="scope">
-            {{ safeFormatDate(scope.row.finishedAt) }}
-          </template>
-        </el-table-column>
-      </el-table>
+          <el-table-column
+            label="任务ID"
+            prop="ID"
+            width="90"
+          />
+          <el-table-column
+            label="手机号"
+            prop="phone"
+            min-width="130"
+          />
+          <el-table-column
+            label="状态"
+            min-width="100"
+          >
+            <template #default="scope">
+              <el-tag :type="statusTagType(scope.row)">
+                {{ statusText(scope.row) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="步骤"
+            min-width="100"
+          >
+            <template #default="scope">
+              {{ stepText(scope.row.currentStep) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="错误"
+            prop="lastError"
+            min-width="140"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="完成时间"
+            min-width="170"
+          >
+            <template #default="scope">
+              {{ safeFormatDate(scope.row.finishedAt) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </el-card>
   </div>
 </template>
@@ -242,9 +249,9 @@ const taskTitle = (task) => {
   if (!task?.id) return '当前任务'
   const title = task?.stepTitle || stepText(task.currentStep)
   const progress = task?.progress
-    ? `，${task.progress}`
+    ? ` ${task.progress}`
     : ''
-  return `当前任务 #${task.id}，${title}${progress}，剩余：${remainText(task)}`
+  return `任务#${task.id} ${title}${progress} 剩余 ${remainText(task)}`
 }
 
 const loadActiveTask = async () => {
@@ -383,6 +390,14 @@ onBeforeUnmount(() => {
   max-width: 720px;
   margin: 0 auto;
   padding: 8px;
+  box-sizing: border-box;
+  height: 100vh;
+  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .user-bar {
@@ -395,6 +410,10 @@ onBeforeUnmount(() => {
   margin-bottom: 10px;
 }
 
+.compact-form :deep(.el-form-item__label) {
+  white-space: nowrap;
+}
+
 .compact-page :deep(.el-card__header) {
   padding: 10px 12px;
 }
@@ -403,10 +422,65 @@ onBeforeUnmount(() => {
   padding: 10px;
 }
 
+.task-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.task-actions .action-btn {
+  margin-left: 0 !important;
+  width: 100%;
+}
+
+.task-actions .action-btn-danger {
+  grid-column: 1 / -1;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 @media (max-width: 768px) {
   .task-center {
     max-width: 100%;
     padding: 6px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .user-bar {
+    font-size: 13px;
+  }
+
+  .compact-page :deep(.el-card__header) {
+    padding: 8px 10px;
+  }
+
+  .compact-page :deep(.el-card__body) {
+    padding: 8px;
+  }
+
+  .compact-form :deep(.el-form-item) {
+    margin-bottom: 8px;
+  }
+
+  .compact-form :deep(.el-form-item__label) {
+    width: 78px !important;
+  }
+
+  .compact-form :deep(.el-form-item__content) {
+    min-width: 0;
+  }
+
+  .compact-page :deep(.el-alert__title) {
+    font-size: 13px;
+  }
+
+  .compact-page :deep(.el-alert__description) {
+    font-size: 12px;
+    line-height: 1.35;
   }
 }
 </style>

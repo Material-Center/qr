@@ -17,6 +17,9 @@
           <el-form-item label="奶茶 CKMd5">
             <el-input v-model="form.naichaCkMd5" placeholder="请输入奶茶平台 ckmd5（可选）" />
           </el-form-item>
+          <el-form-item label="IP138 Token">
+            <el-input v-model="form.ip138Token" show-password placeholder="可选：用于按手机号定位代理地区" />
+          </el-form-item>
           <el-form-item label="签名 ApiBase">
             <el-input v-model="form.apiBase" placeholder="例如: http://sign9.owo.vin" />
           </el-form-item>
@@ -113,6 +116,7 @@ const form = ref({
   naichaAppId: '',
   naichaSecret: '',
   naichaCkMd5: '',
+  ip138Token: '',
   apiBase: '',
   apiToken: '',
   proxyPlatform: '',
@@ -171,6 +175,7 @@ const loadConfig = async () => {
     naichaAppId: data?.naichaAppId || '',
     naichaSecret: data?.naichaSecret || '',
     naichaCkMd5: data?.naichaCkMd5 || '',
+    ip138Token: data?.ip138Token || '',
     apiBase: data?.apiBase || '',
     apiToken: data?.apiToken || '',
     proxyPlatform: data?.proxyPlatform || '',

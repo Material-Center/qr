@@ -57,6 +57,7 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		data["naicha_app_id"] = req.NaichaAppID
 		data["naicha_secret"] = req.NaichaSecret
 		data["naicha_ck_md5"] = req.NaichaCKMd5
+		data["ip138_token"] = req.IP138Token
 		data["api_base"] = req.ApiBase
 		data["api_token"] = req.ApiToken
 	case cfgRoleLeader:
@@ -84,6 +85,7 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.NaichaAppID = req.NaichaAppID
 			cfg.NaichaSecret = req.NaichaSecret
 			cfg.NaichaCKMd5 = req.NaichaCKMd5
+			cfg.IP138Token = req.IP138Token
 			cfg.ApiBase = req.ApiBase
 			cfg.ApiToken = req.ApiToken
 		case cfgRoleLeader:
@@ -134,6 +136,7 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 		NaichaAppID:     cfgModel.NaichaAppID,
 		NaichaSecret:    cfgModel.NaichaSecret,
 		NaichaCKMd5:     cfgModel.NaichaCKMd5,
+		IP138Token:      cfgModel.IP138Token,
 		ApiBase:         cfgModel.ApiBase,
 		ApiToken:        cfgModel.ApiToken,
 		ProxyPlatform:   cfgModel.ProxyPlatform,
@@ -222,7 +225,7 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 			"message": "未配置",
 		}
 		if strings.TrimSpace(cfg.ProxyPlatform) != "" {
-			addr, pErr := allocateProxyURLFromConfig(cfg)
+			addr, pErr := allocateProxyURLFromConfig(cfg, defaultShenlongArea, "")
 			if pErr != nil {
 				proxyResult["message"] = pErr.Error()
 			} else {

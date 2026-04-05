@@ -1,6 +1,8 @@
 package system
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"errors"
 	"net/url"
 	"strings"
@@ -75,6 +77,28 @@ func taskLogFieldsWithOpQQ(task system.SysRegisterTask, opQQ string) []zap.Field
 		base = append(base, zap.String("opQQ", q))
 	}
 	return base
+}
+
+func buildStableLoginDeviceProfile(uin string) (androidID string, guidHex string, qimei16 string) {
+	trimmedUIN := strings.TrimSpace(uin)
+	androidMD5 := md5.Sum([]byte(trimmedUIN))
+	androidHex := strings.ToLower(hex.EncodeToString(androidMD5[:]))
+	if len(androidHex) >= 24 {
+		androidID = androidHex[8:24]
+	} else {
+		androidID = androidHex
+	}
+
+	guidMD5 := md5.Sum([]byte(androidID + "02:00:00:00:00:00"))
+	guidHex = strings.ToUpper(hex.EncodeToString(guidMD5[:]))
+
+	qimeiMD5 := md5.Sum([]byte(androidID))
+	qimeiHex := strings.ToLower(hex.EncodeToString(qimeiMD5[:]))
+	if len(qimeiHex) >= 24 {
+		qimei16 = qimeiHex[8:24] + "801cf1e0100014619804"
+	}
+
+	return androidID, guidHex, qimei16
 }
 
 func init() {
@@ -294,7 +318,7 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 		return task, err
 	}
 
-	proxyURL, err := s.allocateProxyURL(runtimeCfg)
+	proxyURL, err := s.allocateProxyURL(runtimeCfg, task.Phone)
 	if err != nil {
 		global.GVA_LOG.Error("【注册任务】分配代理失败", append(taskLogFields(task), zap.Error(err))...)
 		return task, err
@@ -559,9 +583,13 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				}
 			}
 			loginCodeCh := make(chan string, 1)
+			androidID, guidHex, qimei16 := buildStableLoginDeviceProfile(currentQQ)
 			loginReq := qpi.PasswordLoginRequest{
 				UIN:            currentQQ,
 				Password:       task.QQPassword,
+				GUIDHex:        guidHex,
+				AndroidID:      androidID,
+				QIMEI16:        qimei16,
 				TLV544Provider: tlv544Provider,
 				TLV553Provider: tlv553Provider,
 				SignProvider:   signProvider,
@@ -621,7 +649,7 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				}
 				if isRetryableLoginNetworkErr(loginErr) {
 					clearLoginSession(task.ID)
-					refreshedProxyURL, pErr := s.allocateProxyURL(runtimeCfg)
+					refreshedProxyURL, pErr := s.allocateProxyURL(runtimeCfg, task.Phone)
 					if pErr != nil {
 						global.GVA_LOG.Error("【注册任务】登录-刷新代理失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(pErr))...)
 						return task, pErr
@@ -1294,13 +1322,14 @@ func buildResetTaskForReuse(task system.SysRegisterTask, promoterID uint, leader
 }
 
 func (s *RegisterTaskService) preparePhoneBindSMS(task *system.SysRegisterTask, runtimeCfg systemRegisterConfig) error {
+	global.GVA_LOG.Info("【注册任务】发短信-开始执行", taskLogFields(*task)...)
 	captcha, err := s.getCaptchaToken(runtimeCfg, qpi.FindBindAppID)
 	if err != nil {
 		global.GVA_LOG.Error("【注册任务】发短信-获取滑块验证码失败", append(taskLogFields(*task), zap.Error(err))...)
 		return err
 	}
 	global.GVA_LOG.Info("【注册任务】发短信-滑块验证码获取成功", append(taskLogFields(*task), zap.String("randstr", captcha.Randstr), zap.String("ticket", captcha.Ticket))...)
-	proxyURL, err := s.allocateProxyURL(runtimeCfg)
+	proxyURL, err := s.allocateProxyURL(runtimeCfg, task.Phone)
 	if err != nil {
 		global.GVA_LOG.Error("【注册任务】发短信-分配代理失败", append(taskLogFields(*task), zap.Error(err))...)
 		return err
@@ -1421,7 +1450,7 @@ func (s *RegisterTaskService) restoreTaskProgressIfNeeded(task *system.SysRegist
 		if cfgErr != nil {
 			return cfgErr
 		}
-		proxyURL, pErr := s.allocateProxyURL(runtimeCfg)
+		proxyURL, pErr := s.allocateProxyURL(runtimeCfg, task.Phone)
 		if pErr != nil {
 			return pErr
 		}
