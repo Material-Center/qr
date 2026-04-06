@@ -255,11 +255,11 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 			var token *captchaToken
 			switch strings.ToLower(strings.TrimSpace(cfg.CaptchaPlatform)) {
 			case captchaProviderYY:
-				token, err = getCaptchaTokenFromYY(cfg, qpi.ChangePasswordAppID)
+				token, err = getCaptchaTokenFromYY(cfg, qpi.ChangePasswordAppID, "")
 			case captchaProviderAC:
-				token, err = getCaptchaTokenFromAC(cfg, qpi.ChangePasswordAppID)
+				token, err = getCaptchaTokenFromAC(cfg, qpi.ChangePasswordAppID, "")
 			case captchaProviderFJ:
-				token, err = getCaptchaTokenFromFJ(cfg, qpi.ChangePasswordAppID)
+				token, err = getCaptchaTokenFromFJ(cfg, qpi.ChangePasswordAppID, "")
 			default:
 				err = errors.New("不支持的验证码平台")
 			}

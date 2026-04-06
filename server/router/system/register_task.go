@@ -22,5 +22,6 @@ func (r *RegisterTaskRouter) InitRegisterTaskRouter(Router *gin.RouterGroup) {
 		registerTaskRouterWithoutRecord.POST("list", registerTaskApi.GetRegisterTaskList)
 		registerTaskRouterWithoutRecord.GET("summary", registerTaskApi.GetRegisterTaskSummary)
 		registerTaskRouterWithoutRecord.GET("debug/login/task", registerTaskApi.GetRegisterTaskDebugLoginTask)
+		registerTaskRouterWithoutRecord.GET("cache/download", registerTaskApi.DownloadRegisterTaskCache)
 	}
 }

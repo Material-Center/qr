@@ -92,6 +92,18 @@
             {{ scope.row.finishedAt ? formatDate(scope.row.finishedAt) : '-' }}
           </template>
         </el-table-column>
+        <el-table-column v-if="canDownloadCache" label="操作" width="130" fixed="right">
+          <template #default="scope">
+            <el-button
+              type="primary"
+              link
+              :disabled="!scope.row.loginCacheIni"
+              @click="downloadCacheFile(scope.row)"
+            >
+              下载缓存
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="gva-pagination">
@@ -140,7 +152,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getRegisterTaskList, getRegisterTaskSummary } from '@/api/registerTask'
+import { downloadRegisterTaskCache, getRegisterTaskList, getRegisterTaskSummary } from '@/api/registerTask'
 import { getUserList } from '@/api/user'
 import { formatDate } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
@@ -153,12 +165,14 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
+const ROLE_SUPER = 888
 const ROLE_ADMIN = 100
 const ROLE_LEADER = 200
 const ROLE_PROMOTER = 300
 const userStore = useUserStore()
 const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const currentUserId = computed(() => userStore.userInfo?.ID)
+const canDownloadCache = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showLeaderFilter = computed(() => currentRoleId.value === ROLE_ADMIN)
 const searchInfo = ref({
   promoterId: undefined,
@@ -279,6 +293,55 @@ const handleSizeChange = (val) => {
   pageSize.value = val
   page.value = 1
   fetchList()
+}
+
+const parseFilenameFromDisposition = (disposition) => {
+  const source = String(disposition || '')
+  if (!source) return ''
+  const utfMatch = source.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1])
+    } catch (e) {
+      return utfMatch[1]
+    }
+  }
+  const basicMatch = source.match(/filename="?([^";]+)"?/i)
+  return basicMatch?.[1] || ''
+}
+
+const downloadCacheFile = async (row) => {
+  if (!row?.ID) return
+  try {
+    const rsp = await downloadRegisterTaskCache({ taskId: row.ID })
+    const blob = rsp?.data instanceof Blob ? rsp.data : new Blob([rsp?.data || ''])
+    if (blob.type.includes('application/json')) {
+      const text = await blob.text()
+      try {
+        const parsed = JSON.parse(text)
+        ElMessage.error(parsed?.msg || '下载失败')
+      } catch (e) {
+        ElMessage.error(text || '下载失败')
+      }
+      return
+    }
+    const disposition = rsp?.headers?.['content-disposition'] || rsp?.headers?.['Content-Disposition']
+    const filename = parseFilenameFromDisposition(disposition) || `register_task_${row.ID}.ini`
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    // 不能立即 revoke，部分浏览器会导致 blob 下载卡住在 0B。
+    window.setTimeout(() => {
+      window.URL.revokeObjectURL(url)
+    }, 3000)
+    ElMessage.success('缓存下载成功')
+  } catch (e) {
+    ElMessage.error(e?.message || '下载失败')
+  }
 }
 
 onMounted(async () => {

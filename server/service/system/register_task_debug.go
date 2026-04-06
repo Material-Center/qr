@@ -22,6 +22,9 @@ func (s *RegisterTaskService) CreateDebugLoginTask(req systemReq.RegisterTaskDeb
 	if uin == "" {
 		return system.SysRegisterTask{}, errors.New("UIN不能为空")
 	}
+	if !isDigitsOnly(uin) {
+		return system.SysRegisterTask{}, errors.New("UIN必须为纯数字QQ号，请填写QQ号码而不是账号")
+	}
 	if password == "" {
 		return system.SysRegisterTask{}, errors.New("密码不能为空")
 	}
@@ -45,9 +48,9 @@ func (s *RegisterTaskService) CreateDebugLoginTask(req systemReq.RegisterTaskDeb
 			return system.SysRegisterTask{}, err
 		}
 	}
+	ensureRegisterTaskRunner(task.ID, 0)
 	clearTaskSession(task.ID)
 	clearRegisterTaskRunnerPendingEvents(task.ID)
-	ensureRegisterTaskRunner(task.ID, 0)
 	if err := enqueueRegisterTaskEvent(task.ID, 0, registerTaskEvent{
 		Action: "submit",
 		Step:   system.RegisterTaskStepLogin,
@@ -55,6 +58,18 @@ func (s *RegisterTaskService) CreateDebugLoginTask(req systemReq.RegisterTaskDeb
 		return system.SysRegisterTask{}, err
 	}
 	return task, nil
+}
+
+func isDigitsOnly(s string) bool {
+	if strings.TrimSpace(s) == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func buildDebugLoginTaskForReuse(task system.SysRegisterTask, uin, password, initMessage string) system.SysRegisterTask {

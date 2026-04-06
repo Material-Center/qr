@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -105,7 +106,6 @@ func buildStableLoginDeviceProfile(uin string) (androidID string, guidHex string
 }
 
 func init() {
-	qpi.SetLogger(global.GVA_LOG)
 	startRegisterTaskRunnerDaemon()
 }
 
@@ -630,15 +630,26 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 				SignProvider:   signProvider,
 				InitProvider:   initProvider,
 				CaptchaProvider: func(captchaURL string) (string, error) {
-					appID := qpi.ChangePasswordAppID
-					if aid, _ := parseCaptchaAidSid(captchaURL); strings.TrimSpace(aid) != "" {
-						appID = aid
+					aid, sid := parseCaptchaAidSid(captchaURL)
+					global.GVA_LOG.Info("【注册任务】登录-滑块验证码参数", append(taskLogFieldsWithOpQQ(task, currentQQ),
+						zap.String("captchaURL", captchaURL),
+						zap.String("aid", aid),
+						zap.String("sid", sid),
+					)...)
+					if strings.TrimSpace(aid) == "" {
+						err := fmt.Errorf("登录滑块参数缺失: aid 为空, captchaURL=%s", strings.TrimSpace(captchaURL))
+						global.GVA_LOG.Error("【注册任务】登录-滑块验证码失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(err))...)
+						return "", err
 					}
-					cap, err := s.getCaptchaToken(runtimeCfg, appID)
+					cap, err := s.getCaptchaToken(runtimeCfg, aid, sid)
 					if err != nil {
 						global.GVA_LOG.Error("【注册任务】登录-滑块验证码失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(err))...)
 						return "", err
 					}
+					global.GVA_LOG.Info("【注册任务】登录-滑块验证码获取成功", append(taskLogFieldsWithOpQQ(task, currentQQ),
+						zap.String("randstr", cap.Randstr),
+						zap.String("ticket", cap.Ticket),
+					)...)
 					return cap.Ticket, nil
 				},
 				SMSCodeProvider: func() (string, error) {
@@ -1387,7 +1398,7 @@ func buildResetTaskForReuse(task system.SysRegisterTask, promoterID uint, leader
 
 func (s *RegisterTaskService) preparePhoneBindSMS(task *system.SysRegisterTask, runtimeCfg systemRegisterConfig) error {
 	global.GVA_LOG.Info("【注册任务】发短信-开始执行", taskLogFields(*task)...)
-	captcha, err := s.getCaptchaToken(runtimeCfg, qpi.FindBindAppID)
+	captcha, err := s.getCaptchaToken(runtimeCfg, qpi.FindBindAppID, "")
 	if err != nil {
 		global.GVA_LOG.Error("【注册任务】发短信-获取滑块验证码失败", append(taskLogFields(*task), zap.Error(err))...)
 		return err
@@ -1602,7 +1613,7 @@ func (s *RegisterTaskService) prepareChangePasswordSMSIfNeeded(task *system.SysR
 	clearChangePasswordSession(task.ID)
 
 	global.GVA_LOG.Info("【注册任务】改密-开始获取滑块ticket", taskLogFields(*task)...)
-	captcha, capErr := s.getCaptchaToken(runtimeCfg, qpi.ChangePasswordAppID)
+	captcha, capErr := s.getCaptchaToken(runtimeCfg, qpi.ChangePasswordAppID, "")
 	if capErr != nil {
 		global.GVA_LOG.Error("【注册任务】改密-获取滑块ticket失败", append(taskLogFields(*task), zap.Error(capErr))...)
 		return capErr

@@ -2,6 +2,8 @@ package system
 
 import (
 	"errors"
+	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -295,6 +297,46 @@ func (a *RegisterTaskApi) GetRegisterTaskDebugLoginTask(c *gin.Context) {
 		return
 	}
 	response.OkWithDetailed(buildActiveInfo(task), "获取成功", c)
+}
+
+// DownloadRegisterTaskCache
+// @Tags      RegisterTask
+// @Summary   下载任务登录缓存INI（仅管理员）
+// @Security  ApiKeyAuth
+// @Produce   application/octet-stream
+// @Param     taskId  query     int  true  "任务ID"
+// @Success   200     {file}    file
+// @Router    /registerTask/cache/download [get]
+func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRoleSuperAdmin && role != rtRoleAdmin {
+		response.FailWithMessage("仅管理员可下载缓存", c)
+		return
+	}
+	taskID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("taskId")), 10, 64)
+	if taskID == 0 {
+		response.FailWithMessage("任务ID不能为空", c)
+		return
+	}
+	task, err := registerTaskService.GetTaskByID(uint(taskID))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.FailWithMessage("任务不存在", c)
+			return
+		}
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	cacheINI := strings.TrimSpace(task.LoginCacheINI)
+	if cacheINI == "" {
+		response.FailWithMessage("该任务暂无可下载缓存", c)
+		return
+	}
+	filename := fmt.Sprintf("register_task_%d.ini", task.ID)
+	escapedFilename := url.QueryEscape(filename)
+	c.Header("Content-Type", "application/octet-stream")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", filename, escapedFilename))
+	c.Data(200, "application/octet-stream", []byte(cacheINI))
 }
 
 func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveInfo {

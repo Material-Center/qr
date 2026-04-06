@@ -60,18 +60,19 @@ type captchaToken struct {
 	Ticket  string
 }
 
-func (s *RegisterTaskService) getCaptchaToken(cfg systemRegisterConfig, appID string) (*captchaToken, error) {
+func (s *RegisterTaskService) getCaptchaToken(cfg systemRegisterConfig, appID string, sid string) (*captchaToken, error) {
+	global.GVA_LOG.Info("【注册任务】获取滑块验证码", zap.String("appID", appID), zap.String("sid", sid), zap.String("platform", cfg.CaptchaPlatform))
 	provider := strings.ToLower(strings.TrimSpace(cfg.CaptchaPlatform))
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ { // 首次 + 失败后重试1次
 		var token *captchaToken
 		switch provider {
 		case captchaProviderYY:
-			token, lastErr = getCaptchaTokenFromYY(cfg, appID)
+			token, lastErr = getCaptchaTokenFromYY(cfg, appID, sid)
 		case captchaProviderAC:
-			token, lastErr = getCaptchaTokenFromAC(cfg, appID)
+			token, lastErr = getCaptchaTokenFromAC(cfg, appID, sid)
 		case captchaProviderFJ:
-			token, lastErr = getCaptchaTokenFromFJ(cfg, appID)
+			token, lastErr = getCaptchaTokenFromFJ(cfg, appID, sid)
 		default:
 			return nil, fmt.Errorf("不支持的验证码平台: %s", cfg.CaptchaPlatform)
 		}
@@ -82,7 +83,7 @@ func (s *RegisterTaskService) getCaptchaToken(cfg systemRegisterConfig, appID st
 	return nil, fmt.Errorf("验证码获取失败(已重试1次): %w", lastErr)
 }
 
-func getCaptchaTokenFromYY(cfg systemRegisterConfig, appID string) (*captchaToken, error) {
+func getCaptchaTokenFromYY(cfg systemRegisterConfig, appID string, sid string) (*captchaToken, error) {
 	username := strings.TrimSpace(cfg.CaptchaAccount)
 	password := strings.TrimSpace(cfg.CaptchaPassword)
 	if username == "" || password == "" {
@@ -97,6 +98,7 @@ func getCaptchaTokenFromYY(cfg systemRegisterConfig, appID string) (*captchaToke
 		"username": username,
 		"password": password,
 		"aid":      appID,
+		"sid":      strings.TrimSpace(sid),
 	})
 	req, err := http.NewRequest(http.MethodPost, submitURL, bytes.NewReader(payload))
 	if err != nil {
@@ -172,7 +174,7 @@ func getCaptchaTokenFromYY(cfg systemRegisterConfig, appID string) (*captchaToke
 	return nil, errors.New("YY等待滑块超时")
 }
 
-func getCaptchaTokenFromAC(cfg systemRegisterConfig, appID string) (*captchaToken, error) {
+func getCaptchaTokenFromAC(cfg systemRegisterConfig, appID string, sid string) (*captchaToken, error) {
 	baseURL := strings.TrimSpace(cfg.CaptchaAccount)
 	token := strings.TrimSpace(cfg.CaptchaToken)
 	if baseURL == "" {
@@ -188,6 +190,9 @@ func getCaptchaTokenFromAC(cfg systemRegisterConfig, appID string) (*captchaToke
 	q := u.Query()
 	q.Set("token", token)
 	q.Set("aid", appID)
+	if strings.TrimSpace(sid) != "" {
+		q.Set("sid", strings.TrimSpace(sid))
+	}
 	u.RawQuery = q.Encode()
 
 	client := &http.Client{Timeout: 50 * time.Second}
@@ -218,7 +223,7 @@ func getCaptchaTokenFromAC(cfg systemRegisterConfig, appID string) (*captchaToke
 	return &captchaToken{Randstr: acResp.Randstr, Ticket: acResp.Ticket}, nil
 }
 
-func getCaptchaTokenFromFJ(cfg systemRegisterConfig, appID string) (*captchaToken, error) {
+func getCaptchaTokenFromFJ(cfg systemRegisterConfig, appID string, sid string) (*captchaToken, error) {
 	baseURL := strings.TrimSpace(cfg.CaptchaAccount)
 	token := strings.TrimSpace(cfg.CaptchaToken)
 	if baseURL == "" {
@@ -232,7 +237,7 @@ func getCaptchaTokenFromFJ(cfg systemRegisterConfig, appID string) (*captchaToke
 	buf.WriteString("token=" + url.QueryEscape(token))
 	buf.WriteString("&newMethod=xkdth")
 	buf.WriteString("&content=")
-	content := "aid=" + strings.TrimSpace(appID) + "&sid=&ip=&Url=" + "&uin="
+	content := "aid=" + strings.TrimSpace(appID) + "&sid=" + strings.TrimSpace(sid) + "&ip=&Url=" + "&uin="
 	buf.WriteString(content)
 
 	req, err := http.NewRequest(http.MethodPost, baseURL, strings.NewReader(buf.String()))

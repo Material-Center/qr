@@ -69,3 +69,13 @@ export const getRegisterTaskDebugLoginTask = (params) => {
     params
   })
 }
+
+export const downloadRegisterTaskCache = (params) => {
+  return service({
+    url: '/registerTask/cache/download',
+    method: 'get',
+    params,
+    responseType: 'blob',
+    donNotShowLoading: true
+  })
+}

@@ -258,6 +258,7 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/actives", Description: "获取地推全部未完成任务"},
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/list", Description: "分页查询注册任务"},
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/summary", Description: "获取注册任务统计"},
+		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/cache/download", Description: "下载任务登录缓存INI"},
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/debug/login/start", Description: "管理员启动登录调试"},
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/debug/login/submit", Description: "管理员提交调试登录验证码"},
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/debug/login/task", Description: "管理员查询调试登录任务"},

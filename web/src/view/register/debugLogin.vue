@@ -8,7 +8,7 @@
           <el-input v-model="form.phone" placeholder="用于代理地区解析，例如 19146017340" />
         </el-form-item>
         <el-form-item label="UIN">
-          <el-input v-model="form.uin" placeholder="QQ号（登录账号）" />
+          <el-input v-model="form.uin" placeholder="QQ号（纯数字）" />
         </el-form-item>
         <el-form-item label="密码">
           <el-input v-model="form.password" show-password placeholder="QQ密码" />
@@ -88,6 +88,10 @@ const startDebug = async () => {
   const password = String(form.value.password || '').trim()
   if (!phone || !uin || !password) {
     ElMessage.warning('手机号、UIN、密码不能为空')
+    return
+  }
+  if (!/^\d+$/.test(uin)) {
+    ElMessage.warning('UIN必须为纯数字QQ号')
     return
   }
   starting.value = true
