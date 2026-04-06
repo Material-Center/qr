@@ -248,7 +248,19 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "版本控制", Method: "DELETE", Path: "/sysVersion/deleteSysVersion", Description: "删除版本"},
 		{ApiGroup: "版本控制", Method: "DELETE", Path: "/sysVersion/deleteSysVersionByIds", Description: "批量删除版本"},
 
+		{ApiGroup: "注册配置", Method: "GET", Path: "/registerConfig/getMyConfig", Description: "获取我的注册配置"},
+		{ApiGroup: "注册配置", Method: "PUT", Path: "/registerConfig/setMyConfig", Description: "保存我的注册配置"},
+		{ApiGroup: "注册配置", Method: "GET", Path: "/registerConfig/checkMyConfig", Description: "检测我的注册配置"},
+
+		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/create", Description: "地推创建注册任务"},
+		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/step", Description: "提交任务步骤"},
+		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/active", Description: "获取地推当前未完成任务"},
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/actives", Description: "获取地推全部未完成任务"},
+		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/list", Description: "分页查询注册任务"},
+		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/summary", Description: "获取注册任务统计"},
+		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/debug/login/start", Description: "管理员启动登录调试"},
+		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/debug/login/submit", Description: "管理员提交调试登录验证码"},
+		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/debug/login/task", Description: "管理员查询调试登录任务"},
 	}
 	if err := db.Create(&entities).Error; err != nil {
 		return ctx, errors.Wrap(err, sysModel.SysApi{}.TableName()+"表数据初始化失败!")

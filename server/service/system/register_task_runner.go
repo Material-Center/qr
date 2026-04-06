@@ -14,6 +14,7 @@ import (
 )
 
 const registerTaskRunnerRecoverAction = "__recover__"
+const registerTaskRunnerStartAction = "__start__"
 const registerTaskRunnerIdleTTL = 5 * time.Minute
 const registerTaskLastErrorMaxLen = 1024
 
@@ -22,7 +23,7 @@ func persistRunnerStepError(taskID uint, promoterID uint, err error) {
 	if err == nil || taskID == 0 {
 		return
 	}
-	msg := strings.TrimSpace(err.Error())
+	msg := userFriendlyTaskError(err)
 	if len(msg) > registerTaskLastErrorMaxLen {
 		msg = msg[:registerTaskLastErrorMaxLen] + "…"
 	}
@@ -33,6 +34,34 @@ func persistRunnerStepError(taskID uint, promoterID uint, err error) {
 	if db.Update("last_error", msg).Error != nil {
 		global.GVA_LOG.Warn("【注册任务】runner失败写入last_error失败",
 			zap.Uint("taskId", taskID), zap.Uint("promoterId", promoterID), zap.Error(err))
+	}
+}
+
+func userFriendlyTaskError(err error) string {
+	if err == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(err.Error())
+	if raw == "" {
+		return "步骤执行失败，请点击重试当前步骤。"
+	}
+	switch {
+	case isRetryableLoginNetworkErr(err):
+		return "当前网络不稳定，已自动刷新代理重试仍失败，请点击重试当前步骤。"
+	case strings.Contains(raw, "code=215") || strings.Contains(raw, "操作频繁"):
+		return "操作过于频繁，请稍后点击重试当前步骤。"
+	case strings.Contains(raw, "验证码尚未发送成功"):
+		return "验证码尚未发送成功，请先点击重试当前步骤。"
+	case strings.Contains(raw, "会话已失效"):
+		return "当前会话已失效，请点击重试当前步骤重新发码。"
+	case strings.Contains(raw, "等待验证码超时") || strings.Contains(raw, "等待超时"):
+		return "等待验证码超时，请点击重试当前步骤。"
+	case strings.Contains(raw, "code=2000080") || strings.Contains(raw, "验证码错误，请重新输入"):
+		return "改密验证码错误，请重新输入当前验证码后提交；如验证码失效请点击重试重新发码。"
+	case strings.Contains(raw, registerTaskLoginNeedVerifyTip) || strings.Contains(raw, "触发短信验证"):
+		return registerTaskLoginNeedVerifyTip
+	default:
+		return raw
 	}
 }
 
@@ -92,6 +121,27 @@ func ensureRegisterTaskRunner(taskID uint, promoterID uint) {
 	}
 	go runRegisterTaskRunner(runner)
 	_ = enqueueRegisterTaskEvent(taskID, promoterID, registerTaskEvent{Action: registerTaskRunnerRecoverAction})
+}
+
+func clearRegisterTaskRunnerPendingEvents(taskID uint) {
+	if taskID == 0 {
+		return
+	}
+	v, ok := registerTaskRunners.Load(taskID)
+	if !ok {
+		return
+	}
+	runner, ok := v.(*registerTaskRunner)
+	if !ok || runner == nil {
+		return
+	}
+	for {
+		select {
+		case <-runner.eventCh:
+		default:
+			return
+		}
+	}
 }
 
 // enqueueContinueLoginAfterChangePassword 改密步骤已落库为 login 后，再投递一次 submit/login，
@@ -241,6 +291,25 @@ func (s *RegisterTaskService) processRunnerEvent(runner *registerTaskRunner, eve
 				}
 				return false, err
 			}
+		}
+		return false, nil
+	case registerTaskRunnerStartAction:
+		// 创建/重建任务后的专用启动：先清理会话，再按当前步骤发起首轮动作。
+		clearTaskSession(task.ID)
+		if task.CurrentStep == system.RegisterTaskStepPhoneBind {
+			runtimeCfg, cfgErr := s.getRegisterRuntimeConfig(task.LeaderID)
+			if cfgErr != nil {
+				return false, cfgErr
+			}
+			if err := s.preparePhoneBindSMS(&task, runtimeCfg); err != nil {
+				persistRunnerStepError(runner.taskID, runner.promoterID, err)
+				return false, err
+			}
+			return false, nil
+		}
+		// 非创建首步的兜底：沿用恢复逻辑。
+		if err := s.restoreTaskProgressIfNeeded(&task); err != nil {
+			return false, err
 		}
 		return false, nil
 	default:

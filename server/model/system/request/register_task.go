@@ -25,3 +25,14 @@ type RegisterTaskList struct {
 type RegisterTaskSummaryFilter struct {
 	LeaderID uint `json:"leaderId" form:"leaderId"`
 }
+
+type RegisterTaskDebugLoginStart struct {
+	Phone    string `json:"phone" form:"phone"`
+	UIN      string `json:"uin" form:"uin"`
+	Password string `json:"password" form:"password"`
+}
+
+type RegisterTaskDebugLoginSubmit struct {
+	TaskID     uint   `json:"taskId" form:"taskId"`
+	VerifyCode string `json:"verifyCode" form:"verifyCode"`
+}

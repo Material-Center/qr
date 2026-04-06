@@ -50,10 +50,18 @@
           <el-alert
             :title="taskTitle(task)"
             :description="task.stepHint || ''"
-            type="info"
+            :type="taskAlertType(task)"
             show-icon
             :closable="false"
           />
+          <div class="task-state-bar">
+            <el-tag
+              size="small"
+              :type="taskStateTagType(task)"
+            >
+              {{ taskStateText(task) }}
+            </el-tag>
+          </div>
           <el-form
             label-width="72px"
             class="mt-2 compact-form"
@@ -68,6 +76,7 @@
               <el-input
                 v-model="verifyCodeMap[task.id]"
                 :placeholder="task.verifyPlace || '请输入验证码'"
+                :disabled="task?.needVerifyCode === false"
               />
             </el-form-item>
             <el-form-item>
@@ -76,6 +85,7 @@
                   size="small"
                   type="primary"
                   class="action-btn"
+                  :disabled="isSubmitDisabled(task)"
                   @click="submitStep(task)"
                 >{{ task.submitText || '提交' }}</el-button>
                 <el-button
@@ -190,6 +200,7 @@ defineOptions({
 const phoneInput = ref('')
 const activeTasks = ref([])
 const verifyCodeMap = ref({})
+const taskStateMap = ref({})
 const myTasks = ref([])
 const userStore = useUserStore()
 const currentUser = computed(() => userStore.userInfo || {})
@@ -254,12 +265,44 @@ const taskTitle = (task) => {
   return `任务#${task.id} ${title}${progress} 剩余 ${remainText(task)}`
 }
 
+const taskStateText = (task) => {
+  const needVerify = task?.needVerifyCode !== false
+  if (needVerify) return '等待验证码'
+  if (task?.submitText === '等待重试') return '步骤失败'
+  if (task?.submitText === '处理中') return '处理中'
+  return '待处理'
+}
+
+const taskStateTagType = (task) => {
+  const needVerify = task?.needVerifyCode !== false
+  if (needVerify) return 'warning'
+  if (task?.submitText === '等待重试') return 'danger'
+  return 'info'
+}
+
+const taskAlertType = (task) => {
+  if (task?.submitText === '等待重试') return 'error'
+  if (task?.needVerifyCode !== false) return 'warning'
+  return 'info'
+}
+
+const isSubmitDisabled = (task) => {
+  if (!task) return true
+  return task.currentStep !== 'login' && task.needVerifyCode === false
+}
+
 const loadActiveTask = async () => {
   const res = await getActiveRegisterTasks()
   activeTasks.value = Array.isArray(res.data) ? res.data : []
   const nextMap = {}
   activeTasks.value.forEach((task) => {
-    nextMap[task.id] = verifyCodeMap.value?.[task.id] || ''
+    const stateKey = `${task.currentStep}|${task.progress || ''}|${task.needVerifyCode ? '1' : '0'}|${task.lastError || ''}`
+    if (taskStateMap.value?.[task.id] !== stateKey) {
+      nextMap[task.id] = ''
+    } else {
+      nextMap[task.id] = verifyCodeMap.value?.[task.id] || ''
+    }
+    taskStateMap.value[task.id] = stateKey
   })
   verifyCodeMap.value = nextMap
 }
@@ -284,6 +327,7 @@ const refreshAll = async () => {
     await Promise.all([loadActiveTask(), loadMyTasks()])
   } finally {
     refreshing.value = false
+    syncAutoRefreshByActiveTasks()
   }
 }
 
@@ -318,6 +362,10 @@ const submitStep = async (task) => {
   const needVerify = task?.needVerifyCode !== false
   const code = String(verifyCodeMap.value?.[task.id] || '').trim()
   const label = task?.verifyLabel || '验证码'
+  if (task?.currentStep !== 'login' && !needVerify) {
+    ElMessage.warning(task?.stepHint || '当前步骤尚未发码，请先重试')
+    return
+  }
   if (needVerify && !code) {
     ElMessage.warning(`${label}不能为空`)
     return
@@ -355,6 +403,16 @@ const stopAutoRefresh = () => {
   }
 }
 
+const syncAutoRefreshByActiveTasks = () => {
+  if (activeTasks.value.length > 0) {
+    if (!refreshTimer.value) {
+      startAutoRefresh()
+    }
+  } else {
+    stopAutoRefresh()
+  }
+}
+
 const startCountdown = () => {
   stopCountdown()
   countdownTimer.value = window.setInterval(() => {
@@ -372,7 +430,6 @@ const stopCountdown = () => {
 onMounted(async () => {
   try {
     await refreshAll()
-    startAutoRefresh()
     startCountdown()
   } catch (e) {
     ElMessage.error(e?.message || '加载失败')
@@ -436,6 +493,10 @@ onBeforeUnmount(() => {
 
 .task-actions .action-btn-danger {
   grid-column: 1 / -1;
+}
+
+.task-state-bar {
+  margin-top: 8px;
 }
 
 .table-wrap {

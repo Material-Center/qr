@@ -45,3 +45,27 @@ export const getRegisterTaskSummary = (params) => {
     params
   })
 }
+
+export const startRegisterTaskDebugLogin = (data) => {
+  return service({
+    url: '/registerTask/debug/login/start',
+    method: 'post',
+    data
+  })
+}
+
+export const submitRegisterTaskDebugLoginCode = (data) => {
+  return service({
+    url: '/registerTask/debug/login/submit',
+    method: 'post',
+    data
+  })
+}
+
+export const getRegisterTaskDebugLoginTask = (params) => {
+  return service({
+    url: '/registerTask/debug/login/task',
+    method: 'get',
+    params
+  })
+}

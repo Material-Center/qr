@@ -254,8 +254,12 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/registerTask/actives", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/registerTask/list", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/registerTask/summary", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/registerTask/debug/login/start", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/registerTask/debug/login/submit", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/registerTask/debug/login/task", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/registerConfig/getMyConfig", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/registerConfig/setMyConfig", V2: "PUT"},
+		{Ptype: "p", V0: "888", V1: "/registerConfig/checkMyConfig", V2: "GET"},
 
 		// 100 管理员（业务角色）
 		{Ptype: "p", V0: "100", V1: "/menu/getMenu", V2: "POST"},
@@ -273,8 +277,12 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/user/setUserAuthorities", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/registerTask/list", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/registerTask/summary", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/registerTask/debug/login/start", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/registerTask/debug/login/submit", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/registerTask/debug/login/task", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/registerConfig/getMyConfig", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/registerConfig/setMyConfig", V2: "PUT"},
+		{Ptype: "p", V0: "100", V1: "/registerConfig/checkMyConfig", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 
 		// 200 团长（业务角色）
@@ -294,7 +302,6 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "200", V1: "/registerTask/list", V2: "POST"},
 		{Ptype: "p", V0: "200", V1: "/registerTask/summary", V2: "GET"},
 		{Ptype: "p", V0: "200", V1: "/registerConfig/getMyConfig", V2: "GET"},
-		{Ptype: "p", V0: "200", V1: "/registerConfig/setMyConfig", V2: "PUT"},
 		{Ptype: "p", V0: "200", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 
 		// 300 地推（业务角色）

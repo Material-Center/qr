@@ -214,6 +214,89 @@ func (a *RegisterTaskApi) GetRegisterTaskSummary(c *gin.Context) {
 	}, "获取成功", c)
 }
 
+// StartRegisterTaskDebugLogin
+// @Tags      RegisterTask
+// @Summary   管理员启动登录调试
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.RegisterTaskDebugLoginStart  true  "调试登录参数"
+// @Success   200   {object}  response.Response{data=systemRes.RegisterTaskActiveInfo,msg=string}
+// @Router    /registerTask/debug/login/start [post]
+func (a *RegisterTaskApi) StartRegisterTaskDebugLogin(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRoleSuperAdmin && role != rtRoleAdmin {
+		response.FailWithMessage("仅管理员可启动调试登录", c)
+		return
+	}
+	var req systemReq.RegisterTaskDebugLoginStart
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	task, err := registerTaskService.CreateDebugLoginTask(req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildActiveInfo(task), "调试任务已启动", c)
+}
+
+// SubmitRegisterTaskDebugLoginCode
+// @Tags      RegisterTask
+// @Summary   管理员提交调试登录验证码
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.RegisterTaskDebugLoginSubmit  true  "调试验证码"
+// @Success   200   {object}  response.Response{data=systemRes.RegisterTaskActiveInfo,msg=string}
+// @Router    /registerTask/debug/login/submit [post]
+func (a *RegisterTaskApi) SubmitRegisterTaskDebugLoginCode(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRoleSuperAdmin && role != rtRoleAdmin {
+		response.FailWithMessage("仅管理员可提交调试验证码", c)
+		return
+	}
+	var req systemReq.RegisterTaskDebugLoginSubmit
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	task, err := registerTaskService.SubmitDebugLoginCode(req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildActiveInfo(task), "验证码已提交", c)
+}
+
+// GetRegisterTaskDebugLoginTask
+// @Tags      RegisterTask
+// @Summary   管理员查询调试登录任务
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Param     taskId  query     int  true  "任务ID"
+// @Success   200     {object}  response.Response{data=systemRes.RegisterTaskActiveInfo,msg=string}
+// @Router    /registerTask/debug/login/task [get]
+func (a *RegisterTaskApi) GetRegisterTaskDebugLoginTask(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRoleSuperAdmin && role != rtRoleAdmin {
+		response.FailWithMessage("仅管理员可查看调试任务", c)
+		return
+	}
+	taskID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("taskId")), 10, 64)
+	task, err := registerTaskService.GetTaskByID(uint(taskID))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.FailWithMessage("调试任务不存在", c)
+			return
+		}
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildActiveInfo(task), "获取成功", c)
+}
+
 func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveInfo {
 	stepTitle, stepHint, progress, verifyLabel, verifyPlace, submitText := buildStepTexts(task)
 	return systemRes.RegisterTaskActiveInfo{
@@ -238,19 +321,30 @@ func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveIn
 }
 
 func needVerifyCode(task system.SysRegisterTask) bool {
+	phase := deriveTaskStepPhase(task)
+	if phase != "waiting_code" {
+		return false
+	}
 	switch task.CurrentStep {
 	case system.RegisterTaskStepPhoneBind, system.RegisterTaskStepChangePassword:
 		return true
 	case system.RegisterTaskStepLogin:
-		return strings.Contains(task.LastError, "触发短信验证")
-	default:
 		return true
+	default:
+		return false
 	}
 }
 
 func buildStepTexts(task system.SysRegisterTask) (title string, hint string, progress string, verifyLabel string, verifyPlace string, submitText string) {
+	phase := deriveTaskStepPhase(task)
 	switch task.CurrentStep {
 	case system.RegisterTaskStepPhoneBind:
+		if phase == "failed" {
+			return "手机号查绑QQ", "发码失败，请点击重试当前步骤后再提交验证码。", "", "短信验证码", "等待重试后再输入验证码", "等待重试"
+		}
+		if phase == "preparing" {
+			return "手机号查绑QQ", "正在发送短信验证码，请稍候；若长时间无变化可点击重试。", "", "短信验证码", "验证码发送成功后再输入", "处理中"
+		}
 		return "手机号查绑QQ", "提交当前短信验证码后，系统会自动查绑并进行奶茶筛选。", "", "短信验证码", "请输入手机号收到的验证码", "提交并查绑"
 	case system.RegisterTaskStepChangePassword:
 		candidates := splitPipe(task.QQCandidates)
@@ -260,6 +354,12 @@ func buildStepTexts(task system.SysRegisterTask) (title string, hint string, pro
 		progressText := ""
 		if total > 0 {
 			progressText = "改密进度 " + itoa(done) + "/" + itoa(total)
+		}
+		if phase == "failed" {
+			return "候选QQ改密", "改密步骤发码或执行失败，请点击重试当前步骤。", progressText, "改密验证码", "等待重试后再输入验证码", "等待重试"
+		}
+		if phase == "preparing" {
+			return "候选QQ改密", "正在准备当前QQ改密验证码，请稍候；若长时间无变化可点击重试。", progressText, "改密验证码", "验证码发送成功后再输入", "处理中"
 		}
 		return "候选QQ改密", "进入改密后会自动发送当前QQ的改密验证码，输入验证码提交即可；全部改密完成后自动进入登录。", progressText, "改密验证码", "请输入当前待改密QQ对应验证码", "提交并改密下一个QQ"
 	case system.RegisterTaskStepLogin:
@@ -271,9 +371,54 @@ func buildStepTexts(task system.SysRegisterTask) (title string, hint string, pro
 		if total > 0 {
 			progressText = "登录进度 " + itoa(done) + "/" + itoa(total)
 		}
+		if phase == "failed" {
+			return "改密后QQ登录", "登录步骤失败，请点击重试当前步骤；仅在触发短信验证后再输入验证码。", progressText, "登录验证码", "触发短信验证后再输入验证码", "等待重试"
+		}
+		if phase == "preparing" || phase == "running" {
+			return "改密后QQ登录", "正在执行登录流程；仅在触发短信验证后才需要输入验证码。", progressText, "登录验证码", "触发短信验证后再输入验证码", "处理中"
+		}
 		return "改密后QQ登录", "改密完成后自动进入登录流程；每次提交后端会按顺序处理一个QQ登录并保存缓存。", progressText, "登录验证码", "请输入当前待登录QQ对应验证码", "提交并登录下一个QQ"
 	default:
 		return "任务处理中", "请按后端流程提示操作。", "", "验证码", "请输入验证码", "提交"
+	}
+}
+
+func deriveTaskStepPhase(task system.SysRegisterTask) string {
+	lastError := strings.TrimSpace(task.LastError)
+	switch task.CurrentStep {
+	case system.RegisterTaskStepPhoneBind:
+		if strings.Contains(lastError, "验证码已发送") || strings.Contains(lastError, "验证码不能为空") {
+			return "waiting_code"
+		}
+		if lastError == "" || strings.Contains(lastError, "准备发送验证码") {
+			return "preparing"
+		}
+		return "failed"
+	case system.RegisterTaskStepChangePassword:
+		if strings.Contains(lastError, "改密验证码已发送") ||
+			strings.Contains(lastError, "改密验证码错误") ||
+			strings.Contains(lastError, "验证码错误，请重新输入") ||
+			strings.Contains(lastError, "验证码错误") ||
+			strings.Contains(lastError, "code=2000080") {
+			return "waiting_code"
+		}
+		if lastError == "" || strings.Contains(lastError, "准备") || strings.Contains(lastError, "处理中") {
+			return "preparing"
+		}
+		return "failed"
+	case system.RegisterTaskStepLogin:
+		if strings.Contains(lastError, "触发短信验证") || strings.Contains(lastError, "登录验证码") {
+			return "waiting_code"
+		}
+		if lastError == "" {
+			return "running"
+		}
+		return "failed"
+	default:
+		if lastError == "" {
+			return "running"
+		}
+		return "failed"
 	}
 }
 

@@ -53,6 +53,12 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		if strings.TrimSpace(req.ApiBase) == "" || strings.TrimSpace(req.ApiToken) == "" {
 			return system.SysRegisterConfig{}, errors.New("登录签名服务 apiBase 和 apiToken 不能为空")
 		}
+		if err := validateProxyConfig(req.ProxyPlatform, req.ProxyAccount, req.ProxyPassword, req.ProxySecretID, req.ProxySecretKey); err != nil {
+			return system.SysRegisterConfig{}, err
+		}
+		if err := validateCaptchaConfig(req.CaptchaPlatform, req.CaptchaAccount, req.CaptchaPassword, req.CaptchaToken); err != nil {
+			return system.SysRegisterConfig{}, err
+		}
 		data["default_password"] = req.DefaultPassword
 		data["naicha_app_id"] = req.NaichaAppID
 		data["naicha_secret"] = req.NaichaSecret
@@ -60,14 +66,17 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		data["ip138_token"] = req.IP138Token
 		data["api_base"] = req.ApiBase
 		data["api_token"] = req.ApiToken
-	case cfgRoleLeader:
 		data["proxy_platform"] = req.ProxyPlatform
 		data["proxy_account"] = req.ProxyAccount
 		data["proxy_password"] = req.ProxyPassword
+		data["proxy_secret_id"] = req.ProxySecretID
+		data["proxy_secret_key"] = req.ProxySecretKey
 		data["captcha_platform"] = req.CaptchaPlatform
 		data["captcha_account"] = req.CaptchaAccount
 		data["captcha_password"] = req.CaptchaPassword
 		data["captcha_token"] = req.CaptchaToken
+	case cfgRoleLeader:
+		return system.SysRegisterConfig{}, errors.New("团长配置能力已迁移到管理员，请联系管理员维护配置")
 	default:
 		return system.SysRegisterConfig{}, errors.New("无权限修改配置")
 	}
@@ -88,10 +97,11 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.IP138Token = req.IP138Token
 			cfg.ApiBase = req.ApiBase
 			cfg.ApiToken = req.ApiToken
-		case cfgRoleLeader:
 			cfg.ProxyPlatform = req.ProxyPlatform
 			cfg.ProxyAccount = req.ProxyAccount
 			cfg.ProxyPassword = req.ProxyPassword
+			cfg.ProxySecretID = req.ProxySecretID
+			cfg.ProxySecretKey = req.ProxySecretKey
 			cfg.CaptchaPlatform = req.CaptchaPlatform
 			cfg.CaptchaAccount = req.CaptchaAccount
 			cfg.CaptchaPassword = req.CaptchaPassword
@@ -116,11 +126,10 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 }
 
 func getOwnerByRole(role uint, userID uint) (ownerType string, ownerID uint, err error) {
+	_ = userID
 	switch role {
 	case cfgRoleSuperAdmin, cfgRoleAdmin:
 		return system.RegisterConfigOwnerAdmin, 0, nil
-	case cfgRoleLeader:
-		return system.RegisterConfigOwnerLeader, userID, nil
 	default:
 		return "", 0, errors.New("无权限访问配置")
 	}
@@ -142,6 +151,8 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 		ProxyPlatform:   cfgModel.ProxyPlatform,
 		ProxyAccount:    cfgModel.ProxyAccount,
 		ProxyPassword:   cfgModel.ProxyPassword,
+		ProxySecretID:   cfgModel.ProxySecretID,
+		ProxySecretKey:  cfgModel.ProxySecretKey,
 		CaptchaPlatform: cfgModel.CaptchaPlatform,
 		CaptchaAccount:  cfgModel.CaptchaAccount,
 		CaptchaPassword: cfgModel.CaptchaPassword,
@@ -218,7 +229,7 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 		}
 	}
 
-	if role == cfgRoleLeader {
+	if role == cfgRoleSuperAdmin || role == cfgRoleAdmin {
 		proxyResult := map[string]interface{}{
 			"enabled": strings.TrimSpace(cfg.ProxyPlatform) != "",
 			"ok":      false,
@@ -263,4 +274,48 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 	}
 
 	return result, nil
+}
+
+func validateProxyConfig(proxyPlatformRaw, proxyAccount, proxyPassword, proxySecretID, proxySecretKey string) error {
+	proxyPlatform := strings.ToLower(strings.TrimSpace(proxyPlatformRaw))
+	switch proxyPlatform {
+	case "", "shenlong", "kuaidaili", "pingzan":
+	default:
+		return errors.New("不支持的代理平台")
+	}
+	if proxyPlatform == "shenlong" && (strings.TrimSpace(proxyAccount) == "" || strings.TrimSpace(proxyPassword) == "") {
+		return errors.New("神龙代理需要配置代理账号和代理密码")
+	}
+	if proxyPlatform == "pingzan" && (strings.TrimSpace(proxyAccount) == "" || strings.TrimSpace(proxyPassword) == "") {
+		return errors.New("品赞代理需要配置 no 和 secret")
+	}
+	if proxyPlatform == "kuaidaili" && (strings.TrimSpace(proxySecretID) == "" || strings.TrimSpace(proxySecretKey) == "") {
+		return errors.New("快代理需要配置 SecretId 和 SecretKey")
+	}
+	return nil
+}
+
+func validateCaptchaConfig(captchaPlatformRaw, captchaAccount, captchaPassword, captchaToken string) error {
+	_ = captchaPassword
+	captchaPlatform := strings.ToLower(strings.TrimSpace(captchaPlatformRaw))
+	switch captchaPlatform {
+	case "", captchaProviderYY, captchaProviderAC, captchaProviderFJ:
+	default:
+		return errors.New("不支持的验证码平台")
+	}
+	switch captchaPlatform {
+	case captchaProviderYY:
+		if strings.TrimSpace(captchaAccount) == "" || strings.TrimSpace(captchaPassword) == "" {
+			return errors.New("YY验证码需要配置账号和密码")
+		}
+	case captchaProviderAC:
+		if strings.TrimSpace(captchaToken) == "" {
+			return errors.New("AC验证码需要配置 token")
+		}
+	case captchaProviderFJ:
+		if strings.TrimSpace(captchaToken) == "" {
+			return errors.New("FJ验证码需要配置 token")
+		}
+	}
+	return nil
 }

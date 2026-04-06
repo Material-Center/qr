@@ -46,6 +46,7 @@
   "/src/view/login/index.vue": "Login",
   "/src/view/person/person.vue": "Person",
   "/src/view/register/config.vue": "RegisterConfig",
+  "/src/view/register/debugLogin.vue": "RegisterDebugLogin",
   "/src/view/register/taskCenter.vue": "RegisterTaskCenter",
   "/src/view/register/taskManage.vue": "RegisterTaskManage",
   "/src/view/routerHolder.vue": "RouterHolder",

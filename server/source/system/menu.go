@@ -113,6 +113,7 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["systemTools"], Path: "sysError", Name: "sysError", Component: "view/systemTools/sysError/sysError.vue", Sort: 9, Meta: Meta{Title: "错误日志", Icon: "warn"}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "manage", Name: "registerTaskManage", Component: "view/register/taskManage.vue", Sort: 1, Meta: Meta{Title: "任务统计", Icon: "data-analysis"}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "config", Name: "registerConfig", Component: "view/register/config.vue", Sort: 3, Meta: Meta{Title: "配置管理", Icon: "setting"}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "debug-login", Name: "registerDebugLogin", Component: "view/register/debugLogin.vue", Sort: 4, Meta: Meta{Title: "登录调试", Icon: "cpu"}},
 
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["plugin"], Path: "https://plugin.gin-vue-admin.com/", Name: "https://plugin.gin-vue-admin.com/", Component: "https://plugin.gin-vue-admin.com/", Sort: 0, Meta: Meta{Title: "插件市场", Icon: "shop"}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["plugin"], Path: "installPlugin", Name: "installPlugin", Component: "view/systemTools/installPlugin/index.vue", Sort: 1, Meta: Meta{Title: "插件安装", Icon: "box"}},

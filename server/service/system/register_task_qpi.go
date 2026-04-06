@@ -3,7 +3,10 @@ package system
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +16,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,6 +35,9 @@ const (
 	defaultShenlongArea = "210100,210200,210300,210400,210500,210600,210700,210800,210900,211000,211100,211200,211300,211400" // 辽宁省城市代码列表
 	ip138GeoCachePrefix = "register:ip138:geo:"
 )
+
+var kuaidailiGetDPSURL = "https://dps.kdlapi.com/api/getdps"
+var pingzanExtractURL = "https://service.ipzan.com/core-extract"
 
 //go:embed pcc.json
 var pccRawJSON []byte
@@ -270,28 +277,53 @@ func allocateProxyURLFromConfig(cfg systemRegisterConfig, area string, isp strin
 	if strings.TrimSpace(cfg.ProxyPlatform) == "" {
 		return "", nil
 	}
-	if strings.ToLower(strings.TrimSpace(cfg.ProxyPlatform)) != "shenlong" {
+	switch strings.ToLower(strings.TrimSpace(cfg.ProxyPlatform)) {
+	case "shenlong":
+		key := strings.TrimSpace(cfg.ProxyAccount)
+		sign := strings.TrimSpace(cfg.ProxyPassword)
+		if key == "" || sign == "" {
+			return "", errors.New("神龙代理配置不完整")
+		}
+		client := &http.Client{Timeout: 10 * time.Second}
+		publicIP, err := fetchPublicIP(client)
+		if err != nil {
+			return "", err
+		}
+		if err := addShenlongWhitelist(client, sign, publicIP); err != nil {
+			return "", err
+		}
+		addr, err := fetchShenlongSocks5(client, key, sign, area, isp)
+		if err != nil {
+			return "", err
+		}
+		return addr, nil
+	case "kuaidaili":
+		secretID := strings.TrimSpace(cfg.ProxySecretID)
+		secretKey := strings.TrimSpace(cfg.ProxySecretKey)
+		if secretID == "" || secretKey == "" {
+			return "", errors.New("快代理配置不完整: SecretId/SecretKey 不能为空")
+		}
+		client := &http.Client{Timeout: 10 * time.Second}
+		addr, err := fetchKuaidailiSocks5(client, secretID, secretKey, area, isp)
+		if err != nil {
+			return "", err
+		}
+		return addr, nil
+	case "pingzan":
+		no := strings.TrimSpace(cfg.ProxyAccount)
+		secret := strings.TrimSpace(cfg.ProxyPassword)
+		if no == "" || secret == "" {
+			return "", errors.New("品赞代理配置不完整: no/secret 不能为空")
+		}
+		client := &http.Client{Timeout: 10 * time.Second}
+		addr, err := fetchPingzanSocks5(client, no, secret, area)
+		if err != nil {
+			return "", err
+		}
+		return addr, nil
+	default:
 		return "", fmt.Errorf("不支持的代理平台: %s", cfg.ProxyPlatform)
 	}
-
-	key := strings.TrimSpace(cfg.ProxyAccount)
-	sign := strings.TrimSpace(cfg.ProxyPassword)
-	if key == "" || sign == "" {
-		return "", errors.New("代理平台配置不完整")
-	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	publicIP, err := fetchPublicIP(client)
-	if err != nil {
-		return "", err
-	}
-	if err := addShenlongWhitelist(client, sign, publicIP); err != nil {
-		return "", err
-	}
-	addr, err := fetchShenlongSocks5(client, key, sign, area, isp)
-	if err != nil {
-		return "", err
-	}
-	return addr, nil
 }
 
 func (s *RegisterTaskService) resolveProxyGeo(cfg systemRegisterConfig, phone string) shenlongGeo {
@@ -650,6 +682,233 @@ func fetchShenlongSocks5(client *http.Client, key, sign, area, isp string) (stri
 	return "", errors.New("神龙代理提取失败")
 }
 
+func fetchKuaidailiSocks5(client *http.Client, secretID, secretKey, area, isp string) (string, error) {
+	method := "GET"
+	parsed, err := url.Parse(kuaidailiGetDPSURL)
+	if err != nil {
+		return "", err
+	}
+	params := map[string]string{
+		"secret_id": secretID,
+		"sign_type": "hmacsha1",
+		"timestamp": strconv.FormatInt(time.Now().Unix(), 10),
+		"num":       "1",
+		"format":    "text",
+	}
+	if strings.TrimSpace(area) != "" {
+		params["area"] = strings.TrimSpace(area)
+	}
+	if carrier := normalizeKuaidailiCarrier(isp); carrier != "" {
+		params["carrier"] = carrier
+	}
+	params["signature"] = signKuaidailiRequest(method, parsed.Path, params, secretKey)
+
+	q := parsed.Query()
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		q.Set(k, params[k])
+	}
+	parsed.RawQuery = q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("快代理请求失败: %s", resp.Status)
+	}
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return "", errors.New("快代理返回为空")
+	}
+	if strings.HasPrefix(text, "ERROR(") {
+		return "", fmt.Errorf("快代理返回失败: %s", text)
+	}
+	line := strings.TrimSpace(strings.Split(text, "\n")[0])
+	host, port, splitErr := net.SplitHostPort(line)
+	if splitErr != nil {
+		return "", fmt.Errorf("快代理返回格式异常: %s", line)
+	}
+	if strings.TrimSpace(host) == "" || strings.TrimSpace(port) == "" {
+		return "", fmt.Errorf("快代理返回ip端口为空: %s", line)
+	}
+	return "socks5://" + net.JoinHostPort(host, port), nil
+}
+
+func fetchPingzanSocks5(client *http.Client, no, secret, area string) (string, error) {
+	query := url.Values{
+		"no":       []string{no},
+		"secret":   []string{secret},
+		"num":      []string{"1"},
+		"mode":     []string{"auth"},
+		"minute":   []string{"5"},
+		"pool":     []string{"quality"},
+		"format":   []string{"json"},
+		"protocol": []string{"3"},
+	}
+	if resolvedArea := normalizePingzanArea(area); resolvedArea != "" {
+		query.Set("area", resolvedArea)
+	}
+	return fetchPingzanSocks5WithQuery(client, query)
+}
+
+func fetchPingzanSocks5WithQuery(client *http.Client, query url.Values) (string, error) {
+	u, err := url.Parse(pingzanExtractURL)
+	if err != nil {
+		return "", err
+	}
+	u.RawQuery = query.Encode()
+	req, _ := http.NewRequest(http.MethodGet, u.String(), nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("品赞代理请求失败: %s", resp.Status)
+	}
+	var ret struct {
+		Code    int    `json:"code"`
+		Status  int    `json:"status"`
+		Message string `json:"message"`
+		Data    struct {
+			List []struct {
+				IP       string          `json:"ip"`
+				Port     json.RawMessage `json:"port"`
+				Account  string          `json:"account"`
+				Password string          `json:"password"`
+			} `json:"list"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &ret); err != nil {
+		return "", fmt.Errorf("解析品赞响应失败: %w", err)
+	}
+	if ret.Code != 0 {
+		msg := strings.TrimSpace(ret.Message)
+		if msg == "" {
+			msg = "未知错误"
+		}
+		return "", fmt.Errorf("品赞代理提取失败: %s", msg)
+	}
+	if len(ret.Data.List) == 0 {
+		return "", errors.New("品赞代理返回为空")
+	}
+	first := ret.Data.List[0]
+	host := strings.TrimSpace(first.IP)
+	port, err := parsePingzanPort(first.Port)
+	if err != nil || host == "" {
+		return "", errors.New("品赞代理返回IP或端口为空")
+	}
+	if strings.TrimSpace(first.Account) != "" {
+		return (&url.URL{
+			Scheme: "socks5",
+			User:   url.UserPassword(strings.TrimSpace(first.Account), strings.TrimSpace(first.Password)),
+			Host:   net.JoinHostPort(host, port),
+		}).String(), nil
+	}
+	return "socks5://" + net.JoinHostPort(host, port), nil
+}
+
+func parsePingzanPort(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		return "", errors.New("empty port")
+	}
+	var portInt int
+	if err := json.Unmarshal(raw, &portInt); err == nil {
+		if portInt <= 0 {
+			return "", errors.New("invalid port")
+		}
+		return strconv.Itoa(portInt), nil
+	}
+	var portStr string
+	if err := json.Unmarshal(raw, &portStr); err != nil {
+		return "", err
+	}
+	portStr = strings.TrimSpace(portStr)
+	if portStr == "" {
+		return "", errors.New("invalid port")
+	}
+	portInt, err := strconv.Atoi(portStr)
+	if err != nil || portInt <= 0 {
+		return "", errors.New("invalid port")
+	}
+	return portStr, nil
+}
+
+func normalizePingzanArea(area string) string {
+	area = strings.TrimSpace(area)
+	if area == "" {
+		return ""
+	}
+	for _, part := range strings.Split(area, ",") {
+		part = strings.TrimSpace(part)
+		if isStrictCityCode(part) {
+			return part
+		}
+	}
+	if isStrictCityCode(area) {
+		return area
+	}
+	return ""
+}
+
+func signKuaidailiRequest(method, path string, params map[string]string, secretKey string) string {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method == "" {
+		method = "GET"
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		path = "/"
+	}
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		if k == "signature" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	queryPairs := make([]string, 0, len(keys))
+	for _, k := range keys {
+		queryPairs = append(queryPairs, k+"="+params[k])
+	}
+	raw := method + path + "?" + strings.Join(queryPairs, "&")
+	mac := hmac.New(sha1.New, []byte(secretKey))
+	_, _ = mac.Write([]byte(raw))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+func normalizeKuaidailiCarrier(raw string) string {
+	switch normalizeShenlongISP(raw) {
+	case "联通":
+		return "1"
+	case "电信":
+		return "2"
+	case "移动":
+		return "3"
+	default:
+		return ""
+	}
+}
+
 func buildCacheINI(cache map[string]string) string {
 	if len(cache) == 0 {
 		return ""
@@ -832,6 +1091,8 @@ type systemRegisterConfig struct {
 	ProxyPlatform   string
 	ProxyAccount    string
 	ProxyPassword   string
+	ProxySecretID   string
+	ProxySecretKey  string
 	CaptchaPlatform string
 	CaptchaAccount  string
 	CaptchaPassword string
@@ -840,30 +1101,7 @@ type systemRegisterConfig struct {
 
 func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRegisterConfig, error) {
 	cfg := systemRegisterConfig{}
-	if leaderID != nil && *leaderID != 0 {
-		var leaderCfg struct {
-			ProxyPlatform   string
-			ProxyAccount    string
-			ProxyPassword   string
-			CaptchaPlatform string
-			CaptchaAccount  string
-			CaptchaPassword string
-			CaptchaToken    string
-		}
-		err := global.GVA_DB.Model(&system.SysRegisterConfig{}).
-			Select("proxy_platform, proxy_account, proxy_password, captcha_platform, captcha_account, captcha_password, captcha_token").
-			Where("owner_type = ? AND owner_id = ?", system.RegisterConfigOwnerLeader, *leaderID).
-			First(&leaderCfg).Error
-		if err == nil {
-			cfg.ProxyPlatform = leaderCfg.ProxyPlatform
-			cfg.ProxyAccount = leaderCfg.ProxyAccount
-			cfg.ProxyPassword = leaderCfg.ProxyPassword
-			cfg.CaptchaPlatform = leaderCfg.CaptchaPlatform
-			cfg.CaptchaAccount = leaderCfg.CaptchaAccount
-			cfg.CaptchaPassword = leaderCfg.CaptchaPassword
-			cfg.CaptchaToken = leaderCfg.CaptchaToken
-		}
-	}
+	_ = leaderID
 	var adminCfg struct {
 		DefaultPassword string
 		NaichaAppID     string
@@ -872,9 +1110,18 @@ func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRe
 		IP138Token      string
 		ApiBase         string
 		ApiToken        string
+		ProxyPlatform   string
+		ProxyAccount    string
+		ProxyPassword   string
+		ProxySecretID   string
+		ProxySecretKey  string
+		CaptchaPlatform string
+		CaptchaAccount  string
+		CaptchaPassword string
+		CaptchaToken    string
 	}
 	if err := global.GVA_DB.Model(&system.SysRegisterConfig{}).
-		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5, ip138_token, api_base, api_token").
+		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5, ip138_token, api_base, api_token, proxy_platform, proxy_account, proxy_password, proxy_secret_id, proxy_secret_key, captcha_platform, captcha_account, captcha_password, captcha_token").
 		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
 		First(&adminCfg).Error; err == nil {
 		cfg.DefaultPassword = adminCfg.DefaultPassword
@@ -884,6 +1131,15 @@ func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRe
 		cfg.IP138Token = adminCfg.IP138Token
 		cfg.ApiBase = adminCfg.ApiBase
 		cfg.ApiToken = adminCfg.ApiToken
+		cfg.ProxyPlatform = adminCfg.ProxyPlatform
+		cfg.ProxyAccount = adminCfg.ProxyAccount
+		cfg.ProxyPassword = adminCfg.ProxyPassword
+		cfg.ProxySecretID = adminCfg.ProxySecretID
+		cfg.ProxySecretKey = adminCfg.ProxySecretKey
+		cfg.CaptchaPlatform = adminCfg.CaptchaPlatform
+		cfg.CaptchaAccount = adminCfg.CaptchaAccount
+		cfg.CaptchaPassword = adminCfg.CaptchaPassword
+		cfg.CaptchaToken = adminCfg.CaptchaToken
 	}
 	return cfg, nil
 }

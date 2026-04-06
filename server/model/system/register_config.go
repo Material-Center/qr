@@ -20,9 +20,11 @@ type SysRegisterConfig struct {
 	ApiBase         string `json:"apiBase" gorm:"size:256;comment:登录签名服务apiBase(管理员配置)"`
 	ApiToken        string `json:"apiToken" gorm:"size:256;comment:登录签名服务apiToken(管理员配置)"`
 
-	ProxyPlatform string `json:"proxyPlatform" gorm:"size:32;comment:代理平台"`
-	ProxyAccount  string `json:"proxyAccount" gorm:"size:128;comment:代理账号"`
-	ProxyPassword string `json:"proxyPassword" gorm:"size:128;comment:代理密码"`
+	ProxyPlatform  string `json:"proxyPlatform" gorm:"size:32;comment:代理平台"`
+	ProxyAccount   string `json:"proxyAccount" gorm:"size:128;comment:代理账号"`
+	ProxyPassword  string `json:"proxyPassword" gorm:"size:128;comment:代理密码"`
+	ProxySecretID  string `json:"proxySecretId" gorm:"size:128;comment:快代理SecretId"`
+	ProxySecretKey string `json:"proxySecretKey" gorm:"size:128;comment:快代理SecretKey"`
 
 	CaptchaPlatform string `json:"captchaPlatform" gorm:"size:32;comment:验证码平台"`
 	CaptchaAccount  string `json:"captchaAccount" gorm:"size:128;comment:验证码账号"`

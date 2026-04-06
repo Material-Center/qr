@@ -9,9 +9,11 @@ type RegisterConfigUpsert struct {
 	ApiBase         string `json:"apiBase" form:"apiBase"`
 	ApiToken        string `json:"apiToken" form:"apiToken"`
 
-	ProxyPlatform string `json:"proxyPlatform" form:"proxyPlatform"`
-	ProxyAccount  string `json:"proxyAccount" form:"proxyAccount"`
-	ProxyPassword string `json:"proxyPassword" form:"proxyPassword"`
+	ProxyPlatform  string `json:"proxyPlatform" form:"proxyPlatform"`
+	ProxyAccount   string `json:"proxyAccount" form:"proxyAccount"`
+	ProxyPassword  string `json:"proxyPassword" form:"proxyPassword"`
+	ProxySecretID  string `json:"proxySecretId" form:"proxySecretId"`
+	ProxySecretKey string `json:"proxySecretKey" form:"proxySecretKey"`
 
 	CaptchaPlatform string `json:"captchaPlatform" form:"captchaPlatform"`
 	CaptchaAccount  string `json:"captchaAccount" form:"captchaAccount"`

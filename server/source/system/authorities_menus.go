@@ -83,19 +83,26 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	}
 
 	// 注册任务菜单
-	var registerManageMenus []sysModel.SysBaseMenu
 	registerParent, hasRegisterParent := menuNameMap["register"]
 	registerManageChild, hasRegisterManageChild := menuNameMap["registerTaskManage"]
 	registerCenterChild, hasRegisterCenterChild := menuNameMap["registerTaskCenter"]
 	registerConfigChild, hasRegisterConfigChild := menuNameMap["registerConfig"]
+	registerDebugChild, hasRegisterDebugChild := menuNameMap["registerDebugLogin"]
+	var adminRegisterMenus []sysModel.SysBaseMenu
+	var leaderRegisterMenus []sysModel.SysBaseMenu
 	if hasRegisterParent {
-		registerManageMenus = append(registerManageMenus, registerParent)
+		adminRegisterMenus = append(adminRegisterMenus, registerParent)
+		leaderRegisterMenus = append(leaderRegisterMenus, registerParent)
 	}
 	if hasRegisterManageChild {
-		registerManageMenus = append(registerManageMenus, registerManageChild)
+		adminRegisterMenus = append(adminRegisterMenus, registerManageChild)
+		leaderRegisterMenus = append(leaderRegisterMenus, registerManageChild)
 	}
 	if hasRegisterConfigChild {
-		registerManageMenus = append(registerManageMenus, registerConfigChild)
+		adminRegisterMenus = append(adminRegisterMenus, registerConfigChild)
+	}
+	if hasRegisterDebugChild {
+		adminRegisterMenus = append(adminRegisterMenus, registerDebugChild)
 	}
 
 	var registerPromoterMenus []sysModel.SysBaseMenu
@@ -120,15 +127,15 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	// 100 管理员：基础菜单 + 账号管理 + 注册任务统计
 	adminMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	adminMenus = append(adminMenus, accountMenus...)
-	adminMenus = append(adminMenus, registerManageMenus...)
+	adminMenus = append(adminMenus, adminRegisterMenus...)
 	if err = assignMenus(100, adminMenus, "为管理员分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为管理员分配菜单失败")
 	}
 
-	// 200 团长：基础菜单 + 账号管理 + 注册任务统计
+	// 200 团长：基础菜单 + 账号管理 + 注册任务统计（不包含配置管理和登录调试）
 	leaderMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	leaderMenus = append(leaderMenus, accountMenus...)
-	leaderMenus = append(leaderMenus, registerManageMenus...)
+	leaderMenus = append(leaderMenus, leaderRegisterMenus...)
 	if err = assignMenus(200, leaderMenus, "为团长分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为团长分配菜单失败")
 	}
