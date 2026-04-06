@@ -314,9 +314,10 @@ const downloadCacheFile = async (row) => {
   if (!row?.ID) return
   try {
     const rsp = await downloadRegisterTaskCache({ taskId: row.ID })
-    const blob = rsp?.data instanceof Blob ? rsp.data : new Blob([rsp?.data || ''])
-    if (blob.type.includes('application/json')) {
-      const text = await blob.text()
+    const contentType = String(rsp?.headers?.['content-type'] || rsp?.headers?.['Content-Type'] || '').toLowerCase()
+    const buffer = rsp?.data
+    if (contentType.includes('application/json')) {
+      const text = new TextDecoder('utf-8').decode(buffer)
       try {
         const parsed = JSON.parse(text)
         ElMessage.error(parsed?.msg || '下载失败')
@@ -325,6 +326,7 @@ const downloadCacheFile = async (row) => {
       }
       return
     }
+    const blob = new Blob([buffer], { type: 'text/plain;charset=utf-8' })
     const disposition = rsp?.headers?.['content-disposition'] || rsp?.headers?.['Content-Disposition']
     const filename = parseFilenameFromDisposition(disposition) || `register_task_${row.ID}.ini`
     const url = window.URL.createObjectURL(blob)
@@ -334,10 +336,10 @@ const downloadCacheFile = async (row) => {
     document.body.appendChild(a)
     a.click()
     a.remove()
-    // 不能立即 revoke，部分浏览器会导致 blob 下载卡住在 0B。
+    // 不能立即 revoke，部分浏览器会导致下载任务卡住在 0B。
     window.setTimeout(() => {
       window.URL.revokeObjectURL(url)
-    }, 3000)
+    }, 10000)
     ElMessage.success('缓存下载成功')
   } catch (e) {
     ElMessage.error(e?.message || '下载失败')

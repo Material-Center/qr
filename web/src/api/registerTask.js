@@ -75,7 +75,7 @@ export const downloadRegisterTaskCache = (params) => {
     url: '/registerTask/cache/download',
     method: 'get',
     params,
-    responseType: 'blob',
+    responseType: 'arraybuffer',
     donNotShowLoading: true
   })
 }
