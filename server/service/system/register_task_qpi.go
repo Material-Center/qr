@@ -922,23 +922,37 @@ func buildCacheINI(cache map[string]string) string {
 	uin := strings.TrimSpace(cache["uin"])
 	sb.WriteString("[")
 	sb.WriteString(uin)
-	sb.WriteString("]\n")
+	sb.WriteString("]\r\n")
 	for k, v := range cache {
 		sb.WriteString(k)
 		sb.WriteString("=")
 		sb.WriteString(v)
-		sb.WriteString("\n")
+		sb.WriteString("\r\n")
 	}
 	return sb.String()
 }
 
-func buildTLV544ProviderFromConfig(cfg systemRegisterConfig) (qpi.TLV544Provider, error) {
+func buildTLV544ProviderFromConfig(cfg systemRegisterConfig, task system.SysRegisterTask) (qpi.TLV544Provider, error) {
 	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
 	apiToken := strings.TrimSpace(cfg.ApiToken)
 	if apiBase == "" || apiToken == "" {
 		return nil, errors.New("登录签名服务 apiBase/apiToken 未配置")
 	}
-	return func(req qpi.TLV544Request) ([]byte, error) {
+	return func(req qpi.TLV544Request) (out []byte, err error) {
+		startAt := time.Now()
+		defer func() {
+			fields := append(taskLogFields(task),
+				zap.String("action", "provider_tlv544"),
+				zap.Duration("elapsed", time.Since(startAt)),
+				zap.String("uin", strings.TrimSpace(req.UIN)),
+			)
+			if err != nil {
+				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				return
+			}
+			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+		}()
+
 		retries := 3
 		for attempts := 0; ; attempts++ {
 			form := url.Values{}
@@ -947,55 +961,99 @@ func buildTLV544ProviderFromConfig(cfg systemRegisterConfig) (qpi.TLV544Provider
 			form.Set("salt", strings.TrimSpace(req.Salt))
 			form.Set("data", strings.ReplaceAll(strings.TrimSpace(req.SaltData), " ", ""))
 
-			respText, err := doPostForm(apiBase+"/energy", form.Encode())
-			if err != nil {
+			respText, reqErr := doPostForm(apiBase+"/energy", form.Encode())
+			if reqErr != nil {
 				if attempts < retries {
 					continue
 				}
-				return nil, fmt.Errorf("makeTLV544 energy request failed: %w", err)
+				err = fmt.Errorf("makeTLV544 energy request failed: %w", reqErr)
+				return nil, err
 			}
 			respText = strings.TrimSpace(respText)
 			if respText == "" {
-				return nil, errors.New("makeTLV544 energy response is empty")
+				err = errors.New("makeTLV544 energy response is empty")
+				return nil, err
 			}
-			return hex.DecodeString(strings.ReplaceAll(respText, " ", ""))
+			out, err = hex.DecodeString(strings.ReplaceAll(respText, " ", ""))
+			if err != nil {
+				err = fmt.Errorf("decode tlv544 response failed: %w", err)
+				return nil, err
+			}
+			return out, nil
 		}
 	}, nil
 }
 
-func buildTLV553ProviderFromConfig(cfg systemRegisterConfig) (func(uin uint32) ([]byte, error), error) {
+func buildTLV553ProviderFromConfig(cfg systemRegisterConfig, task system.SysRegisterTask) (func(uin uint32) ([]byte, error), error) {
 	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
 	if apiBase == "" {
 		return nil, errors.New("登录签名服务 apiBase 未配置")
 	}
-	return func(uin uint32) ([]byte, error) {
+	return func(uin uint32) (out []byte, err error) {
+		startAt := time.Now()
+		defer func() {
+			fields := append(taskLogFields(task),
+				zap.String("action", "provider_tlv553"),
+				zap.Duration("elapsed", time.Since(startAt)),
+				zap.Uint64("uin", uint64(uin)),
+			)
+			if err != nil {
+				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				return
+			}
+			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+		}()
+
 		endpoint := apiBase + "/get_xw_debug_id"
 		bodyRaw := "uin=" + strconv.FormatUint(uint64(uin), 10)
-		respText, err := doPostForm(endpoint, bodyRaw)
-		if err != nil {
-			return nil, fmt.Errorf("tlv553 request failed: %w", err)
+		respText, reqErr := doPostForm(endpoint, bodyRaw)
+		if reqErr != nil {
+			err = fmt.Errorf("tlv553 request failed: %w", reqErr)
+			return nil, err
 		}
 		var payload struct {
 			Code int    `json:"code"`
 			Data string `json:"data"`
 		}
 		if err := json.Unmarshal([]byte(respText), &payload); err != nil {
-			return nil, fmt.Errorf("parse tlv553 failed: %w, body=%s", err, respText)
+			err = fmt.Errorf("parse tlv553 failed: %w, body=%s", err, respText)
+			return nil, err
 		}
 		if payload.Code != 0 {
-			return nil, fmt.Errorf("tlv553 failed: code=%d body=%s", payload.Code, respText)
+			err = fmt.Errorf("tlv553 failed: code=%d body=%s", payload.Code, respText)
+			return nil, err
 		}
-		return hex.DecodeString(strings.ReplaceAll(payload.Data, " ", ""))
+		out, err = hex.DecodeString(strings.ReplaceAll(payload.Data, " ", ""))
+		if err != nil {
+			err = fmt.Errorf("decode tlv553 response failed: %w", err)
+			return nil, err
+		}
+		return out, nil
 	}, nil
 }
 
-func buildSignProviderFromConfig(cfg systemRegisterConfig) (qpi.SignProvider, error) {
+func buildSignProviderFromConfig(cfg systemRegisterConfig, task system.SysRegisterTask) (qpi.SignProvider, error) {
 	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
 	apiToken := strings.TrimSpace(cfg.ApiToken)
 	if apiBase == "" || apiToken == "" {
 		return nil, errors.New("登录签名服务 apiBase/apiToken 未配置")
 	}
-	return func(req qpi.SignRequest) ([]byte, error) {
+	return func(req qpi.SignRequest) (out []byte, err error) {
+		startAt := time.Now()
+		defer func() {
+			fields := append(taskLogFields(task),
+				zap.String("action", "provider_sign"),
+				zap.Duration("elapsed", time.Since(startAt)),
+				zap.Uint64("uin", uint64(req.UIN)),
+				zap.String("cmd", strings.TrimSpace(req.Cmd)),
+			)
+			if err != nil {
+				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				return
+			}
+			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+		}()
+
 		form := url.Values{}
 		form.Set("token", apiToken)
 		form.Set("uin", strconv.FormatUint(uint64(req.UIN), 10))
@@ -1006,21 +1064,41 @@ func buildSignProviderFromConfig(cfg systemRegisterConfig) (qpi.SignProvider, er
 		form.Set("guid", strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(req.GUIDHex)), " ", ""))
 		form.Set("android_id", strings.TrimSpace(req.AndroidID))
 		form.Set("qimei36", strings.TrimSpace(req.QIMEI36))
-		respText, err := doPostForm(apiBase+"/qsign", form.Encode())
-		if err != nil {
-			return nil, fmt.Errorf("sign provider request failed: %w", err)
+		respText, reqErr := doPostForm(apiBase+"/qsign", form.Encode())
+		if reqErr != nil {
+			err = fmt.Errorf("sign provider request failed: %w", reqErr)
+			return nil, err
 		}
-		return hex.DecodeString(strings.ReplaceAll(strings.TrimSpace(respText), " ", ""))
+		out, err = hex.DecodeString(strings.ReplaceAll(strings.TrimSpace(respText), " ", ""))
+		if err != nil {
+			err = fmt.Errorf("decode sign response failed: %w", err)
+			return nil, err
+		}
+		return out, nil
 	}, nil
 }
 
-func buildInitProviderFromConfig(cfg systemRegisterConfig) (qpi.InitProvider, error) {
+func buildInitProviderFromConfig(cfg systemRegisterConfig, task system.SysRegisterTask) (qpi.InitProvider, error) {
 	apiBase := strings.TrimRight(strings.TrimSpace(cfg.ApiBase), "/")
 	apiToken := strings.TrimSpace(cfg.ApiToken)
 	if apiBase == "" || apiToken == "" {
 		return nil, errors.New("登录签名服务 apiBase/apiToken 未配置")
 	}
-	return func(req qpi.InitRequest) error {
+	return func(req qpi.InitRequest) (err error) {
+		startAt := time.Now()
+		defer func() {
+			fields := append(taskLogFields(task),
+				zap.String("action", "provider_init"),
+				zap.Duration("elapsed", time.Since(startAt)),
+				zap.String("uin", strings.TrimSpace(req.UIN)),
+			)
+			if err != nil {
+				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				return
+			}
+			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+		}()
+
 		form := url.Values{}
 		form.Set("token", apiToken)
 		form.Set("uin", req.UIN)
@@ -1038,14 +1116,16 @@ func buildInitProviderFromConfig(cfg systemRegisterConfig) (qpi.InitProvider, er
 		form.Set("model", req.Model)
 		form.Set("osver", req.OSVer)
 		form.Set("cookie", req.CookieHex)
-		rsp, err := doPostForm(apiBase+"/init", form.Encode())
-		if err != nil {
-			return fmt.Errorf("init provider request failed: %w", err)
+		rsp, reqErr := doPostForm(apiBase+"/init", form.Encode())
+		if reqErr != nil {
+			err = fmt.Errorf("init provider request failed: %w", reqErr)
+			return err
 		}
 		if strings.TrimSpace(rsp) != "error" {
 			return nil
 		}
-		return fmt.Errorf("init provider response failed: %s", rsp)
+		err = fmt.Errorf("init provider response failed: %s", rsp)
+		return err
 	}, nil
 }
 
@@ -1060,10 +1140,10 @@ func doPostForm(targetURL string, bodyRaw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("doPOST request failed: %s", resp.Status)
 	}
-	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err

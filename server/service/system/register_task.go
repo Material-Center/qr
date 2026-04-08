@@ -587,22 +587,22 @@ func (s *RegisterTaskService) handleSubmit(task system.SysRegisterTask, req syst
 			global.GVA_LOG.Info("【注册任务】登录-初始化本轮会话", taskLogFieldsWithOpQQ(task, currentQQ)...)
 			// 清理非当前QQ的旧会话，避免串号
 			clearLoginSession(task.ID)
-			tlv544Provider, pErr := buildTLV544ProviderFromConfig(runtimeCfg)
+			tlv544Provider, pErr := buildTLV544ProviderFromConfig(runtimeCfg, task)
 			if pErr != nil {
 				global.GVA_LOG.Error("【注册任务】登录-TLV544初始化失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(pErr))...)
 				return task, pErr
 			}
-			tlv553Provider, pErr := buildTLV553ProviderFromConfig(runtimeCfg)
+			tlv553Provider, pErr := buildTLV553ProviderFromConfig(runtimeCfg, task)
 			if pErr != nil {
 				global.GVA_LOG.Error("【注册任务】登录-TLV553初始化失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(pErr))...)
 				return task, pErr
 			}
-			signProvider, pErr := buildSignProviderFromConfig(runtimeCfg)
+			signProvider, pErr := buildSignProviderFromConfig(runtimeCfg, task)
 			if pErr != nil {
 				global.GVA_LOG.Error("【注册任务】登录-SignProvider初始化失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(pErr))...)
 				return task, pErr
 			}
-			initProvider, pErr := buildInitProviderFromConfig(runtimeCfg)
+			initProvider, pErr := buildInitProviderFromConfig(runtimeCfg, task)
 			if pErr != nil {
 				global.GVA_LOG.Error("【注册任务】登录-InitProvider初始化失败", append(taskLogFieldsWithOpQQ(task, currentQQ), zap.Error(pErr))...)
 				return task, pErr
