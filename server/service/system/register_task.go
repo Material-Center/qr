@@ -3,6 +3,7 @@ package system
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -861,11 +862,7 @@ func (s *RegisterTaskService) timeoutTasksByPromoter(promoterID uint) error {
 	return err
 }
 
-func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, req systemReq.RegisterTaskList) (registerTaskListResult, error) {
-	_ = s.normalizeTimeoutClosedTasks()
-	_ = s.timeoutUnfinishedTasks()
-	db := global.GVA_DB.Model(&system.SysRegisterTask{}).Preload("Promoter").Preload("Leader")
-
+func applyRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID uint, req systemReq.RegisterTaskList) (*gorm.DB, error) {
 	switch operatorRole {
 	case roleSuperAdmin, roleAdmin:
 		if req.LeaderID != 0 {
@@ -882,10 +879,26 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 	case rolePromoter:
 		db = db.Where("promoter_id = ?", operatorID)
 	default:
-		global.GVA_LOG.Warn("【注册任务】任务列表-无权限", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID))
-		return registerTaskListResult{}, errors.New("无权限查看任务")
+		return nil, errors.New("无权限查看任务")
 	}
+	return db, nil
+}
 
+func parseTaskListTime(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", value, time.Local); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
+}
+
+func applyRegisterTaskQueryFilters(db *gorm.DB, req systemReq.RegisterTaskList) *gorm.DB {
 	if req.StatusCode != nil {
 		db = db.Where("status_code = ?", *req.StatusCode)
 	}
@@ -896,6 +909,39 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 			db = db.Where("finished_at IS NOT NULL")
 		}
 	}
+
+	switch strings.ToLower(strings.TrimSpace(req.Status)) {
+	case "success":
+		db = db.Where("finished_at IS NOT NULL AND status_code = 0")
+	case "fail", "failed":
+		db = db.Where("finished_at IS NOT NULL AND (status_code <> 0 OR status_code IS NULL)")
+	}
+
+	phone := strings.TrimSpace(req.Phone)
+	if phone != "" {
+		db = db.Where("phone LIKE ?", "%"+phone+"%")
+	}
+
+	if startAt, ok := parseTaskListTime(req.FinishedAtStart); ok {
+		db = db.Where("finished_at >= ?", startAt)
+	}
+	if endAt, ok := parseTaskListTime(req.FinishedAtEnd); ok {
+		db = db.Where("finished_at <= ?", endAt)
+	}
+	return db
+}
+
+func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, req systemReq.RegisterTaskList) (registerTaskListResult, error) {
+	_ = s.normalizeTimeoutClosedTasks()
+	_ = s.timeoutUnfinishedTasks()
+	db := global.GVA_DB.Model(&system.SysRegisterTask{}).Preload("Promoter").Preload("Leader")
+	var roleErr error
+	db, roleErr = applyRegisterTaskRoleFilter(db, operatorRole, operatorID, req)
+	if roleErr != nil {
+		global.GVA_LOG.Warn("【注册任务】任务列表-无权限", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID))
+		return registerTaskListResult{}, roleErr
+	}
+	db = applyRegisterTaskQueryFilters(db, req)
 
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
@@ -920,22 +966,12 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 	}
 
 	statDB := global.GVA_DB.Model(&system.SysRegisterTask{})
-	switch operatorRole {
-	case roleSuperAdmin, roleAdmin:
-		if req.LeaderID != 0 {
-			statDB = statDB.Where("leader_id = ?", req.LeaderID)
-		}
-		if req.PromoterID != 0 {
-			statDB = statDB.Where("promoter_id = ?", req.PromoterID)
-		}
-	case roleLeader:
-		statDB = statDB.Where("leader_id = ?", operatorID)
-		if req.PromoterID != 0 {
-			statDB = statDB.Where("promoter_id = ?", req.PromoterID)
-		}
-	case rolePromoter:
-		statDB = statDB.Where("promoter_id = ?", operatorID)
+	statDB, roleErr = applyRegisterTaskRoleFilter(statDB, operatorRole, operatorID, req)
+	if roleErr != nil {
+		global.GVA_LOG.Warn("【注册任务】任务列表-无权限", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID))
+		return registerTaskListResult{}, roleErr
 	}
+	statDB = applyRegisterTaskQueryFilters(statDB, req)
 	type taskCounter struct {
 		Success    int64 `gorm:"column:success"`
 		Failed     int64 `gorm:"column:failed"`
@@ -1093,11 +1129,11 @@ func (s *RegisterTaskService) filterQualifiedQQByNaicha(cfg systemRegisterConfig
 	global.GVA_LOG.Info("【注册任务】奶茶筛选-DR结果", append(taskLogFields(*task), zap.Any("ret", drResults))...)
 	global.GVA_LOG.Info("【注册任务】奶茶筛选-QL结果", append(taskLogFields(*task), zap.Any("ret", qlResults))...)
 
-	if task != nil && shouldBypassNaichaFilterForPhone(task.Phone) {
+	bypassFilter := task != nil && shouldBypassNaichaFilterForPhone(task.Phone)
+	if bypassFilter {
 		global.GVA_LOG.Warn("【注册任务】奶茶筛选-测试旁路生效，跳过条件过滤",
 			append(taskLogFields(*task), zap.Strings("qqList", qqList))...,
 		)
-		return qqList, nil
 	}
 
 	drMap := make(map[string]NCDRResult)
@@ -1109,6 +1145,16 @@ func (s *RegisterTaskService) filterQualifiedQQByNaicha(cfg systemRegisterConfig
 		qlMap[item.UIN] = item
 	}
 
+	type naichaQQInfo struct {
+		QQ             string   `json:"qq"`
+		PhoneOnlineDay *int     `json:"phoneOnlineDay,omitempty"`
+		QAge           *int     `json:"qAge,omitempty"`
+		QLevel         *int     `json:"qLevel,omitempty"`
+		Qualified      bool     `json:"qualified"`
+		Reasons        []string `json:"reasons,omitempty"`
+	}
+
+	infoList := make([]naichaQQInfo, 0, len(qqList))
 	filtered := make([]string, 0, len(qqList))
 	for _, qq := range qqList {
 		dr, ok1 := drMap[qq]
@@ -1121,6 +1167,11 @@ func (s *RegisterTaskService) filterQualifiedQQByNaicha(cfg systemRegisterConfig
 			if !ok2 {
 				reasons = append(reasons, "缺少Q龄查询结果")
 			}
+			infoList = append(infoList, naichaQQInfo{
+				QQ:        qq,
+				Qualified: false,
+				Reasons:   reasons,
+			})
 			global.GVA_LOG.Warn("【注册任务】奶茶筛选-跳过QQ", append(
 				taskLogFieldsWithOpQQ(*task, qq),
 				zap.Strings("reasons", reasons),
@@ -1131,7 +1182,17 @@ func (s *RegisterTaskService) filterQualifiedQQByNaicha(cfg systemRegisterConfig
 		condOnline := dr.PhoneOnlineDay < 1
 		condAge := ql.Age > 1
 		condLevel := ql.Level > 1
+		onlineDay := dr.PhoneOnlineDay
+		qAge := ql.Age
+		qLevel := ql.Level
 		if condOnline && condAge && condLevel {
+			infoList = append(infoList, naichaQQInfo{
+				QQ:             qq,
+				PhoneOnlineDay: &onlineDay,
+				QAge:           &qAge,
+				QLevel:         &qLevel,
+				Qualified:      true,
+			})
 			global.GVA_LOG.Info("【注册任务】奶茶筛选-QQ通过", append(
 				taskLogFieldsWithOpQQ(*task, qq),
 				zap.Int("phoneOnlineDay", dr.PhoneOnlineDay),
@@ -1151,6 +1212,14 @@ func (s *RegisterTaskService) filterQualifiedQQByNaicha(cfg systemRegisterConfig
 		if !condLevel {
 			reasons = append(reasons, "等级条件不满足(<=1级)")
 		}
+		infoList = append(infoList, naichaQQInfo{
+			QQ:             qq,
+			PhoneOnlineDay: &onlineDay,
+			QAge:           &qAge,
+			QLevel:         &qLevel,
+			Qualified:      false,
+			Reasons:        reasons,
+		})
 		global.GVA_LOG.Info("【注册任务】奶茶筛选-QQ未通过", append(
 			taskLogFieldsWithOpQQ(*task, qq),
 			zap.Int("phoneOnlineDay", dr.PhoneOnlineDay),
@@ -1158,6 +1227,17 @@ func (s *RegisterTaskService) filterQualifiedQQByNaicha(cfg systemRegisterConfig
 			zap.Int("qLevel", ql.Level),
 			zap.Strings("reasons", reasons),
 		)...)
+	}
+	if task != nil {
+		infoBin, marshalErr := json.Marshal(infoList)
+		if marshalErr != nil {
+			global.GVA_LOG.Warn("【注册任务】奶茶筛选-QQ信息序列化失败", append(taskLogFields(*task), zap.Error(marshalErr))...)
+		} else {
+			task.QQNaichaInfo = string(infoBin)
+		}
+	}
+	if bypassFilter {
+		return qqList, nil
 	}
 	return filtered, nil
 }
@@ -1380,6 +1460,7 @@ func buildResetTaskForReuse(task system.SysRegisterTask, promoterID uint, leader
 	task.QQPassword = ""
 	task.LoginCacheINI = ""
 	task.QQCandidates = ""
+	task.QQNaichaInfo = ""
 	task.QQChangedList = ""
 	task.QQLoggedList = ""
 	task.IsDaren = nil
@@ -1427,6 +1508,16 @@ func (s *RegisterTaskService) preparePhoneBindSMS(task *system.SysRegisterTask, 
 	})
 	if err != nil {
 		_ = client.Close()
+		if nonRetryable, failMsg := resolvePhoneBindNonRetryableError(err); nonRetryable {
+			global.GVA_LOG.Warn("【注册任务】发短信-命中不可重试错误，直接结束任务", append(taskLogFields(*task), zap.String("failMessage", failMsg), zap.Error(err))...)
+			finished, finishErr := s.finishTask(*task, system.RegisterTaskFailCodeNoQQBound, failMsg)
+			if finishErr != nil {
+				global.GVA_LOG.Error("【注册任务】发短信-不可重试错误结束任务失败", append(taskLogFields(*task), zap.Error(finishErr))...)
+				return finishErr
+			}
+			*task = finished
+			return nil
+		}
 		global.GVA_LOG.Error("【注册任务】发短信-请求登录短信失败", append(taskLogFields(*task), zap.Error(err))...)
 		return err
 	}
@@ -1467,6 +1558,34 @@ func (s *RegisterTaskService) restorePhoneBindSessionIfNeeded(task *system.SysRe
 
 func hasPhoneBindSMSSent(task system.SysRegisterTask) bool {
 	return strings.Contains(strings.TrimSpace(task.LastError), "验证码已发送")
+}
+
+func resolvePhoneBindNonRetryableError(err error) (bool, string) {
+	if err == nil {
+		return false, ""
+	}
+	var commonErr *qpi.CommonError
+	if errors.As(err, &commonErr) {
+		if commonErr.Code == 219 {
+			msg := strings.TrimSpace(commonErr.Message)
+			if msg == "" {
+				msg = "当前手机号未绑定QQ号"
+			}
+			return true, msg
+		}
+		msg := strings.TrimSpace(commonErr.Message)
+		if strings.Contains(msg, "未绑定QQ") {
+			return true, msg
+		}
+	}
+	msg := strings.TrimSpace(err.Error())
+	if strings.Contains(msg, "当前手机号未绑定QQ号") {
+		return true, "当前手机号未绑定QQ号"
+	}
+	if strings.Contains(msg, "code=219") && strings.Contains(msg, "未绑定QQ") {
+		return true, "当前手机号未绑定QQ号"
+	}
+	return false, ""
 }
 
 func (s *RegisterTaskService) restoreTaskProgressIfNeeded(task *system.SysRegisterTask) error {

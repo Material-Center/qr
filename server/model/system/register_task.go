@@ -24,6 +24,7 @@ type SysRegisterTask struct {
 	QQPassword       string     `json:"qqPassword" gorm:"comment:QQ密码"`
 	LoginCacheINI    string     `json:"loginCacheIni" gorm:"type:longtext;comment:登录缓存ini"`
 	QQCandidates     string     `json:"-" gorm:"type:text;comment:查绑后候选QQ(JSON)"`
+	QQNaichaInfo     string     `json:"-" gorm:"type:longtext;comment:奶茶筛选QQ信息(JSON,含q龄等级)"`
 	QQChangedList    string     `json:"-" gorm:"type:text;comment:改密成功QQ(JSON)"`
 	QQLoggedList     string     `json:"-" gorm:"type:text;comment:登录成功QQ(JSON)"`
 	IsDaren          *bool      `json:"isDaren" gorm:"comment:是否达人"`

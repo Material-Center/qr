@@ -1,11 +1,18 @@
 package system
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
@@ -301,10 +308,12 @@ func (a *RegisterTaskApi) GetRegisterTaskDebugLoginTask(c *gin.Context) {
 
 // DownloadRegisterTaskCache
 // @Tags      RegisterTask
-// @Summary   下载任务登录缓存INI（仅管理员）
+// @Summary   下载任务登录缓存ZIP（仅管理员）
 // @Security  ApiKeyAuth
 // @Produce   application/octet-stream
-// @Param     taskId  query     int  true  "任务ID"
+// @Param     taskId    query   int    false  "任务ID（单个下载）"
+// @Param     taskIds   query   string false  "任务ID列表，逗号分隔（批量下载）"
+// @Param     onlyCache query   bool   false  "是否仅下载缓存文件"
 // @Success   200     {file}    file
 // @Router    /registerTask/cache/download [get]
 func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
@@ -313,30 +322,206 @@ func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
 		response.FailWithMessage("仅管理员可下载缓存", c)
 		return
 	}
-	taskID, _ := strconv.ParseUint(strings.TrimSpace(c.Query("taskId")), 10, 64)
-	if taskID == 0 {
+	taskIDs := parseDownloadTaskIDs(c.Query("taskId"), c.Query("taskIds"))
+	if len(taskIDs) == 0 {
 		response.FailWithMessage("任务ID不能为空", c)
 		return
 	}
-	task, err := registerTaskService.GetTaskByID(uint(taskID))
+	onlyCache := strings.EqualFold(strings.TrimSpace(c.Query("onlyCache")), "true") || strings.TrimSpace(c.Query("onlyCache")) == "1"
+	var tasks []system.SysRegisterTask
+	err := global.GVA_DB.Where("id IN ?", taskIDs).Find(&tasks).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			response.FailWithMessage("任务不存在", c)
-			return
-		}
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	cacheINI := strings.TrimSpace(task.LoginCacheINI)
-	if cacheINI == "" {
-		response.FailWithMessage("该任务暂无可下载缓存", c)
+	if len(tasks) == 0 {
+		response.FailWithMessage("任务不存在", c)
 		return
 	}
-	filename := fmt.Sprintf("register_task_%d.ini", task.ID)
+
+	naichaLevelMapByTask := make(map[uint]map[string]int, len(tasks))
+	for _, task := range tasks {
+		naichaLevelMapByTask[task.ID] = buildQQLevelMap(task.QQNaichaInfo)
+	}
+	taskByID := make(map[uint]system.SysRegisterTask, len(tasks))
+	for _, task := range tasks {
+		taskByID[task.ID] = task
+	}
+	taskOrder := make([]uint, 0, len(taskIDs))
+	for _, id := range taskIDs {
+		if _, ok := taskByID[id]; ok {
+			taskOrder = append(taskOrder, id)
+		}
+	}
+
+	zipBuf := bytes.NewBuffer(nil)
+	zw := zip.NewWriter(zipBuf)
+	accountLines := make([]string, 0, 64)
+	writtenUIN := make(map[string]struct{}, 64)
+	iniCount := 0
+	for _, id := range taskOrder {
+		task := taskByID[id]
+		cacheINI := strings.TrimSpace(task.LoginCacheINI)
+		if cacheINI == "" {
+			continue
+		}
+		iniMap := splitTaskCacheINIByUIN(cacheINI)
+		levelMap := naichaLevelMapByTask[task.ID]
+		for uin, iniText := range iniMap {
+			if _, exists := writtenUIN[uin]; exists {
+				continue
+			}
+			iniName := fmt.Sprintf("%s.ini", uin)
+			w, createErr := zw.Create(iniName)
+			if createErr != nil {
+				_ = zw.Close()
+				response.FailWithMessage("创建压缩包失败", c)
+				return
+			}
+			if _, writeErr := w.Write([]byte(iniText)); writeErr != nil {
+				_ = zw.Close()
+				response.FailWithMessage("写入压缩包失败", c)
+				return
+			}
+			iniCount++
+			writtenUIN[uin] = struct{}{}
+			if !onlyCache {
+				levelText := "-"
+				if lv, ok := levelMap[uin]; ok {
+					levelText = strconv.Itoa(lv)
+				}
+				password := strings.TrimSpace(task.QQPassword)
+				guidHex := deriveRegisterTaskGUIDHex(uin)
+				accountLines = append(accountLines, fmt.Sprintf("%s----%s----%s----%s", uin, password, guidHex, levelText))
+			}
+		}
+	}
+	if iniCount == 0 {
+		_ = zw.Close()
+		response.FailWithMessage("所选任务暂无可下载缓存", c)
+		return
+	}
+	if !onlyCache {
+		sort.Strings(accountLines)
+		w, createErr := zw.Create("账号.txt")
+		if createErr != nil {
+			_ = zw.Close()
+			response.FailWithMessage("创建账号文件失败", c)
+			return
+		}
+		accountText := strings.Join(accountLines, "\r\n")
+		if accountText != "" {
+			accountText += "\r\n"
+		}
+		if _, writeErr := w.Write([]byte(accountText)); writeErr != nil {
+			_ = zw.Close()
+			response.FailWithMessage("写入账号文件失败", c)
+			return
+		}
+	}
+	if err := zw.Close(); err != nil {
+		response.FailWithMessage("生成压缩包失败", c)
+		return
+	}
+	fileTime := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("账号_%d_%s.zip", len(taskOrder), fileTime)
 	escapedFilename := url.QueryEscape(filename)
 	c.Header("Content-Type", "application/octet-stream")
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", filename, escapedFilename))
-	c.Data(200, "application/octet-stream", []byte(cacheINI))
+	c.Data(200, "application/octet-stream", zipBuf.Bytes())
+}
+
+func parseDownloadTaskIDs(taskIDRaw string, taskIDsRaw string) []uint {
+	idSet := map[uint]struct{}{}
+	appendID := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		id64, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || id64 == 0 {
+			return
+		}
+		idSet[uint(id64)] = struct{}{}
+	}
+	appendID(taskIDRaw)
+	for _, part := range strings.Split(strings.TrimSpace(taskIDsRaw), ",") {
+		appendID(part)
+	}
+	ids := make([]uint, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func splitTaskCacheINIByUIN(raw string) map[string]string {
+	out := map[string]string{}
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	lines := strings.Split(raw, "\n")
+	currentUIN := ""
+	builder := strings.Builder{}
+	flush := func() {
+		if currentUIN == "" {
+			builder.Reset()
+			return
+		}
+		content := strings.TrimSpace(builder.String())
+		if content != "" {
+			out[currentUIN] = strings.ReplaceAll(content, "\n", "\r\n") + "\r\n"
+		}
+		builder.Reset()
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			flush()
+			currentUIN = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, "["), "]"))
+		}
+		if currentUIN != "" {
+			builder.WriteString(line)
+			builder.WriteString("\n")
+		}
+	}
+	flush()
+	return out
+}
+
+func buildQQLevelMap(raw string) map[string]int {
+	type naichaInfo struct {
+		QQ     string `json:"qq"`
+		QLevel *int   `json:"qLevel"`
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return map[string]int{}
+	}
+	var list []naichaInfo
+	if err := json.Unmarshal([]byte(raw), &list); err != nil {
+		return map[string]int{}
+	}
+	out := make(map[string]int, len(list))
+	for _, item := range list {
+		qq := strings.TrimSpace(item.QQ)
+		if qq == "" || item.QLevel == nil {
+			continue
+		}
+		out[qq] = *item.QLevel
+	}
+	return out
+}
+
+func deriveRegisterTaskGUIDHex(uin string) string {
+	trimmedUIN := strings.TrimSpace(uin)
+	androidMD5 := md5.Sum([]byte(trimmedUIN))
+	androidHex := strings.ToLower(hex.EncodeToString(androidMD5[:]))
+	androidID := androidHex
+	if len(androidHex) >= 24 {
+		androidID = androidHex[8:24]
+	}
+	guidMD5 := md5.Sum([]byte(androidID + "02:00:00:00:00:00"))
+	return strings.ToUpper(hex.EncodeToString(guidMD5[:]))
 }
 
 func buildActiveInfo(task system.SysRegisterTask) systemRes.RegisterTaskActiveInfo {

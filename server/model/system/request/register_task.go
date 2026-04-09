@@ -16,10 +16,14 @@ type RegisterTaskStep struct {
 
 type RegisterTaskList struct {
 	request.PageInfo
-	PromoterID uint  `json:"promoterId" form:"promoterId"`
-	LeaderID   uint  `json:"leaderId" form:"leaderId"`
-	StatusCode *int  `json:"statusCode" form:"statusCode"`
-	Unfinished *bool `json:"unfinished" form:"unfinished"`
+	PromoterID       uint   `json:"promoterId" form:"promoterId"`
+	LeaderID         uint   `json:"leaderId" form:"leaderId"`
+	StatusCode       *int   `json:"statusCode" form:"statusCode"`
+	Unfinished       *bool  `json:"unfinished" form:"unfinished"`
+	Status           string `json:"status" form:"status"` // success/fail
+	Phone            string `json:"phone" form:"phone"`
+	FinishedAtStart  string `json:"finishedAtStart" form:"finishedAtStart"`
+	FinishedAtEnd    string `json:"finishedAtEnd" form:"finishedAtEnd"`
 }
 
 type RegisterTaskSummaryFilter struct {
