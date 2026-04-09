@@ -884,6 +884,20 @@ func applyRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID uint
 	return db, nil
 }
 
+func successLoggedQQCountSQL(column string) string {
+	c := strings.TrimSpace(column)
+	if c == "" {
+		c = "qq_logged_list"
+	}
+	// 统计 pipe 分隔账号数：a|b|c => 3；空字符串/NULL => 0
+	return fmt.Sprintf(`
+		CASE
+			WHEN %s IS NULL OR TRIM(%s) = '' THEN 0
+			ELSE 1 + LENGTH(%s) - LENGTH(REPLACE(%s, '|', ''))
+		END
+	`, c, c, c, c)
+}
+
 func parseTaskListTime(value string) (time.Time, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -978,11 +992,12 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 		Processing int64 `gorm:"column:processing"`
 	}
 	var counter taskCounter
+	successQQCountExpr := successLoggedQQCountSQL("qq_logged_list")
 	if err := statDB.
-		Select(`
-			COALESCE(SUM(CASE WHEN finished_at IS NOT NULL AND status_code = 0 THEN 1 ELSE 0 END), 0) AS success,
+		Select(fmt.Sprintf(`
+			COALESCE(SUM(CASE WHEN finished_at IS NOT NULL AND status_code = 0 THEN %s ELSE 0 END), 0) AS success,
 			COALESCE(SUM(CASE WHEN finished_at IS NOT NULL AND (status_code <> 0 OR status_code IS NULL) THEN 1 ELSE 0 END), 0) AS failed,
-			COALESCE(SUM(CASE WHEN finished_at IS NULL THEN 1 ELSE 0 END), 0) AS processing`).
+			COALESCE(SUM(CASE WHEN finished_at IS NULL THEN 1 ELSE 0 END), 0) AS processing`, successQQCountExpr)).
 		Scan(&counter).Error; err != nil {
 		global.GVA_LOG.Error("【注册任务】任务列表-汇总统计失败", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID), zap.Error(err))
 		return registerTaskListResult{}, err
@@ -1016,15 +1031,16 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, lea
 		ProcessingCount int64  `gorm:"column:processing_count"`
 	}
 
+	successQQCountExpr := successLoggedQQCountSQL("t.qq_logged_list")
 	db := global.GVA_DB.Table("sys_register_tasks t").
-		Select(`
+		Select(fmt.Sprintf(`
 			t.leader_id,
 			leader.nick_name AS leader_name,
 			t.promoter_id,
 			promoter.nick_name AS promoter_name,
-			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 THEN 1 ELSE 0 END) AS success_count,
+			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 THEN %s ELSE 0 END) AS success_count,
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND (t.status_code <> 0 OR t.status_code IS NULL) THEN 1 ELSE 0 END) AS fail_count,
-			SUM(CASE WHEN t.finished_at IS NULL THEN 1 ELSE 0 END) AS processing_count`).
+			SUM(CASE WHEN t.finished_at IS NULL THEN 1 ELSE 0 END) AS processing_count`, successQQCountExpr)).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
 		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id")
 

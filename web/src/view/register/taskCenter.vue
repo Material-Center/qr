@@ -123,7 +123,7 @@
         class="mb-3"
         style="font-size: 12px;"
       >
-        <el-col :span="8">成功：{{ counters.success }}</el-col>
+        <el-col :span="8">成功登录数：{{ counters.success }}</el-col>
         <el-col :span="8">失败：{{ counters.fail }}</el-col>
         <el-col :span="8">处理中：{{ counters.processing }}</el-col>
       </el-row>
@@ -140,8 +140,22 @@
           />
           <el-table-column
             label="手机号"
-            prop="phone"
             min-width="130"
+          >
+            <template #default="scope">
+              <el-button
+                type="primary"
+                link
+                @click="openQQListDialog(scope.row)"
+              >
+                {{ scope.row.phone }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="登录成功数"
+            prop="loginSuccessCount"
+            width="110"
           />
           <el-table-column
             label="状态"
@@ -178,6 +192,45 @@
         </el-table>
       </div>
     </el-card>
+
+    <el-dialog
+      v-model="qqDialogVisible"
+      title="任务详情"
+      width="92%"
+      style="max-width: 420px;"
+    >
+      <div style="margin-bottom: 8px;">手机号：{{ qqDialogPhone || '-' }}</div>
+      <div style="margin-bottom: 8px;">登录成功数：{{ qqDialogList.length }}</div>
+      <el-empty
+        v-if="!qqDialogList.length"
+        description="暂无成功登录QQ"
+      />
+      <el-scrollbar
+        v-else
+        max-height="280px"
+      >
+        <el-tag
+          v-for="qq in qqDialogList"
+          :key="qq"
+          style="margin: 0 8px 8px 0;"
+          type="info"
+        >
+          {{ qq }}
+        </el-tag>
+      </el-scrollbar>
+      <el-alert
+        v-if="qqDialogFailReason"
+        title="失败原因"
+        :description="qqDialogFailReason"
+        type="error"
+        show-icon
+        :closable="false"
+        style="margin-top: 8px;"
+      />
+      <template #footer>
+        <el-button @click="qqDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -213,6 +266,10 @@ const counters = ref({
   fail: 0,
   processing: 0
 })
+const qqDialogVisible = ref(false)
+const qqDialogPhone = ref('')
+const qqDialogList = ref([])
+const qqDialogFailReason = ref('')
 
 const stepText = (step) => {
   if (step === 'phone_bind') return '查绑'
@@ -312,12 +369,30 @@ const loadMyTasks = async () => {
     page: 1,
     pageSize: 20
   })
-  myTasks.value = data.list || []
+  const rawList = data.list || []
+  myTasks.value = rawList.map((item) => {
+    const maskedList = Array.isArray(item?.loggedQQMaskedList) ? item.loggedQQMaskedList : []
+    const successCount = Number.isFinite(item?.loginSuccessCount)
+      ? item.loginSuccessCount
+      : maskedList.length
+    return {
+      ...item,
+      loginSuccessCount: successCount
+    }
+  })
   counters.value = {
     success: data.successCount || 0,
     fail: data.failCount || 0,
     processing: data.processingCount || 0
   }
+}
+
+const openQQListDialog = (row) => {
+  qqDialogPhone.value = row?.phone || ''
+  qqDialogList.value = Array.isArray(row?.loggedQQMaskedList) ? row.loggedQQMaskedList : []
+  const isFailed = !!row?.finishedAt && row?.statusCode !== 0
+  qqDialogFailReason.value = isFailed ? String(row?.lastError || '').trim() || '无失败原因' : ''
+  qqDialogVisible.value = true
 }
 
 const refreshAll = async () => {

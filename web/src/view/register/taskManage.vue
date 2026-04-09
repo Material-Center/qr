@@ -71,7 +71,7 @@
     <div class="gva-table-box">
       <el-row :gutter="12" class="mb-3">
         <el-col :span="8">
-          <el-card shadow="never">成功任务：{{ counters.success }}</el-card>
+          <el-card shadow="never">成功登录QQ：{{ counters.success }}</el-card>
         </el-col>
         <el-col :span="8">
           <el-card shadow="never">失败任务：{{ counters.fail }}</el-card>
@@ -117,6 +117,7 @@
             {{ scope.row.leader?.nickName || '-' }}
           </template>
         </el-table-column>
+        <el-table-column label="登录成功数" min-width="110" prop="loginSuccessCount" />
         <el-table-column label="失败原因" min-width="160" prop="lastError" show-overflow-tooltip />
         <el-table-column label="完成时间" min-width="170">
           <template #default="scope">
@@ -157,7 +158,7 @@
             <el-table :data="summary.leaders" size="small">
               <el-table-column label="团长ID" prop="leaderId" width="90" />
               <el-table-column label="团长名称" prop="leaderName" min-width="100" />
-              <el-table-column label="成功" prop="successCount" width="80" />
+              <el-table-column label="成功QQ" prop="successCount" width="80" />
               <el-table-column label="失败" prop="failCount" width="80" />
               <el-table-column label="处理中" prop="processingCount" width="90" />
             </el-table>
@@ -169,7 +170,7 @@
             <el-table :data="summary.promoters" size="small">
               <el-table-column label="地推ID" prop="promoterId" width="90" />
               <el-table-column label="地推名称" prop="promoterName" min-width="100" />
-              <el-table-column label="成功" prop="successCount" width="80" />
+              <el-table-column label="成功QQ" prop="successCount" width="80" />
               <el-table-column label="失败" prop="failCount" width="80" />
               <el-table-column label="处理中" prop="processingCount" width="90" />
             </el-table>

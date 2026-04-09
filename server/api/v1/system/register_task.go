@@ -27,6 +27,12 @@ import (
 
 type RegisterTaskApi struct{}
 
+type registerTaskListItem struct {
+	system.SysRegisterTask
+	LoginSuccessCount  int      `json:"loginSuccessCount"`
+	LoggedQQMaskedList []string `json:"loggedQQMaskedList,omitempty"`
+}
+
 const (
 	rtRoleSuperAdmin = uint(888)
 	rtRoleAdmin      = uint(100)
@@ -170,10 +176,32 @@ func (a *RegisterTaskApi) GetRegisterTaskList(c *gin.Context) {
 	}
 
 	role := utils.GetUserAuthorityId(c)
+	listItems := make([]registerTaskListItem, 0, len(result.List))
 	for i := range result.List {
+		item := result.List[i]
+		loggedQQList := splitPipe(item.QQLoggedList)
+		maskedQQList := []string(nil)
 		if role == rtRoleLeader || role == rtRolePromoter {
-			result.List[i].Phone = maskPhone(result.List[i].Phone)
+			item.Phone = maskPhone(item.Phone)
+			// 团长/地推侧列表不返回可能包含原始QQ信息的缓存内容
+			item.LoginCacheINI = ""
+			item.QQNaichaInfo = ""
+			item.QQChangedList = ""
+			item.QQCandidates = ""
+			item.QQLoggedList = ""
+			item.QQPassword = ""
 		}
+		if role == rtRolePromoter || role == rtRoleLeader {
+			maskedQQList = make([]string, 0, len(loggedQQList))
+			for _, qq := range loggedQQList {
+				maskedQQList = append(maskedQQList, maskQQAccount(qq))
+			}
+		}
+		listItems = append(listItems, registerTaskListItem{
+			SysRegisterTask:    item,
+			LoginSuccessCount:  len(loggedQQList),
+			LoggedQQMaskedList: maskedQQList,
+		})
 	}
 	page := req.Page
 	pageSize := req.PageSize
@@ -184,7 +212,7 @@ func (a *RegisterTaskApi) GetRegisterTaskList(c *gin.Context) {
 		pageSize = 10
 	}
 	response.OkWithDetailed(systemRes.RegisterTaskListResponse{
-		List:            result.List,
+		List:            listItems,
 		Total:           result.Total,
 		Page:            page,
 		PageSize:        pageSize,
@@ -674,4 +702,18 @@ func maskPhone(phone string) string {
 		return phone
 	}
 	return phone[:3] + strings.Repeat("*", len(phone)-7) + phone[len(phone)-4:]
+}
+
+func maskQQAccount(qq string) string {
+	qq = strings.TrimSpace(qq)
+	if qq == "" {
+		return ""
+	}
+	if len(qq) <= 2 {
+		return qq[:1] + "*"
+	}
+	if len(qq) == 3 {
+		return qq[:1] + "*" + qq[2:]
+	}
+	return qq[:2] + strings.Repeat("*", len(qq)-3) + qq[len(qq)-1:]
 }
