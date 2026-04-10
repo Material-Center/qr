@@ -350,6 +350,7 @@ func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
 		response.FailWithMessage("仅管理员可下载缓存", c)
 		return
 	}
+	exporterID := utils.GetUserID(c)
 	taskIDs := parseDownloadTaskIDs(c.Query("taskId"), c.Query("taskIds"))
 	if len(taskIDs) == 0 {
 		response.FailWithMessage("任务ID不能为空", c)
@@ -386,6 +387,7 @@ func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
 	zw := zip.NewWriter(zipBuf)
 	accountLines := make([]string, 0, 64)
 	writtenUIN := make(map[string]struct{}, 64)
+	exportedTaskIDSet := make(map[uint]struct{}, len(taskOrder))
 	iniCount := 0
 	for _, id := range taskOrder {
 		task := taskByID[id]
@@ -394,6 +396,9 @@ func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
 			continue
 		}
 		iniMap := splitTaskCacheINIByUIN(cacheINI)
+		if len(iniMap) > 0 {
+			exportedTaskIDSet[id] = struct{}{}
+		}
 		levelMap := naichaLevelMapByTask[task.ID]
 		for uin, iniText := range iniMap {
 			if _, exists := writtenUIN[uin]; exists {
@@ -450,6 +455,21 @@ func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
 	if err := zw.Close(); err != nil {
 		response.FailWithMessage("生成压缩包失败", c)
 		return
+	}
+	if len(exportedTaskIDSet) > 0 {
+		exportedTaskIDs := make([]uint, 0, len(exportedTaskIDSet))
+		for id := range exportedTaskIDSet {
+			exportedTaskIDs = append(exportedTaskIDs, id)
+		}
+		now := time.Now()
+		if err := global.GVA_DB.Model(&system.SysRegisterTask{}).
+			Where("id IN ?", exportedTaskIDs).
+			Updates(map[string]any{
+				"exported_at": now,
+				"exported_by": exporterID,
+			}).Error; err != nil {
+			global.GVA_LOG.Error("【注册任务】导出后标记失败", zap.Uint("exporterId", exporterID), zap.Error(err))
+		}
 	}
 	fileTime := time.Now().Format("20060102_150405")
 	filename := fmt.Sprintf("账号_%d_%s.zip", len(taskOrder), fileTime)

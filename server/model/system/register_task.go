@@ -32,6 +32,8 @@ type SysRegisterTask struct {
 	CurrentStep      string     `json:"currentStep" gorm:"index;comment:当前步骤"`
 	LastError        string     `json:"lastError" gorm:"type:text;comment:失败原因"`
 	RetryCount       int        `json:"retryCount" gorm:"default:0;comment:重试次数"`
+	ExportedAt       *time.Time `json:"exportedAt" gorm:"index;comment:导出时间"`
+	ExportedBy       *uint      `json:"exportedBy" gorm:"index;comment:导出人ID"`
 	PromoterID       uint       `json:"promoterId" gorm:"index;comment:地推账号ID"`
 	LeaderID         *uint      `json:"leaderId" gorm:"index;comment:团长账号ID"`
 	ChangePasswordAt *time.Time `json:"changePasswordAt" gorm:"comment:改密时间"`

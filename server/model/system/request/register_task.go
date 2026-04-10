@@ -21,6 +21,7 @@ type RegisterTaskList struct {
 	StatusCode       *int   `json:"statusCode" form:"statusCode"`
 	Unfinished       *bool  `json:"unfinished" form:"unfinished"`
 	Status           string `json:"status" form:"status"` // success/fail
+	Exported         *bool  `json:"exported" form:"exported"`
 	Phone            string `json:"phone" form:"phone"`
 	FinishedAtStart  string `json:"finishedAtStart" form:"finishedAtStart"`
 	FinishedAtEnd    string `json:"finishedAtEnd" form:"finishedAtEnd"`

@@ -61,6 +61,12 @@
             <el-option value="fail" label="失败" />
           </el-select>
         </el-form-item>
+        <el-form-item label="是否导出">
+          <el-select v-model="searchInfo.exported" clearable style="width: 120px">
+            <el-option :value="false" label="否" />
+            <el-option :value="true" label="是" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="search" @click="fetchAll">查询</el-button>
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
@@ -226,6 +232,7 @@ const searchInfo = ref({
   promoterId: undefined,
   leaderId: undefined,
   status: 'success',
+  exported: false,
   finishedAtRange: [],
   phone: ''
 })
@@ -362,6 +369,7 @@ const fetchList = async () => {
     promoterId: searchInfo.value.promoterId,
     leaderId: searchInfo.value.leaderId,
     status: searchInfo.value.status || undefined,
+    exported: searchInfo.value.exported,
     phone: String(searchInfo.value.phone || '').trim() || undefined,
     finishedAtStart: finishedAtStart || undefined,
     finishedAtEnd: finishedAtEnd || undefined
@@ -395,6 +403,7 @@ const resetSearch = () => {
     promoterId: undefined,
     leaderId: currentRoleId.value === ROLE_LEADER ? currentUserId.value : undefined,
     status: 'success',
+    exported: false,
     finishedAtRange: [],
     phone: ''
   }

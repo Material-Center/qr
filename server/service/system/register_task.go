@@ -930,6 +930,13 @@ func applyRegisterTaskQueryFilters(db *gorm.DB, req systemReq.RegisterTaskList) 
 	case "fail", "failed":
 		db = db.Where("finished_at IS NOT NULL AND (status_code <> 0 OR status_code IS NULL)")
 	}
+	if req.Exported != nil {
+		if *req.Exported {
+			db = db.Where("exported_at IS NOT NULL")
+		} else {
+			db = db.Where("exported_at IS NULL")
+		}
+	}
 
 	phone := strings.TrimSpace(req.Phone)
 	if phone != "" {
@@ -1484,6 +1491,8 @@ func buildResetTaskForReuse(task system.SysRegisterTask, promoterID uint, leader
 	task.CurrentStep = system.RegisterTaskStepPhoneBind
 	task.LastError = ""
 	task.RetryCount = 0
+	task.ExportedAt = nil
+	task.ExportedBy = nil
 	task.PromoterID = promoterID
 	task.LeaderID = leaderID
 	task.ChangePasswordAt = nil

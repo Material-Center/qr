@@ -947,10 +947,10 @@ func buildTLV544ProviderFromConfig(cfg systemRegisterConfig, task system.SysRegi
 				zap.String("uin", strings.TrimSpace(req.UIN)),
 			)
 			if err != nil {
-				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				global.GVA_LOG.Warn("【注册任务】Provider 544 error", append(fields, zap.Error(err))...)
 				return
 			}
-			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+			global.GVA_LOG.Info("【注册任务】Provider 544 finish", fields...)
 		}()
 
 		retries := 3
@@ -998,10 +998,10 @@ func buildTLV553ProviderFromConfig(cfg systemRegisterConfig, task system.SysRegi
 				zap.Uint64("uin", uint64(uin)),
 			)
 			if err != nil {
-				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				global.GVA_LOG.Warn("【注册任务】Provider 553 error", append(fields, zap.Error(err))...)
 				return
 			}
-			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+			global.GVA_LOG.Info("【注册任务】Provider 553 finish", fields...)
 		}()
 
 		endpoint := apiBase + "/get_xw_debug_id"
@@ -1048,10 +1048,10 @@ func buildSignProviderFromConfig(cfg systemRegisterConfig, task system.SysRegist
 				zap.String("cmd", strings.TrimSpace(req.Cmd)),
 			)
 			if err != nil {
-				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				global.GVA_LOG.Warn("【注册任务】Provider sign error", append(fields, zap.Error(err))...)
 				return
 			}
-			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+			global.GVA_LOG.Info("【注册任务】Provider sign finish", fields...)
 		}()
 
 		form := url.Values{}
@@ -1093,10 +1093,10 @@ func buildInitProviderFromConfig(cfg systemRegisterConfig, task system.SysRegist
 				zap.String("uin", strings.TrimSpace(req.UIN)),
 			)
 			if err != nil {
-				global.GVA_LOG.Warn("【注册任务】登录-Provider调用结束", append(fields, zap.Error(err))...)
+				global.GVA_LOG.Warn("【注册任务】Provider init error", append(fields, zap.Error(err))...)
 				return
 			}
-			global.GVA_LOG.Info("【注册任务】登录-Provider调用结束", fields...)
+			global.GVA_LOG.Info("【注册任务】Provider init finish", fields...)
 		}()
 
 		form := url.Values{}
