@@ -501,6 +501,7 @@ const confirmDownloadZip = async () => {
     }, 10000)
     ElMessage.success('压缩包下载成功')
     downloadDialogVisible.value = false
+    await fetchList()
   } catch (e) {
     ElMessage.error(e?.message || '下载失败')
   }
