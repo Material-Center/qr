@@ -67,6 +67,7 @@ func RegisterTables() {
 		system.SysLoginLog{},
 		system.SysRegisterTask{},
 		system.SysRegisterConfig{},
+		system.SysQQCacheRecord{},
 
 		example.ExaFile{},
 		example.ExaCustomer{},

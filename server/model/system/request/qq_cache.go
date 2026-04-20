@@ -1,0 +1,27 @@
+package request
+
+import "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
+
+type QQCacheUpload struct {
+	Phone    string `json:"phone" form:"phone"`
+	QQNum    string `json:"qqNum" form:"qqNum"`
+	QQPwd    string `json:"qqPwd" form:"qqPwd"`
+	INI      string `json:"ini" form:"ini"`
+	DeviceID string `json:"deviceId" form:"deviceId"`
+}
+
+type QQCacheExtract struct {
+	QQNum string `json:"qqNum" form:"qqNum"`
+}
+
+type QQCacheList struct {
+	request.PageInfo
+	QQNum       string `json:"qqNum" form:"qqNum"`
+	DeviceID    string `json:"deviceId" form:"deviceId"`
+	ExtractorID uint   `json:"extractorId" form:"extractorId"`
+	Extracted   *bool  `json:"extracted" form:"extracted"`
+}
+
+type QQCacheResetExtract struct {
+	ID uint `json:"id" form:"id"`
+}

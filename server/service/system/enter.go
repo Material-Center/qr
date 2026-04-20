@@ -28,4 +28,5 @@ type ServiceGroup struct {
 	ApiTokenService
 	RegisterTaskService
 	RegisterConfigService
+	QQCacheService
 }

@@ -26,6 +26,7 @@ type RouterGroup struct {
 	SkillsRouter
 	RegisterTaskRouter
 	RegisterConfigRouter
+	QQCacheRouter
 }
 
 var (
@@ -53,4 +54,5 @@ var (
 	skillsApi           = api.ApiGroupApp.SystemApiGroup.SkillsApi
 	registerTaskApi     = api.ApiGroupApp.SystemApiGroup.RegisterTaskApi
 	registerConfigApi   = api.ApiGroupApp.SystemApiGroup.RegisterConfigApi
+	qqCacheApi          = api.ApiGroupApp.SystemApiGroup.QQCacheApi
 )

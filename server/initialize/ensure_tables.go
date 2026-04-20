@@ -2,6 +2,7 @@ package initialize
 
 import (
 	"context"
+
 	adapter "github.com/casbin/gorm-adapter/v3"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/example"
 	sysModel "github.com/flipped-aurora/gin-vue-admin/server/model/system"
@@ -59,6 +60,7 @@ func (e *ensureTables) MigrateTable(ctx context.Context) (context.Context, error
 		sysModel.SysApiToken{},
 		sysModel.SysRegisterTask{},
 		sysModel.SysRegisterConfig{},
+		sysModel.SysQQCacheRecord{},
 		adapter.CasbinRule{},
 
 		example.ExaFile{},
@@ -101,6 +103,7 @@ func (e *ensureTables) TableCreated(ctx context.Context) bool {
 		sysModel.JoinTemplate{},
 		sysModel.SysRegisterTask{},
 		sysModel.SysRegisterConfig{},
+		sysModel.SysQQCacheRecord{},
 
 		adapter.CasbinRule{},
 

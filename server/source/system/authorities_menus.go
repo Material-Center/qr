@@ -85,6 +85,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	// 注册任务菜单
 	registerParent, hasRegisterParent := menuNameMap["register"]
 	registerManageChild, hasRegisterManageChild := menuNameMap["registerTaskManage"]
+	qqCacheMenu, hasQQCacheMenu := menuNameMap["qqCacheManage"]
 	registerCenterChild, hasRegisterCenterChild := menuNameMap["registerTaskCenter"]
 	registerConfigChild, hasRegisterConfigChild := menuNameMap["registerConfig"]
 	registerDebugChild, hasRegisterDebugChild := menuNameMap["registerDebugLogin"]
@@ -119,7 +120,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 		return db.Model(&auth).Association("SysBaseMenus").Replace(menus)
 	}
 
-	// 888 超级管理员保留全量菜单（包含代码生成、系统配置等能力）
+	// 888 超级管理员保留全量菜单
 	if err = assignMenus(888, allMenus, "为超级管理员分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为超级管理员分配菜单失败")
 	}
@@ -128,6 +129,9 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	adminMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	adminMenus = append(adminMenus, accountMenus...)
 	adminMenus = append(adminMenus, adminRegisterMenus...)
+	if hasQQCacheMenu {
+		adminMenus = append(adminMenus, qqCacheMenu)
+	}
 	if err = assignMenus(100, adminMenus, "为管理员分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为管理员分配菜单失败")
 	}
@@ -145,6 +149,16 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	promoterMenus = append(promoterMenus, registerPromoterMenus...)
 	if err = assignMenus(300, promoterMenus, "为地推分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为地推分配菜单失败")
+	}
+
+	// 400 App提取：仅基础菜单（不开放后台管理页）
+	if err = assignMenus(400, basicMenus, "为App提取分配菜单失败"); err != nil {
+		return next, errors.Wrap(err, "为App提取分配菜单失败")
+	}
+
+	// 500 App上传：仅基础菜单（不开放后台管理页）
+	if err = assignMenus(500, basicMenus, "为App上传分配菜单失败"); err != nil {
+		return next, errors.Wrap(err, "为App上传分配菜单失败")
 	}
 
 	return next, nil
@@ -179,5 +193,5 @@ func (i *initMenuAuthority) DataInserted(ctx context.Context) bool {
 		}
 		return true
 	}
-	return checkRole(100) && checkRole(200) && checkRole(300)
+	return checkRole(100) && checkRole(200) && checkRole(300) && checkRole(400) && checkRole(500)
 }

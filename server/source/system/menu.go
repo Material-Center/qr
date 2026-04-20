@@ -58,6 +58,7 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "admin", Name: "superAdmin", Component: "view/superAdmin/index.vue", Sort: 3, Meta: Meta{Title: "超级管理员", Icon: "user"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "account", Name: "account", Component: "view/routerHolder.vue", Sort: 4, Meta: Meta{Title: "账号管理", Icon: "avatar"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "register", Name: "register", Component: "view/routerHolder.vue", Sort: 5, Meta: Meta{Title: "注册任务", Icon: "tickets"}},
+		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "qq-cache-manage", Name: "qqCacheManage", Component: "view/register/qqCacheManage.vue", Sort: 6, Meta: Meta{Title: "QQ缓存管理", Icon: "folder-opened"}},
 		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "register-task-center", Name: "registerTaskCenter", Component: "view/register/taskCenter.vue", Sort: 0, Meta: Meta{Title: "创建任务", Icon: "plus", DefaultMenu: true}},
 		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "person", Name: "person", Component: "view/person/person.vue", Sort: 4, Meta: Meta{Title: "个人信息", Icon: "message"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "example", Name: "example", Component: "view/example/index.vue", Sort: 7, Meta: Meta{Title: "示例文件", Icon: "management"}},

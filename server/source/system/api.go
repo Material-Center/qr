@@ -252,6 +252,12 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "注册配置", Method: "PUT", Path: "/registerConfig/setMyConfig", Description: "保存我的注册配置"},
 		{ApiGroup: "注册配置", Method: "GET", Path: "/registerConfig/checkMyConfig", Description: "检测我的注册配置"},
 
+		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/upload", Description: "App上传QQ缓存"},
+		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/extract", Description: "App提取QQ缓存"},
+		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/list", Description: "管理端分页查询QQ缓存"},
+		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/resetExtract", Description: "管理端重置提取锁"},
+		{ApiGroup: "QQ缓存", Method: "GET", Path: "/qqCache/roleHint", Description: "获取App角色提示"},
+
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/create", Description: "地推创建注册任务"},
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/step", Description: "提交任务步骤"},
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/active", Description: "获取地推当前未完成任务"},

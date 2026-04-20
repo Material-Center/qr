@@ -261,6 +261,11 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/registerConfig/getMyConfig", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/registerConfig/setMyConfig", V2: "PUT"},
 		{Ptype: "p", V0: "888", V1: "/registerConfig/checkMyConfig", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/upload", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/extract", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/list", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/resetExtract", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/roleHint", V2: "GET"},
 
 		// 100 管理员（业务角色）
 		{Ptype: "p", V0: "100", V1: "/menu/getMenu", V2: "POST"},
@@ -285,6 +290,9 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/registerConfig/getMyConfig", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/registerConfig/setMyConfig", V2: "PUT"},
 		{Ptype: "p", V0: "100", V1: "/registerConfig/checkMyConfig", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/list", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/resetExtract", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/roleHint", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 
 		// 200 团长（业务角色）
@@ -320,6 +328,30 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "300", V1: "/registerTask/actives", V2: "GET"},
 		{Ptype: "p", V0: "300", V1: "/registerTask/list", V2: "POST"},
 		{Ptype: "p", V0: "300", V1: "/jwt/jsonInBlacklist", V2: "POST"},
+
+		// 400 App提取（仅提取缓存）
+		{Ptype: "p", V0: "400", V1: "/menu/getMenu", V2: "POST"},
+		{Ptype: "p", V0: "400", V1: "/menu/getMenuList", V2: "POST"},
+		{Ptype: "p", V0: "400", V1: "/menu/getBaseMenuTree", V2: "POST"},
+		{Ptype: "p", V0: "400", V1: "/user/getUserInfo", V2: "GET"},
+		{Ptype: "p", V0: "400", V1: "/user/changePassword", V2: "POST"},
+		{Ptype: "p", V0: "400", V1: "/user/setSelfInfo", V2: "PUT"},
+		{Ptype: "p", V0: "400", V1: "/user/setSelfSetting", V2: "PUT"},
+		{Ptype: "p", V0: "400", V1: "/qqCache/extract", V2: "POST"},
+		{Ptype: "p", V0: "400", V1: "/qqCache/roleHint", V2: "GET"},
+		{Ptype: "p", V0: "400", V1: "/jwt/jsonInBlacklist", V2: "POST"},
+
+		// 500 App上传（仅上传缓存）
+		{Ptype: "p", V0: "500", V1: "/menu/getMenu", V2: "POST"},
+		{Ptype: "p", V0: "500", V1: "/menu/getMenuList", V2: "POST"},
+		{Ptype: "p", V0: "500", V1: "/menu/getBaseMenuTree", V2: "POST"},
+		{Ptype: "p", V0: "500", V1: "/user/getUserInfo", V2: "GET"},
+		{Ptype: "p", V0: "500", V1: "/user/changePassword", V2: "POST"},
+		{Ptype: "p", V0: "500", V1: "/user/setSelfInfo", V2: "PUT"},
+		{Ptype: "p", V0: "500", V1: "/user/setSelfSetting", V2: "PUT"},
+		{Ptype: "p", V0: "500", V1: "/qqCache/upload", V2: "POST"},
+		{Ptype: "p", V0: "500", V1: "/qqCache/roleHint", V2: "GET"},
+		{Ptype: "p", V0: "500", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 	}
 	if err := db.Create(&entities).Error; err != nil {
 		return ctx, errors.Wrap(err, "Casbin 表 ("+i.InitializerName()+") 数据初始化失败!")

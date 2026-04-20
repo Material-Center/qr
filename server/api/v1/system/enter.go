@@ -29,6 +29,7 @@ type ApiGroup struct {
 	SkillsApi
 	RegisterTaskApi
 	RegisterConfigApi
+	QQCacheApi
 }
 
 var (
@@ -58,4 +59,5 @@ var (
 	skillsService           = service.ServiceGroupApp.SystemServiceGroup.SkillsService
 	registerTaskService     = service.ServiceGroupApp.SystemServiceGroup.RegisterTaskService
 	registerConfigService   = service.ServiceGroupApp.SystemServiceGroup.RegisterConfigService
+	qqCacheService          = service.ServiceGroupApp.SystemServiceGroup.QQCacheService
 )
