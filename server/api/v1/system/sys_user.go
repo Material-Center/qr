@@ -123,6 +123,68 @@ func (b *BaseApi) Login(c *gin.Context) {
 	b.TokenNext(c, *user)
 }
 
+// AppLogin
+// @Tags     Base
+// @Summary  App用户登录(免验证码，仅App角色)
+// @Produce   application/json
+// @Param    data  body      systemReq.Login                                             true  "用户名, 密码"
+// @Success  200   {object}  response.Response{data=systemRes.LoginResponse,msg=string}  "返回包括用户信息,token,过期时间"
+// @Router   /base/appLogin [post]
+func (b *BaseApi) AppLogin(c *gin.Context) {
+	var l systemReq.Login
+	err := c.ShouldBindJSON(&l)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	err = utils.Verify(l, utils.LoginVerify)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+
+	u := &system.SysUser{Username: l.Username, Password: l.Password}
+	user, err := userService.Login(u)
+	if err != nil {
+		global.GVA_LOG.Error("App登录失败! 用户名不存在或者密码错误!", zap.Error(err))
+		response.FailWithMessage("用户名不存在或者密码错误", c)
+		loginLogService.CreateLoginLog(system.SysLoginLog{
+			Username:     l.Username,
+			Ip:           c.ClientIP(),
+			Agent:        c.Request.UserAgent(),
+			Status:       false,
+			ErrorMessage: "用户名不存在或者密码错误",
+		})
+		return
+	}
+	if user.Enable != 1 {
+		global.GVA_LOG.Error("App登录失败! 用户被禁止登录!")
+		response.FailWithMessage("用户被禁止登录", c)
+		loginLogService.CreateLoginLog(system.SysLoginLog{
+			Username:     l.Username,
+			Ip:           c.ClientIP(),
+			Agent:        c.Request.UserAgent(),
+			Status:       false,
+			ErrorMessage: "用户被禁止登录",
+			UserID:       user.ID,
+		})
+		return
+	}
+	if user.AuthorityId != roleAppExtract && user.AuthorityId != roleAppUpload {
+		response.FailWithMessage("仅App提取/App上传角色可登录", c)
+		loginLogService.CreateLoginLog(system.SysLoginLog{
+			Username:     l.Username,
+			Ip:           c.ClientIP(),
+			Agent:        c.Request.UserAgent(),
+			Status:       false,
+			ErrorMessage: "角色无App登录权限",
+			UserID:       user.ID,
+		})
+		return
+	}
+	b.TokenNext(c, *user)
+}
+
 // TokenNext 登录以后签发jwt
 func (b *BaseApi) TokenNext(c *gin.Context, user system.SysUser) {
 	token, claims, err := utils.LoginToken(&user)

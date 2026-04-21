@@ -45,7 +45,7 @@ func (a *QQCacheApi) Upload(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	response.OkWithDetailed(record, "上传成功", c)
+	response.OkWithDetailed(record.QQNum, "上传成功", c)
 }
 
 // Extract

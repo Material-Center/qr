@@ -13,6 +13,10 @@
       "name": "qpi-sdk"
     },
     {
+      "path": "CacheTool",
+      "name": "cache-tool"
+    },
+    {
       "path": ".",
       "name": "root"
     }

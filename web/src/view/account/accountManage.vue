@@ -193,6 +193,8 @@ const ROLE_SUPER = 888
 const ROLE_ADMIN = 100
 const ROLE_LEADER = 200
 const ROLE_PROMOTER = 300
+const ROLE_APP_EXTRACT = 400
+const ROLE_APP_UPLOAD = 500
 
 const appStore = useAppStore()
 const userStore = useUserStore()
@@ -206,13 +208,17 @@ const roleOptions = computed(() => {
       { label: '超级管理员', value: ROLE_SUPER },
       { label: '管理员', value: ROLE_ADMIN },
       { label: '团长', value: ROLE_LEADER },
-      { label: '地推', value: ROLE_PROMOTER }
+      { label: '地推', value: ROLE_PROMOTER },
+      { label: 'App提取', value: ROLE_APP_EXTRACT },
+      { label: 'App上传', value: ROLE_APP_UPLOAD }
     ]
   }
   if (currentRoleId.value === ROLE_ADMIN) {
     return [
       { label: '团长', value: ROLE_LEADER },
-      { label: '地推', value: ROLE_PROMOTER }
+      { label: '地推', value: ROLE_PROMOTER },
+      { label: 'App提取', value: ROLE_APP_EXTRACT },
+      { label: 'App上传', value: ROLE_APP_UPLOAD }
     ]
   }
   if (currentRoleId.value === ROLE_LEADER) {
@@ -226,6 +232,8 @@ const roleText = (authorityId) => {
   if (authorityId === ROLE_ADMIN) return '管理员'
   if (authorityId === ROLE_LEADER) return '团长'
   if (authorityId === ROLE_PROMOTER) return '地推'
+  if (authorityId === ROLE_APP_EXTRACT) return 'App提取'
+  if (authorityId === ROLE_APP_UPLOAD) return 'App上传'
   return '未知'
 }
 
@@ -253,7 +261,9 @@ const filterByRole = (list) => {
     return list
   }
   if (currentRoleId.value === ROLE_ADMIN) {
-    return list.filter((item) => [ROLE_LEADER, ROLE_PROMOTER].includes(item.authorityId))
+    return list.filter((item) =>
+      [ROLE_LEADER, ROLE_PROMOTER, ROLE_APP_EXTRACT, ROLE_APP_UPLOAD].includes(item.authorityId)
+    )
   }
   if (currentRoleId.value === ROLE_LEADER) {
     return list.filter((item) => item.authorityId === ROLE_PROMOTER && item.leaderId === currentUserId.value)

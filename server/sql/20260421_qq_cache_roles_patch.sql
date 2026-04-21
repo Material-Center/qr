@@ -128,6 +128,18 @@ WHERE NOT EXISTS (
   SELECT 1 FROM `sys_apis` WHERE `path`='/qqCache/roleHint' AND `method`='GET' AND `deleted_at` IS NULL
 );
 
+INSERT INTO `sys_apis` (`created_at`,`updated_at`,`api_group`,`method`,`path`,`description`)
+SELECT NOW(), NOW(), 'Base', 'POST', '/base/appLogin', 'App用户登录(免验证码，仅App角色)'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path`='/base/appLogin' AND `method`='POST' AND `deleted_at` IS NULL
+);
+
+INSERT INTO `sys_ignore_apis` (`created_at`,`updated_at`,`method`,`path`)
+SELECT NOW(), NOW(), 'POST', '/base/appLogin'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_ignore_apis` WHERE `path`='/base/appLogin' AND `method`='POST' AND `deleted_at` IS NULL
+);
+
 -- 5) Casbin 权限
 INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)
 SELECT 'p','100','/qqCache/list','POST','','',''

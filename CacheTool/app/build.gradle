@@ -1,0 +1,98 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace 'com.extracache.logintool'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.extracache.logintool"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        vectorDrawables {
+            useSupportLibrary true
+        }
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("../sign.properties")
+            storePassword "logintool"
+            keyAlias "logintool"
+            keyPassword "logintool"
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+            debuggable true
+            // debug版本使用默认的debug keystore，不指定signingConfig
+        }
+        
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xlint:deprecation"
+    }
+    buildFeatures {
+        viewBinding true
+    }
+    packaging {
+        resources {
+            excludes += '/META-INF/{AL2.0,LGPL2.1}'
+            pickFirsts += 'org/bouncycastle/x509/CertPathReviewerMessages_de.properties'
+            pickFirsts += 'org/bouncycastle/x509/CertPathReviewerMessages.properties'
+        }
+    }
+    
+    // sourceSets {
+    //     main {
+    //         java {
+    //             exclude '**/com/selftool/**'
+    //             exclude '**/oicq/**'
+    //         }
+    //     }
+    // }
+    
+    lintOptions {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+
+    implementation libs.androidx.core
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.constraintlayout
+    implementation libs.androidx.material
+    implementation libs.guava
+    implementation libs.mmkv
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.google.code.gson:gson:2.10.1'
+    implementation 'org.bouncycastle:bcprov-jdk15on:1.70'
+    implementation 'org.bouncycastle:bcpkix-jdk15on:1.70'
+    implementation 'com.github.tiann:FreeReflection:3.2.0'
+    implementation 'androidx.constraintlayout:constraintlayout-core:1.0.4'
+    implementation 'org.ini4j:ini4j:0.5.4'
+    implementation project(':netbare-core')
+    implementation project(':netbare-injector')
+    testImplementation libs.junit
+    androidTestImplementation libs.androidx.junit
+    androidTestImplementation libs.androidx.espresso.core
+}
