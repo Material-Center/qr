@@ -1,0 +1,89 @@
+# 签名数据解密
+
+- 输入文件
+
+1.
+/data/data/com.tencent.mobileqq/databases # ls -l tk_file*
+-rw-rw---- 1 u0_a253 u0_a253 20480 2024-10-14 22:10 tk_file
+-rw------- 1 u0_a253 u0_a253   512 2024-10-08 15:23 tk_file-journal
+
+这个是 sqlite3 的 DB，用工具打开，可以看到一个这样的表：
+CREATE TABLE tk_file (
+    ID      INTEGER PRIMARY KEY,
+    tk_file BLOB
+);
+应该只有一行，读 tk_file 的二进制数据出来，这个是加密的
+
+2.
+/data/data/com.tencent.mobileqq/files # ls wlogin_device.dat
+
+这个文件存的，实际上是 GUID (这个是用设备指纹生成的一个ID)，
+上面说的 tk_file 的加密数据，用GUID来解密，解密算法是 tea (可以搜索下这个算法科普一下)
+
+- 解密
+
+1. 看这里，有几个语言的实现，我用里面的GO测试过，是可以的，我们用java的，再测测
+https://github.com/crazykun/qq-tea
+
+我GO的测试版本，已经提交到GIT了，在: deviceserver/test 目录下面，
+
+解密完，实际上是一个 java 序列化的对象，我们可以先用工具 dump 一下看看
+
+2. 验证结果，用工具 dump 一下看看
+
+$ cd deviceserver/test
+$ java -jar SerializationDumper.jar -r <上面解密出来的数据保存的文件>
+
+SerializationDumper.jar 这个我已经下载好，放在 deviceserver/test 里面了
+
+- 提取数据
+
+SerializationDumper.jar 这是一个开源工具，地址是:
+https://github.com/NickstaDB/SerializationDumper
+
+我们弄下来代码，把序列化的数据提取出来
+
+6个token如下
+# 
+# token:
+# 
+# 16a -> 160 -> noPicSig -> _noPicSig (160)
+# 106 -> 320 -> encryptA1 -> _en_A1 (352)
+# 10a -> 144 -> _TGT (144)
+# 133 -> 96 -> wtSessionTicket (96)
+# 134 -> 32 -> wtSessionTicketKey (32)
+# 143 -> 176 -> _D2 (176)
+# 
+
+sessionKey = _D2Key
+TGTKey = _TGTKey
+skey = _sKey (这个不是hex输出，而是字符串输出就可以)
+# 
+# skey:
+# 
+# In [19]: bytes.fromhex('4d6a5848557470416763') # _sKey
+# Out[19]: b'MjXHUtpAgc'
+#
+guid = 就是上面 wlogin_device.dat 读到的值
+
+- 最后还差的一些数据
+
+1. q36 & q16 就是读 /data/data/com.tencent.mobileqq/shared_prefs # cat uifa.xml
+到时候跟他们讲一下，这个文件也要COPY出来
+
+2. qq号和uid
+
+qq号，可以从这里读
+/data/data/com.tencent.mobileqq/files # cat Properties
+#Mon Oct 14 22:33:37 GMT+08:00 2024
+property_key_login_type_3899620651=0
+uinDisplayName3899620651=19128604060
+3899620651_logintime=1728916417210
+nickName3899620651=\u5C0F\u767D\u83DC
+
+这个文件也让他们弄过来
+
+uid 可以读这个二进制文件，
+./files/mmkv/qq_uin_uid_map
+
+他里面有 uid_prefix_key_3899620651u_ck16mlrVedYGVrNknio68A 这样的内容，把他搜出来就可以
