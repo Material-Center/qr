@@ -1,14 +1,14 @@
-package com.extracache.logintool.service;
+package com.extracache.cachetool.service;
 
 import android.content.Context;
 import android.os.Environment;
 import java.io.File;
 import android.util.Log;
 
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.utils.HexUtils;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.utils.HexUtils;
 
 import oicq.wlogin_sdk.request.WloginAllSigInfo;
 import oicq.wlogin_sdk.sharemem.WloginSigInfo;

@@ -1,11 +1,11 @@
-package com.extracache.logintool.utils;
+package com.extracache.cachetool.utils;
 
 import android.content.Context;
 import android.content.res.AssetManager;
 import android.util.Log;
 
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
 
 import org.json.JSONObject;
 

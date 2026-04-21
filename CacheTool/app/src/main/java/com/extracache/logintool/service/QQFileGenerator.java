@@ -1,14 +1,14 @@
-package com.extracache.logintool.service;
+package com.extracache.cachetool.service;
 
 import android.content.Context;
 import android.util.Log;
 
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.utils.CommandExecutor;
-import com.extracache.logintool.utils.FileUtils;
-import com.extracache.logintool.utils.HexUtils;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.utils.CommandExecutor;
+import com.extracache.cachetool.utils.FileUtils;
+import com.extracache.cachetool.utils.HexUtils;
 import com.tencent.mmkv.MMKV;
 
 import oicq.wlogin_sdk.request.WloginAllSigInfo;
@@ -16,6 +16,7 @@ import oicq.wlogin_sdk.sharemem.WloginSigInfo;
 import oicq.wlogin_sdk.tools.cryptor;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.ObjectOutputStream;
 import java.util.TreeMap;
 
@@ -32,6 +33,23 @@ public class QQFileGenerator {
     public QQFileGenerator(Context context, FileManager fileManager) {
         this.context = context;
         this.fileManager = fileManager;
+    }
+
+    private String appDataPath() {
+        String dataDir = context.getApplicationInfo() != null ? context.getApplicationInfo().dataDir : null;
+        if (dataDir == null || dataDir.trim().isEmpty()) {
+            File filesDir = context.getFilesDir();
+            if (filesDir != null && filesDir.getParent() != null) {
+                dataDir = filesDir.getParent();
+            } else {
+                dataDir = "/data/data/" + context.getPackageName();
+            }
+        }
+        return dataDir;
+    }
+
+    private String appFilesPath() {
+        return appDataPath() + "/files";
     }
     
     /**
@@ -108,7 +126,7 @@ public class QQFileGenerator {
         
         try {
             // 复制预置的tk_file数据库文件
-            String targetPath = Constants.APP_DATA_PATH + "/files";
+            String targetPath = appFilesPath();
             
             // 这些文件需要预先放在assets目录中
             String[] presetFiles = {
@@ -142,7 +160,7 @@ public class QQFileGenerator {
         }
         
         // 写入到本地文件
-        String localPath = Constants.APP_DATA_PATH + "/files/" + Constants.WLOGIN_DEVICE_FILE;
+        String localPath = appFilesPath() + "/" + Constants.WLOGIN_DEVICE_FILE;
         return FileUtils.writeHexStringToFile(guid, localPath);
     }
     
@@ -291,7 +309,7 @@ public class QQFileGenerator {
         try {
             // 1. 生成UID文件 (格式: qq###uid)
             String uidFileName = qq + "###" + uid;
-            String uidFilePath = Constants.APP_DATA_PATH + "/files/" + Constants.UID_FOLDER + "/" + uidFileName;
+            String uidFilePath = appFilesPath() + "/" + Constants.UID_FOLDER + "/" + uidFileName;
             
             // 使用Root命令创建空文件
             String createUidCmd = "touch " + uidFilePath + " && chmod 644 " + uidFilePath;
@@ -302,7 +320,7 @@ public class QQFileGenerator {
             
             // 2. 生成User文件 (格式: u_qq_t)
             String userFileName = "u_" + qq + "_t";
-            String userFilePath = Constants.APP_DATA_PATH + "/files/" + Constants.USER_FOLDER + "/" + userFileName;
+            String userFilePath = appFilesPath() + "/" + Constants.USER_FOLDER + "/" + userFileName;
             
             // 使用Root命令创建空文件
             String createUserCmd = "touch " + userFilePath + " && chmod 644 " + userFilePath;
@@ -367,23 +385,23 @@ public class QQFileGenerator {
             // 复制主要文件
             String[] copyCommands = {
                 String.format("cp %s/files/%s %s/files/%s", 
-                        Constants.APP_DATA_PATH, Constants.WLOGIN_DEVICE_FILE,
+                        appDataPath(), Constants.WLOGIN_DEVICE_FILE,
                         Constants.QQ_DATA_PATH, Constants.WLOGIN_DEVICE_FILE),
                         
                 String.format("cp %s/files/tk_file3 %s/databases/%s", 
-                        Constants.APP_DATA_PATH, Constants.QQ_DATA_PATH, Constants.TK_FILE),
+                        appDataPath(), Constants.QQ_DATA_PATH, Constants.TK_FILE),
                         
 //                String.format("cp %s/files/tk_file3-journal %s/databases/tk_file3-journal",
 //                        Constants.APP_DATA_PATH, Constants.QQ_DATA_PATH),
                         
                 String.format("cp -r %s/files/%s/ %s/files/", 
-                        Constants.APP_DATA_PATH, Constants.UID_FOLDER, Constants.QQ_DATA_PATH),
+                        appDataPath(), Constants.UID_FOLDER, Constants.QQ_DATA_PATH),
                         
                 String.format("cp -r %s/files/%s/ %s/files/", 
-                        Constants.APP_DATA_PATH, Constants.USER_FOLDER, Constants.QQ_DATA_PATH),
+                        appDataPath(), Constants.USER_FOLDER, Constants.QQ_DATA_PATH),
                         
                 String.format("cp -r %s/files/%s/ %s/files/", 
-                        Constants.APP_DATA_PATH, Constants.MMKV_FOLDER, Constants.QQ_DATA_PATH)
+                        appDataPath(), Constants.MMKV_FOLDER, Constants.QQ_DATA_PATH)
             };
             
             boolean allSuccess = true;

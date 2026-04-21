@@ -1,15 +1,15 @@
-package com.extracache.logintool.service;
+package com.extracache.cachetool.service;
 
 import android.content.Context;
 import android.os.Environment;
 import android.util.Log;
 
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.utils.CommandExecutor;
-import com.extracache.logintool.utils.FileUtils;
-import com.extracache.logintool.utils.HexUtils;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.utils.CommandExecutor;
+import com.extracache.cachetool.utils.FileUtils;
+import com.extracache.cachetool.utils.HexUtils;
 
 import oicq.wlogin_sdk.request.WloginAllSigInfo;
 import oicq.wlogin_sdk.sharemem.WloginSigInfo;
@@ -36,16 +36,37 @@ public class FileManager {
     public FileManager(Context context) {
         this.context = context;
     }
+
+    private String appDataPath() {
+        String dataDir = context.getApplicationInfo() != null ? context.getApplicationInfo().dataDir : null;
+        if (dataDir == null || dataDir.trim().isEmpty()) {
+            File filesDir = context.getFilesDir();
+            if (filesDir != null && filesDir.getParent() != null) {
+                dataDir = filesDir.getParent();
+            } else {
+                dataDir = "/data/data/" + context.getPackageName();
+            }
+        }
+        return dataDir;
+    }
+
+    private String appFilesPath() {
+        return appDataPath() + "/files";
+    }
+
+    private String appLocalPath(String fileName) {
+        return appFilesPath() + "/" + fileName;
+    }
     
     /**
      * 初始化本地文件目录
      */
     public Result<Boolean> initializeLocalDirectories() {
         List<String> directories = new ArrayList<>();
-        directories.add(Constants.APP_DATA_PATH + "/files");
-        directories.add(Constants.APP_DATA_PATH + "/files/" + Constants.UID_FOLDER);
-        directories.add(Constants.APP_DATA_PATH + "/files/" + Constants.USER_FOLDER);
-        directories.add(Constants.APP_DATA_PATH + "/files/" + Constants.MMKV_FOLDER);
+        directories.add(appFilesPath());
+        directories.add(appFilesPath() + "/" + Constants.UID_FOLDER);
+        directories.add(appFilesPath() + "/" + Constants.USER_FOLDER);
+        directories.add(appFilesPath() + "/" + Constants.MMKV_FOLDER);
         
         for (String dir : directories) {
             Result<Boolean> result = FileUtils.createDirectory(dir);
@@ -152,13 +173,13 @@ public class FileManager {
         // 复制主要文件
         List<CopyTask> copyTasks = new ArrayList<>();
         copyTasks.add(new CopyTask(Constants.TIM_DATA_PATH + "/files/" + Constants.WLOGIN_DEVICE_FILE, 
-                Constants.LOCAL_WLOGIN_DEVICE_PATH));
+                appLocalPath(Constants.WLOGIN_DEVICE_FILE)));
         copyTasks.add(new CopyTask(Constants.TIM_DATA_PATH + "/databases/" + Constants.TK_FILE, 
-                Constants.LOCAL_TK_FILE_PATH));
+                appLocalPath(Constants.TK_FILE)));
         copyTasks.add(new CopyTask(Constants.TIM_DATA_PATH + "/shared_prefs/" + Constants.MOBILE_QQ_XML, 
-                Constants.LOCAL_MOBILE_XML_PATH));
+                appLocalPath(Constants.MOBILE_QQ_XML)));
         copyTasks.add(new CopyTask(Constants.TIM_DATA_PATH + "/files/" + Constants.UID_FOLDER, 
-                Constants.LOCAL_UID_PATH));
+                appLocalPath(Constants.UID_FOLDER)));
         
         boolean allSuccess = true;
         for (CopyTask task : copyTasks) {
@@ -183,7 +204,7 @@ public class FileManager {
      * 读取设备GUID
      */
     public Result<String> readDeviceGuid() {
-        return FileUtils.readFileToHexString(Constants.LOCAL_WLOGIN_DEVICE_PATH);
+        return FileUtils.readFileToHexString(appLocalPath(Constants.WLOGIN_DEVICE_FILE));
     }
     
     /**
@@ -194,7 +215,7 @@ public class FileManager {
             return Result.failure("无效的GUID格式", Constants.ERROR_INVALID_DATA);
         }
         
-        return FileUtils.writeHexStringToFile(guid, Constants.LOCAL_WLOGIN_DEVICE_PATH);
+        return FileUtils.writeHexStringToFile(guid, appLocalPath(Constants.WLOGIN_DEVICE_FILE));
     }
     
     /**
@@ -208,7 +229,7 @@ public class FileManager {
      * 根据名称读取Token文件数据
      */
     public Result<String> readTokenFileByName(String fileName) {
-        String filePath = Constants.APP_DATA_PATH + "/files/" + fileName;
+        String filePath = appLocalPath(fileName);
         FileUtils.DatabaseHelper dbHelper = new FileUtils.DatabaseHelper(context, filePath);
         
         try {
@@ -229,7 +250,7 @@ public class FileManager {
      * 根据名称写入Token文件数据
      */
     public Result<Boolean> writeTokenFileByName(String fileName, String hexData) {
-        String filePath = Constants.APP_DATA_PATH + "/files/" + fileName;
+        String filePath = appLocalPath(fileName);
         FileUtils.DatabaseHelper dbHelper = new FileUtils.DatabaseHelper(context, filePath);
         
         try {
@@ -243,7 +264,7 @@ public class FileManager {
      * 读取QQ配置文件
      */
     public Result<String> readQQConfig() {
-        return FileUtils.readFileToString(Constants.LOCAL_MOBILE_XML_PATH);
+        return FileUtils.readFileToString(appLocalPath(Constants.MOBILE_QQ_XML));
     }
     
     /**
@@ -337,9 +358,9 @@ public class FileManager {
         
         // 复制文件
         List<CopyTask> copyTasks = new ArrayList<>();
-        copyTasks.add(new CopyTask(Constants.LOCAL_WLOGIN_DEVICE_PATH, Constants.QQ_WLOGIN_DEVICE_PATH));
-        copyTasks.add(new CopyTask(Constants.LOCAL_TK_FILE_PATH, Constants.QQ_TK_FILE_PATH));
-        copyTasks.add(new CopyTask(Constants.LOCAL_UID_PATH, Constants.QQ_UID_PATH));
+        copyTasks.add(new CopyTask(appLocalPath(Constants.WLOGIN_DEVICE_FILE), Constants.QQ_WLOGIN_DEVICE_PATH));
+        copyTasks.add(new CopyTask(appLocalPath(Constants.TK_FILE), Constants.QQ_TK_FILE_PATH));
+        copyTasks.add(new CopyTask(appLocalPath(Constants.UID_FOLDER), Constants.QQ_UID_PATH));
         
         boolean allSuccess = true;
         for (CopyTask task : copyTasks) {
@@ -441,9 +462,9 @@ public class FileManager {
                     Constants.QQ_DATA_PATH + "/files/" + Constants.USER_FOLDER,
                     Constants.QQ_DATA_PATH + "/files/" + Constants.MMKV_FOLDER,
                     // 本地工作目录
-                    Constants.APP_DATA_PATH + "/files",
-                    Constants.APP_DATA_PATH + "/files/" + Constants.UID_FOLDER,
-                    Constants.APP_DATA_PATH + "/files/" + Constants.USER_FOLDER,
+                    appFilesPath(),
+                    appFilesPath() + "/" + Constants.UID_FOLDER,
+                    appFilesPath() + "/" + Constants.USER_FOLDER,
                     // Constants.APP_DATA_PATH + "/files/" + Constants.MMKV_FOLDER
             };
 

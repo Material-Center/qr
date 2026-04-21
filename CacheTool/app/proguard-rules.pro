@@ -37,18 +37,18 @@
 -keep class * extends com.google.gson.reflect.TypeToken
 
 # 保护所有数据模型类（根据你的包名调整）
--keep class com.extracache.logintool.model.** { *; }
--keep class com.extracache.logintool.bean.** { *; }
--keep class com.extracache.logintool.entity.** { *; }
+-keep class com.extracache.cachetool.model.** { *; }
+-keep class com.extracache.cachetool.bean.** { *; }
+-keep class com.extracache.cachetool.entity.** { *; }
 
 # 特别保护ServerResponse和AccountRecord类
--keep class com.extracache.logintool.model.ServerResponse { *; }
--keep class com.extracache.logintool.model.AccountRecord { *; }
--keep class com.extracache.logintool.model.UserDevice { *; }
+-keep class com.extracache.cachetool.model.ServerResponse { *; }
+-keep class com.extracache.cachetool.model.AccountRecord { *; }
+-keep class com.extracache.cachetool.model.UserDevice { *; }
 
 # 保护网络请求相关的类
--keep class com.extracache.logintool.service.** { *; }
--keep class com.extracache.logintool.api.** { *; }
+-keep class com.extracache.cachetool.service.** { *; }
+-keep class com.extracache.cachetool.api.** { *; }
 
 # 保护wlogin_sdk相关类（QQ登录SDK）
 -keep class oicq.wlogin_sdk.** { *; }

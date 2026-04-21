@@ -1,4 +1,4 @@
-package com.extracache.logintool.model;
+package com.extracache.cachetool.model;
 
 import org.json.JSONException;
 import org.json.JSONObject;

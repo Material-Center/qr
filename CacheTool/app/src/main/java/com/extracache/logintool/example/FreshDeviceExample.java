@@ -1,11 +1,11 @@
-package com.extracache.logintool.example;
+package com.extracache.cachetool.example;
 
 import android.content.Context;
 import android.util.Log;
 
-import com.extracache.logintool.QQSessionService;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
+import com.extracache.cachetool.QQSessionService;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
 
 /**
  * 全新设备使用示例
@@ -224,7 +224,7 @@ public class FreshDeviceExample {
         
         try {
             // 1. 从文件读取备份数据
-            Result<String> readResult = com.extracache.logintool.utils.FileUtils.readFileToString(backupFilePath);
+            Result<String> readResult = com.extracache.cachetool.utils.FileUtils.readFileToString(backupFilePath);
             if (readResult.isFailure()) {
                 Log.e(TAG, "读取备份文件失败: " + readResult.getMessage());
                 return;

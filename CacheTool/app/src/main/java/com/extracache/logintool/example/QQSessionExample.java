@@ -1,11 +1,11 @@
-package com.extracache.logintool.example;
+package com.extracache.cachetool.example;
 
 import android.content.Context;
 import android.util.Log;
 
-import com.extracache.logintool.QQSessionService;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
+import com.extracache.cachetool.QQSessionService;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
 
 /**
  * QQ会话管理使用示例

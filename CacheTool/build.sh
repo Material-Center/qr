@@ -54,8 +54,8 @@ build_release() {
         if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
             print_info "APK位置: app/build/outputs/apk/release/app-release.apk"
             # 复制到根目录
-            cp app/build/outputs/apk/release/app-release.apk ./logintool-release.apk
-            print_success "APK已复制到: ./logintool-release.apk"
+            cp app/build/outputs/apk/release/app-release.apk ./CacheTool-release.apk
+            print_success "APK已复制到: ./CacheTool-release.apk"
         else
             print_error "未找到生成的APK文件"
             exit 1
@@ -71,13 +71,13 @@ show_build_info() {
     echo ""
     print_info "构建信息:"
     echo "  项目名称: QQ登录工具"
-    echo "  包名: com.extracache.logintool"
+    echo "  包名: com.extracache.cachetool"
     echo "  构建时间: $(date)"
     echo "  Java版本: $(java -version 2>&1 | head -n 1)"
     echo ""
     
-    if [ -f "logintool-release.apk" ]; then
-        echo "  Release APK: $(ls -lh logintool-release.apk | awk '{print $5}')"
+    if [ -f "CacheTool-release.apk" ]; then
+        echo "  Release APK: $(ls -lh CacheTool-release.apk | awk '{print $5}')"
     fi
 }
 

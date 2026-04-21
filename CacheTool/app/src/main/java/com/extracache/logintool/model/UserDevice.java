@@ -1,4 +1,4 @@
-package com.extracache.logintool.model;
+package com.extracache.cachetool.model;
 
 import com.google.gson.annotations.SerializedName;
 

@@ -1,14 +1,14 @@
-package com.extracache.logintool.http;
+package com.extracache.cachetool.http;
 
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
 
-import com.extracache.logintool.QQSessionService;
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
+import com.extracache.cachetool.QQSessionService;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
 
 import org.json.JSONException;
 import org.json.JSONObject;

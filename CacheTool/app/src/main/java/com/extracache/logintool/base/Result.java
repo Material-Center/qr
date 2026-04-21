@@ -1,4 +1,4 @@
-package com.extracache.logintool.base;
+package com.extracache.cachetool.base;
 
 /**
  * 统一返回结果封装类

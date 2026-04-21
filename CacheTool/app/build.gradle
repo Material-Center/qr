@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.extracache.logintool'
+    namespace 'com.extracache.cachetool'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.extracache.logintool"
+        applicationId "com.extracache.cachetool"
         minSdk 24
         targetSdk 34
         versionCode 1
@@ -30,6 +30,8 @@ android {
 
     buildTypes {
         debug {
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
             minifyEnabled false
             debuggable true
             // debug版本使用默认的debug keystore，不指定signingConfig

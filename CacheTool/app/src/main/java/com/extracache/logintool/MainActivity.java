@@ -1,4 +1,4 @@
-package com.extracache.logintool;
+package com.extracache.cachetool;
 
 import android.Manifest;
 import android.content.ComponentName;
@@ -17,14 +17,14 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.http.QQSessionHttpServer;
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.network.ServerApi;
-import com.extracache.logintool.utils.AssetsUtils;
-import com.extracache.logintool.utils.DeviceUtils;
-import com.extracache.logintool.utils.HexUtils;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.http.QQSessionHttpServer;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.network.ServerApi;
+import com.extracache.cachetool.utils.AssetsUtils;
+import com.extracache.cachetool.utils.DeviceUtils;
+import com.extracache.cachetool.utils.HexUtils;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private TextInputLayout layoutInput;
     private MaterialButton btnExport;
     private MaterialButton btnExtractCache;
+    private MaterialButton btnLogout;
     private TextView textTitle;
     private TextView textResult;
     private ScrollView scrollResult;
@@ -89,6 +90,12 @@ public class MainActivity extends AppCompatActivity {
                 handleExport();
             }
         });
+        btnLogout.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                handleLogout();
+            }
+        });
 
         restoreLoginSession();
         if (!hasValidLogin()) {
@@ -123,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
         layoutInput = findViewById(R.id.layout_input);
         btnExport = findViewById(R.id.btn_export);
         btnExtractCache = findViewById(R.id.btn_extract_cache);
+        btnLogout = findViewById(R.id.btn_logout);
         textResult = findViewById(R.id.text_result);
         scrollResult = findViewById(R.id.scroll_result);
     }
@@ -154,6 +162,7 @@ public class MainActivity extends AppCompatActivity {
         String roleText = loggedIn ? ("当前角色：" + currentRoleName + "(" + currentRoleId + ")") : "当前未登录";
         if (!loggedIn) {
             textTitle.setText("登录工具");
+            btnLogout.setVisibility(View.GONE);
             btnExport.setEnabled(false);
             btnExtractCache.setEnabled(false);
             btnExport.setVisibility(View.GONE);
@@ -164,6 +173,7 @@ public class MainActivity extends AppCompatActivity {
         }
         if (canExtractByRole()) {
             textTitle.setText("登录工具");
+            btnLogout.setVisibility(View.VISIBLE);
             layoutInput.setVisibility(View.VISIBLE);
             btnExport.setVisibility(View.VISIBLE);
             btnExtractCache.setVisibility(View.GONE);
@@ -172,6 +182,7 @@ public class MainActivity extends AppCompatActivity {
             btnExtractCache.setEnabled(false);
         } else if (canUploadByRole()) {
             textTitle.setText("上传工具");
+            btnLogout.setVisibility(View.VISIBLE);
             layoutInput.setVisibility(View.GONE);
             btnExport.setVisibility(View.GONE);
             btnExport.setEnabled(false);
@@ -180,10 +191,24 @@ public class MainActivity extends AppCompatActivity {
             btnExtractCache.setText("上传缓存");
         } else {
             textTitle.setText("工具");
+            btnLogout.setVisibility(View.VISIBLE);
             layoutInput.setVisibility(View.GONE);
             btnExport.setVisibility(View.GONE);
             btnExtractCache.setVisibility(View.GONE);
         }
+    }
+
+    private void handleLogout() {
+        ServerApi.setAuthToken("");
+        currentRoleId = 0;
+        currentRoleName = "";
+        preferences.edit()
+                .remove(PREF_TOKEN)
+                .remove(PREF_ROLE_ID)
+                .remove(PREF_ROLE_NAME)
+                .apply();
+        Toast.makeText(this, "已退出登录", Toast.LENGTH_SHORT).show();
+        navigateToLogin();
     }
 
     private void navigateToLogin() {
@@ -207,6 +232,10 @@ public class MainActivity extends AppCompatActivity {
         
         if (inputText.isEmpty()) {
             editInput.setError("请输入账号");
+            return;
+        }
+        if (!inputText.matches("\\d+")) {
+            editInput.setError("账号只能输入数字");
             return;
         }
         

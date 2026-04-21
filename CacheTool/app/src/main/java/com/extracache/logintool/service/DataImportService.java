@@ -1,12 +1,12 @@
-package com.extracache.logintool.service;
+package com.extracache.cachetool.service;
 
 import android.content.Context;
 import android.util.Log;
 
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.utils.HexUtils;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.utils.HexUtils;
 
 import org.json.JSONObject;
 
@@ -74,7 +74,7 @@ public class DataImportService {
         
         try {
             // 读取文件内容
-            Result<String> readResult = com.extracache.logintool.utils.FileUtils.readFileToString(filePath);
+            Result<String> readResult = com.extracache.cachetool.utils.FileUtils.readFileToString(filePath);
             if (readResult.isFailure()) {
                 return Result.failure("读取文件失败: " + readResult.getMessage(), readResult.getErrorCode());
             }

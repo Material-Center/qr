@@ -6,16 +6,32 @@
     android:padding="24dp"
     android:background="#f5f5f5">
 
-    <TextView
-        android:id="@+id/text_title"
-        android:layout_width="wrap_content"
+    <FrameLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="上号工具"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:textColor="#333333"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="24dp" />
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:id="@+id/text_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="上号工具"
+            android:textColor="#333333"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_logout"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_gravity="top|end"
+            android:minWidth="0dp"
+            android:paddingHorizontal="12dp"
+            android:text="退出"
+            android:textSize="13sp" />
+
+    </FrameLayout>
 
 
     <com.google.android.material.textfield.TextInputLayout
@@ -29,9 +45,10 @@
             android:id="@+id/edit_input"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="textMultiLine"
-            android:maxLines="3"
-            android:minLines="2" />
+            android:digits="0123456789"
+            android:inputType="number"
+            android:maxLines="1"
+            android:minLines="1" />
 
     </com.google.android.material.textfield.TextInputLayout>
 

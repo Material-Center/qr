@@ -1,4 +1,4 @@
-package com.extracache.logintool;
+package com.extracache.cachetool;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -7,7 +7,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.extracache.logintool.network.ServerApi;
+import com.extracache.cachetool.network.ServerApi;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 

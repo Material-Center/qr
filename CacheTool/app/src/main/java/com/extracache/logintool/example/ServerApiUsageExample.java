@@ -1,9 +1,9 @@
-package com.extracache.logintool.example;
+package com.extracache.cachetool.example;
 
 import android.util.Log;
 
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.network.ServerApi;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.network.ServerApi;
 
 import java.io.IOException;
 

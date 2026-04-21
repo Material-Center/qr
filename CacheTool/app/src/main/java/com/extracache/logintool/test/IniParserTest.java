@@ -1,9 +1,9 @@
-package com.extracache.logintool.test;
+package com.extracache.cachetool.test;
 
 import android.util.Log;
 
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.service.Ini4jParser;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.service.Ini4jParser;
 
 /**
  * INI解析器测试类

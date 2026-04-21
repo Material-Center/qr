@@ -1,9 +1,9 @@
-package com.extracache.logintool.utils;
+package com.extracache.cachetool.utils;
 
 import android.os.Build;
 import android.util.Log;
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
 
 import java.io.BufferedReader;
 import java.io.IOException;

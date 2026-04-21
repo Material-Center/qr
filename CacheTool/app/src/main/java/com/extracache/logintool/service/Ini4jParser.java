@@ -1,9 +1,9 @@
-package com.extracache.logintool.service;
+package com.extracache.cachetool.service;
 
 import android.util.Log;
 
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.utils.HexUtils;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.utils.HexUtils;
 import org.ini4j.Ini;
 import org.ini4j.Profile;
 

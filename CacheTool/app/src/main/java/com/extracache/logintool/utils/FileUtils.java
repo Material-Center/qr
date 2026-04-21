@@ -1,4 +1,4 @@
-package com.extracache.logintool.utils;
+package com.extracache.cachetool.utils;
 
 import android.content.Context;
 import android.content.ContentValues;
@@ -7,8 +7,8 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.util.Log;
 
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
 
 import java.io.*;
 

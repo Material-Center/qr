@@ -1,16 +1,16 @@
-package com.extracache.logintool;
+package com.extracache.cachetool;
 
 import android.content.Context;
 import android.util.Log;
 
-import com.extracache.logintool.base.Constants;
-import com.extracache.logintool.base.Result;
-import com.extracache.logintool.model.SessionData;
-import com.extracache.logintool.service.DataImportService;
-import com.extracache.logintool.service.FileManager;
-import com.extracache.logintool.service.QQFileGenerator;
-import com.extracache.logintool.service.SessionManager;
-import com.extracache.logintool.utils.CommandExecutor;
+import com.extracache.cachetool.base.Constants;
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.service.DataImportService;
+import com.extracache.cachetool.service.FileManager;
+import com.extracache.cachetool.service.QQFileGenerator;
+import com.extracache.cachetool.service.SessionManager;
+import com.extracache.cachetool.utils.CommandExecutor;
 
 /**
  * QQ会话管理主服务类
@@ -228,7 +228,7 @@ public class QQSessionService {
      * 检查Root权限
      */
     public boolean hasRootPermission() {
-        return com.extracache.logintool.utils.CommandExecutor.hasRootPermission();
+        return com.extracache.cachetool.utils.CommandExecutor.hasRootPermission();
     }
     
     /**

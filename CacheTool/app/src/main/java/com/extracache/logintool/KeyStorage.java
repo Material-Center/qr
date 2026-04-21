@@ -1,4 +1,4 @@
-package com.extracache.logintool;
+package com.extracache.cachetool;
 
 import android.content.Context;
 import android.content.SharedPreferences;

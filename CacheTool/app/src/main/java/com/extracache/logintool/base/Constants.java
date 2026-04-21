@@ -1,4 +1,4 @@
-package com.extracache.logintool.base;
+package com.extracache.cachetool.base;
 
 /**
  * 常量定义类
@@ -8,7 +8,7 @@ public class Constants {
     // 应用包名
     public static final String QQ_PACKAGE_NAME = "com.tencent.mobileqq";
     public static final String TIM_PACKAGE_NAME = "com.tencent.tim";
-    public static final String APP_PACKAGE_NAME = "com.extracache.logintool";
+    public static final String APP_PACKAGE_NAME = "com.extracache.cachetool";
     
     // 文件路径
     public static final String QQ_DATA_PATH = "/data/data/" + QQ_PACKAGE_NAME;

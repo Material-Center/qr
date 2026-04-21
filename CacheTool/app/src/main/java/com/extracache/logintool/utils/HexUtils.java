@@ -1,7 +1,7 @@
-package com.extracache.logintool.utils;
+package com.extracache.cachetool.utils;
 
 import android.util.Log;
-import com.extracache.logintool.base.Constants;
+import com.extracache.cachetool.base.Constants;
 
 /**
  * 十六进制转换工具类
