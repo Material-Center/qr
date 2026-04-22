@@ -2,7 +2,9 @@ package system
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
@@ -142,6 +144,38 @@ func (a *QQCacheApi) ResetExtract(c *gin.Context) {
 		return
 	}
 	response.OkWithMessage("重置成功", c)
+}
+
+// ExportIniZip
+// @Tags      QQCache
+// @Summary   管理端批量导出缓存 INI（zip）
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/zip
+// @Param     data  body      systemReq.QQCacheExportIniZip  true  "记录 ID 列表"
+// @Success   200   file      zip
+// @Router    /qqCache/exportIniZip [post]
+func (a *QQCacheApi) ExportIniZip(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可导出缓存", c)
+		return
+	}
+	var req systemReq.QQCacheExportIniZip
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	zipBytes, err := qqCacheService.ExportIniZipByIDs(req.IDs)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	filename := fmt.Sprintf("qq_cache_ini_%s.zip", time.Now().Format("20060102_150405"))
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(200, "application/zip", zipBytes)
 }
 
 // AppLoginRoleHint

@@ -17,12 +17,14 @@
         <el-form-item>
           <el-button type="primary" icon="search" @click="fetchList">查询</el-button>
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
+          <el-button type="success" :disabled="!selectedRows.length" @click="onExportIniZip">下载INI(ZIP)</el-button>
         </el-form-item>
       </el-form>
     </div>
 
     <div class="gva-table-box">
-      <el-table :data="tableData" row-key="ID">
+      <el-table :data="tableData" row-key="ID" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="48" reserve-selection />
         <el-table-column label="ID" prop="ID" width="80" />
         <el-table-column label="QQ账号" prop="qqNum" min-width="140" />
         <el-table-column label="设备ID" prop="deviceId" min-width="160" show-overflow-tooltip />
@@ -75,7 +77,7 @@
 import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/format'
-import { getQQCacheList, resetQQCacheExtract } from '@/api/qqCache'
+import { exportQQCacheIniZip, getQQCacheList, resetQQCacheExtract } from '@/api/qqCache'
 
 defineOptions({
   name: 'QQCacheManage'
@@ -85,11 +87,66 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
+const selectedRows = ref([])
 const searchInfo = ref({
   qqNum: '',
   deviceId: '',
   extracted: undefined
 })
+
+const onSelectionChange = (rows) => {
+  selectedRows.value = rows || []
+}
+
+const pickZipFilename = (contentDisposition) => {
+  if (!contentDisposition) return null
+  const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(contentDisposition)
+  if (!m?.[1]) return null
+  try {
+    return decodeURIComponent(m[1].replace(/["']/g, '').trim())
+  } catch {
+    return m[1].replace(/["']/g, '').trim()
+  }
+}
+
+const onExportIniZip = async () => {
+  const ids = (selectedRows.value || []).map((r) => r.ID).filter(Boolean)
+  if (!ids.length) {
+    ElMessage.warning('请先勾选要导出的记录')
+    return
+  }
+  try {
+    const res = await exportQQCacheIniZip(ids)
+    const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
+    const blob = res?.data instanceof Blob ? res.data : null
+    if (!blob) {
+      ElMessage.error('导出失败')
+      return
+    }
+    if (ct.includes('application/json')) {
+      const text = await blob.text()
+      let msg = '导出失败'
+      try {
+        const j = JSON.parse(text)
+        msg = j.msg || j.message || msg
+      } catch {
+        msg = text || msg
+      }
+      ElMessage.error(msg)
+      return
+    }
+    const name = pickZipFilename(res.headers?.['content-disposition']) || `qq_cache_ini_${Date.now()}.zip`
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name.endsWith('.zip') ? name : `${name}.zip`
+    a.click()
+    window.URL.revokeObjectURL(url)
+    ElMessage.success('已开始下载')
+  } catch (e) {
+    ElMessage.error(e?.message || '导出失败')
+  }
+}
 
 const fetchList = async () => {
   try {

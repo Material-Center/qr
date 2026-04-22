@@ -11,9 +11,10 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup) {
 	qqCacheRouter := Router.Group("qqCache").Use(middleware.OperationRecord())
 	qqCacheRouterWithoutRecord := Router.Group("qqCache")
 	{
-		// upload/extract 请求体中包含敏感缓存内容，不进入操作日志
+		// upload/extract/exportIniZip 请求体或响应中含敏感缓存内容，不进入操作日志
 		qqCacheRouterWithoutRecord.POST("upload", qqCacheApi.Upload)
 		qqCacheRouterWithoutRecord.POST("extract", qqCacheApi.Extract)
+		qqCacheRouterWithoutRecord.POST("exportIniZip", qqCacheApi.ExportIniZip)
 		qqCacheRouter.POST("list", qqCacheApi.List)
 		qqCacheRouter.POST("resetExtract", qqCacheApi.ResetExtract)
 	}

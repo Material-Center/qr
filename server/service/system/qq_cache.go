@@ -1,9 +1,13 @@
 package system
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
@@ -11,6 +15,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+const qqCacheExportIniMaxIDs = 100
 
 type QQCacheService struct{}
 
@@ -156,6 +162,81 @@ func (s *QQCacheService) ResetExtractByID(id uint) error {
 			"extraction_at":     nil,
 			"updated_at":        time.Now(),
 		}).Error
+}
+
+// ExportIniZipByIDs 将所选记录的 ini 文本打成 zip（zip 内文件名：{id}_{qq}.ini）
+func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, error) {
+	uniq := make([]uint, 0, len(ids))
+	seen := map[uint]struct{}{}
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniq = append(uniq, id)
+	}
+	if len(uniq) == 0 {
+		return nil, errors.New("请至少选择一条记录")
+	}
+	if len(uniq) > qqCacheExportIniMaxIDs {
+		return nil, fmt.Errorf("单次最多导出%d条记录", qqCacheExportIniMaxIDs)
+	}
+	var records []system.SysQQCacheRecord
+	if err := global.GVA_DB.Where("id IN ?", uniq).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, errors.New("未找到所选记录")
+	}
+	buf := new(bytes.Buffer)
+	zw := zip.NewWriter(buf)
+	added := 0
+	for _, rec := range records {
+		if rec.INI == nil || strings.TrimSpace(*rec.INI) == "" {
+			continue
+		}
+		name := fmt.Sprintf("%d_%s.ini", rec.ID, sanitizeQQCacheZipEntryBase(rec.QQNum))
+		w, err := zw.Create(name)
+		if err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		if _, err := w.Write([]byte(*rec.INI)); err != nil {
+			_ = zw.Close()
+			return nil, err
+		}
+		added++
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	if added == 0 {
+		return nil, errors.New("所选记录均无缓存内容可导出")
+	}
+	return buf.Bytes(), nil
+}
+
+func sanitizeQQCacheZipEntryBase(qq string) string {
+	qq = strings.TrimSpace(qq)
+	var b strings.Builder
+	for _, r := range qq {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		return "qq"
+	}
+	if len(out) > 80 {
+		out = out[:80]
+	}
+	return out
 }
 
 func trimToPtr(raw string) *string {

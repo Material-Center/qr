@@ -25,3 +25,8 @@ type QQCacheList struct {
 type QQCacheResetExtract struct {
 	ID uint `json:"id" form:"id"`
 }
+
+// QQCacheExportIniZip 管理端批量导出缓存 INI（打包为 zip）
+type QQCacheExportIniZip struct {
+	IDs []uint `json:"ids" form:"ids"`
+}

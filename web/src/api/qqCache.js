@@ -15,3 +15,14 @@ export const resetQQCacheExtract = (data) => {
     data
   })
 }
+
+export const exportQQCacheIniZip = (ids, config = {}) => {
+  return service({
+    url: '/qqCache/exportIniZip',
+    method: 'post',
+    data: { ids },
+    responseType: 'blob',
+    donNotShowLoading: true,
+    ...config
+  })
+}
