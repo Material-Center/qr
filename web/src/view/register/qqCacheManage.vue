@@ -43,13 +43,6 @@
             {{ row.updatedAt ? formatDate(row.updatedAt) : '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="缓存状态" min-width="100">
-          <template #default="{ row }">
-            <el-tag :type="row.iNI ? 'success' : 'warning'">
-              {{ row.iNI ? '有缓存' : '空缓存' }}
-            </el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link :disabled="!row.extractor" @click="onResetExtract(row)">
