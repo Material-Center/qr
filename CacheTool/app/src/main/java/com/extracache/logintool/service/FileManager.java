@@ -113,6 +113,8 @@ public class FileManager {
         fileTasks.add(new CopyTask(Constants.QQ_WLOGIN_DEVICE_PATH, externalBasePath + "/" + Constants.WLOGIN_DEVICE_FILE));
         fileTasks.add(new CopyTask(Constants.QQ_TK_FILE_PATH, externalBasePath + "/" + Constants.TK_FILE));
         fileTasks.add(new CopyTask(Constants.QQ_MOBILE_XML_PATH, externalBasePath + "/" + Constants.MOBILE_QQ_XML));
+        // uifa.xml 部分版本/机型可能不存在或不可读，失败不阻塞整体备份
+        fileTasks.add(new CopyTask(Constants.QQ_UIFA_XML_PATH, externalBasePath + "/" + Constants.UIFA_XML, true));
         
         // 目录复制任务 - 复制到外部存储
         dirTasks.add(new CopyTask(Constants.QQ_UID_PATH, externalBasePath + "/" + Constants.UID_FOLDER));
@@ -123,9 +125,12 @@ public class FileManager {
         for (CopyTask task : fileTasks) {
             Result<String> result = CommandExecutor.copyFile(task.source, task.destination);
             if (result.isFailure()) {
-                Log.w(TAG, String.format("复制文件失败: %s -> %s, %s", 
+                Log.w(TAG, String.format("复制文件失败%s: %s -> %s, %s",
+                        task.optional ? "（可忽略）" : "",
                         task.source, task.destination, result.getMessage()));
-                allSuccess = false;
+                if (!task.optional) {
+                    allSuccess = false;
+                }
             } else {
                 // 修改文件权限
                 CommandExecutor.changeFilePermission(task.destination, "777");
@@ -487,10 +492,17 @@ public class FileManager {
     private static class CopyTask {
         final String source;
         final String destination;
-        
+        /** 为 true 时复制失败只打日志，不把整次备份判为失败 */
+        final boolean optional;
+
         CopyTask(String source, String destination) {
+            this(source, destination, false);
+        }
+
+        CopyTask(String source, String destination, boolean optional) {
             this.source = source;
             this.destination = destination;
+            this.optional = optional;
         }
     }
     
@@ -542,6 +554,34 @@ public class FileManager {
         }
     }
     
+    /**
+     * 从外部备份路径读取uifa.xml内容
+     */
+    public Result<String> readUifaXmlFromExternal(String externalBasePath) {
+        String uifaPath = externalBasePath + "/" + Constants.UIFA_XML;
+        return FileUtils.readFileToString(uifaPath);
+    }
+
+    /**
+     * 从uifa.xml内容中提取指定name属性的string值
+     */
+    public static String extractXmlStringValue(String xmlContent, String name) {
+        if (xmlContent == null || xmlContent.isEmpty()) {
+            return "";
+        }
+        try {
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                    "<string name=\"" + java.util.regex.Pattern.quote(name) + "\">([^<]+)</string>");
+            java.util.regex.Matcher matcher = pattern.matcher(xmlContent);
+            if (matcher.find()) {
+                return matcher.group(1).trim();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "提取XML字段 " + name + " 失败", e);
+        }
+        return "";
+    }
+
     /**
      * 从指定路径读取设备GUID
      */
@@ -691,7 +731,7 @@ public class FileManager {
         extractTokenIfNotEmpty(sigInfo.wtSessionTicket, "Token0133", sessionData);
         extractTokenIfNotEmpty(sigInfo.wtSessionTicketKey, "Token0134", sessionData);
         extractTokenIfNotEmpty(sigInfo._userSt_Key, "Token010E", sessionData);
-        extractTokenIfNotEmpty(sigInfo._userStSig, "Token0114", sessionData);
+        // extractTokenIfNotEmpty(sigInfo._userStSig, "Token0114", sessionData);
         
         // 处理en_A1字段（包含Token0106和TGTKey）
         if (sigInfo._en_A1 != null && sigInfo._en_A1.length > 0) {

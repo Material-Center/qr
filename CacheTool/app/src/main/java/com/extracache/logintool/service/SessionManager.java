@@ -8,6 +8,7 @@ import android.util.Log;
 import com.extracache.cachetool.base.Constants;
 import com.extracache.cachetool.base.Result;
 import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.utils.DeviceUtils;
 import com.extracache.cachetool.utils.HexUtils;
 
 import oicq.wlogin_sdk.request.WloginAllSigInfo;
@@ -106,13 +107,35 @@ public class SessionManager {
         sessionData.setGuid(guidResult.getData());
         sessionData.setUid(uidResult.getDataOrDefault(""));
         sessionData.setQqFile(qqFileHex);
-        
+
         // 从外部存储解密并解析Token文件
         Result<Boolean> parseResult = parseTokenFileFromExternal(sessionData, targetUin, externalBasePath);
         if (parseResult.isFailure()) {
             Log.w(TAG, "解析Token文件失败: " + parseResult.getMessage());
         }
-        
+
+        // 提取 uifa.xml 中的 q36，并同步设置 q16=q36
+        Result<String> uifaResult = fileManager.readUifaXmlFromExternal(externalBasePath);
+        if (uifaResult.isSuccess()) {
+            String q36 = FileManager.extractXmlStringValue(uifaResult.getData(), "q36");
+            if (!q36.isEmpty()) {
+                sessionData.putToken("q36", q36);
+                sessionData.putToken("q16", q36);
+                Log.d(TAG, "提取到 q36: " + q36);
+            } else {
+                Log.w(TAG, "uifa.xml 中未找到 q36");
+            }
+        } else {
+            Log.w(TAG, "读取 uifa.xml 失败: " + uifaResult.getMessage());
+        }
+
+        // 获取 Android ID 作为 clientId
+        String androidId = DeviceUtils.getAndroidId(context);
+        if (!androidId.isEmpty()) {
+            sessionData.putToken("clientId", androidId);
+            Log.d(TAG, "clientId(androidId): " + androidId);
+        }
+
         // 更新当前会话
         sessionData.copyTo(currentSession);
         
@@ -357,6 +380,7 @@ public class SessionManager {
         extractTokenIfNotEmpty(sigInfo._device_token, "_device_token", sessionData);
         extractTokenIfNotEmpty(sigInfo._superKey, "_superKey", sessionData);
         extractTokenIfNotEmpty(sigInfo._userStWebSig, "_userStWebSig", sessionData);
+        extractTokenIfNotEmpty(sigInfo._userStWebSig, "ClientKey", sessionData); // 新的缓存依赖
         extractTokenIfNotEmpty(sigInfo._userA5, "_userA5", sessionData);
         extractTokenIfNotEmpty(sigInfo._userA8, "_userA8", sessionData);
         extractTokenIfNotEmpty(sigInfo._lsKey, "_lsKey", sessionData);
@@ -428,7 +452,8 @@ public class SessionManager {
         updateTokenIfExists("_device_token", sessionData, sigInfo._device_token, (data) -> sigInfo._device_token = data);
         updateTokenIfExists("_superKey", sessionData, sigInfo._superKey, (data) -> sigInfo._superKey = data);
         updateTokenIfExists("_userStWebSig", sessionData, sigInfo._userStWebSig, (data) -> sigInfo._userStWebSig = data);
-        
+        updateTokenIfExists("ClientKey", sessionData, sigInfo._userStWebSig, (data) -> sigInfo._userStWebSig = data);
+
         // 更新时间戳
         long currentTime = System.currentTimeMillis();
         long expireTime = currentTime + 360000000L; // 100小时后过期

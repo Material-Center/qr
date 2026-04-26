@@ -1,6 +1,8 @@
 package com.extracache.cachetool.utils;
 
+import android.content.Context;
 import android.os.Build;
+import android.provider.Settings;
 import android.util.Log;
 
 import com.extracache.cachetool.base.Constants;
@@ -70,7 +72,21 @@ public class DeviceUtils {
     }
     
     /**
-     * 获取设备信息摘要
+     * 获取Android ID（clientId）
+     */
+    public static String getAndroidId(Context context) {
+        try {
+            String androidId = Settings.Secure.getString(
+                    context.getContentResolver(), Settings.Secure.ANDROID_ID);
+            return androidId != null ? androidId : "";
+        } catch (Exception e) {
+            Log.e(TAG, "获取Android ID失败", e);
+            return "";
+        }
+    }
+
+    /**
+     * 获取设备信息摘要（不含androidId，向后兼容）
      */
     public static String getDeviceInfo() {
         JSONObject info = new JSONObject();
@@ -83,7 +99,24 @@ public class DeviceUtils {
         } catch (JSONException e) {
             Log.e(TAG, "生成设备信息JSON失败", e);
         }
-        
+        return info.toString();
+    }
+
+    /**
+     * 获取设备信息摘要（含clientId/Android ID）
+     */
+    public static String getDeviceInfo(Context context) {
+        JSONObject info = new JSONObject();
+        try {
+            info.put("brand", Build.BRAND);
+            info.put("model", Build.MODEL);
+            info.put("androidVersion", Build.VERSION.RELEASE);
+            info.put("apiLevel", Build.VERSION.SDK_INT);
+            info.put("serialNumber", getSerialNumber());
+            info.put("androidId", getAndroidId(context));
+        } catch (JSONException e) {
+            Log.e(TAG, "生成设备信息JSON失败", e);
+        }
         return info.toString();
     }
     

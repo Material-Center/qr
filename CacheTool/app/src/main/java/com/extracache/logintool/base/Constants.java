@@ -23,10 +23,14 @@ public class Constants {
     public static final String USER_FOLDER = "user";
     public static final String MMKV_FOLDER = "mmkv";
     
+    // QQ相关文件（续）
+    public static final String UIFA_XML = "uifa.xml";
+
     // 文件完整路径
     public static final String QQ_WLOGIN_DEVICE_PATH = QQ_DATA_PATH + "/files/" + WLOGIN_DEVICE_FILE;
     public static final String QQ_TK_FILE_PATH = QQ_DATA_PATH + "/databases/" + TK_FILE;
     public static final String QQ_MOBILE_XML_PATH = QQ_DATA_PATH + "/shared_prefs/" + MOBILE_QQ_XML;
+    public static final String QQ_UIFA_XML_PATH = QQ_DATA_PATH + "/shared_prefs/" + UIFA_XML;
     public static final String QQ_UID_PATH = QQ_DATA_PATH + "/files/" + UID_FOLDER;
     
     // 本地文件路径（应用内部存储）

@@ -771,7 +771,7 @@ public class MainActivity extends AppCompatActivity {
         
         // 添加时间戳
         iniContent.append("extractTime=").append(System.currentTimeMillis()).append("\r\n");
-        iniContent.append("deviceInfo=").append(DeviceUtils.getDeviceInfo()).append("\r\n");
+        iniContent.append("deviceInfo=").append(DeviceUtils.getDeviceInfo(this)).append("\r\n");
         
         return iniContent.toString();
     }
