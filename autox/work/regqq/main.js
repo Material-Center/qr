@@ -6,4 +6,6 @@ setTimeout(() => {
   main();
 }, 1000);
 
-function main() {}
+function main() {
+  console.log(deviceId);
+}

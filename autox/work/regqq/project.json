@@ -1,8 +1,31 @@
 {
-  "name": "regqq",
+  "name": "RegQQ",
   "main": "update.js",
   "ignore": ["build"],
-  "launchConfig": {},
+  "abis": ["arm64-v8a", "armeabi-v7a", "x86", "x86_64"],
+  "launchConfig": {
+    "displaySplash": true,
+    "hideAccessibilityServices": false,
+    "hideLauncher": false,
+    "hideLogs": false,
+    "stableMode": false,
+    "volumeUpcontrol": false,
+    "permissions": [
+      "accessibility_services",
+      "background_start",
+      "draw_overlay"
+    ],
+    "serviceDesc": "scripts for autox",
+    "splashIcon": null,
+    "splashText": "Powered by Autoxjs.com"
+  },
+  "libs": [
+    "libopencv_java4.so",
+    "libc++_shared.so",
+    "libp7zip.so",
+    "libjackpal-androidterm5.so",
+    "libjackpal-termexec2.so"
+  ],
   "packageName": "com.autox.regqq",
   "versionName": "0.0.1",
   "versionCode": 1
