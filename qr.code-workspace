@@ -17,6 +17,10 @@
       "name": "cache-tool"
     },
     {
+      "path": "autox",
+      "name": "autox"
+    },
+    {
       "path": "test",
       "name": "test"
     },

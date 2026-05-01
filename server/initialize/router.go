@@ -3,12 +3,14 @@ package initialize
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/docs"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/middleware"
 	"github.com/flipped-aurora/gin-vue-admin/server/router"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -66,6 +68,16 @@ func Routers() *gin.Engine {
 	// Router.StaticFile("/", "./dist/index.html") // 前端网页入口页面
 
 	Router.StaticFS(global.GVA_CONFIG.Local.StorePath, justFilesFilesystem{http.Dir(global.GVA_CONFIG.Local.StorePath)}) // Router.Use(middleware.LoadTls())  // 如果需要使用https 请打开此中间件 然后前往 core/server.go 将启动模式 更变为 Router.RunTLS("端口","你的cre/pem文件","你的key文件")
+	if sd := strings.TrimSpace(global.GVA_CONFIG.Local.ScriptStaticDir); sd != "" {
+		if sup := strings.Trim(strings.TrimSpace(global.GVA_CONFIG.Local.ScriptStaticURLPrefix), "/"); sup != "" {
+			if err := os.MkdirAll(sd, 0755); err != nil {
+				global.GVA_LOG.Error("创建 script-static-dir 失败", zap.Error(err), zap.String("dir", sd))
+			} else {
+				Router.StaticFS(sup, justFilesFilesystem{http.Dir(sd)})
+				global.GVA_LOG.Info("已挂载静态脚本目录", zap.String("urlPrefix", sup), zap.String("dir", sd))
+			}
+		}
+	}
 	// 跨域，如需跨域可以打开下面的注释
 	// Router.Use(middleware.Cors()) // 直接放行全部跨域请求
 	// Router.Use(middleware.CorsByRules()) // 按照配置的规则放行跨域请求

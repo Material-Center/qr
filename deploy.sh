@@ -5,6 +5,7 @@ set -euo pipefail
 # Usage:
 #   ./deploy.sh server
 #   ./deploy.sh web
+#   ./deploy.sh autox
 #   ./deploy.sh all
 #   ./deploy.sh service
 
@@ -32,6 +33,9 @@ REMOTE_UPDATE_SCRIPT="/opt/qr-server/remote-update-server.sh"
 SERVICE_NAME="qr-server"
 USE_SUDO="1"
 REMOTE_SERVER_POST_CMD=""
+# autox：对应服务端 local.script-static-dir（与 script-static-url-prefix 配合访问）
+REMOTE_AUTOX_DIR="/opt/qr-server/static/scripts"
+REMOTE_AUTOX_POST_CMD=""
 BINARY_NAME="server"
 SERVICE_RUN_USER="root"
 SERVICE_RUN_GROUP="root"
@@ -46,7 +50,7 @@ INCLUDE_CONFIG="0"
 ACTION="${1:-}"
 
 if [[ -z "${ACTION}" ]]; then
-  echo "Usage: ./deploy.sh [server|web|all|service]"
+  echo "Usage: ./deploy.sh [server|web|autox|all|service]"
   exit 1
 fi
 
@@ -67,6 +71,7 @@ fi
 
 export REMOTE_HOST REMOTE_USER REMOTE_PORT SSH_KEY REMOTE_PASSWORD
 export REMOTE_WEB_DIR REMOTE_WEB_POST_CMD
+export REMOTE_AUTOX_DIR REMOTE_AUTOX_POST_CMD
 export REMOTE_SERVER_DIR REMOTE_SERVER_POST_CMD
 export REMOTE_UPDATE_SCRIPT SERVICE_NAME USE_SUDO
 export BINARY_NAME GOOS_TARGET GOARCH_TARGET CGO_ENABLED_TARGET INCLUDE_CONFIG
@@ -84,6 +89,10 @@ run_service() {
   "${SCRIPT_DIR}/deploy/scripts/deploy-systemd-service.sh"
 }
 
+run_autox() {
+  "${SCRIPT_DIR}/deploy/scripts/deploy-autox.sh"
+}
+
 case "${ACTION}" in
   web)
     run_web
@@ -91,16 +100,24 @@ case "${ACTION}" in
   server)
     run_server
     ;;
+  autox)
+    run_autox
+    ;;
   service)
     run_service
     ;;
   all)
     run_server
     run_web
+    if [[ -n "${REMOTE_AUTOX_DIR}" ]]; then
+      run_autox
+    else
+      echo "Skipping autox (REMOTE_AUTOX_DIR is empty)"
+    fi
     ;;
   *)
     echo "Unknown action: ${ACTION}"
-    echo "Usage: ./deploy.sh [server|web|all|service]"
+    echo "Usage: ./deploy.sh [server|web|autox|all|service]"
     exit 1
     ;;
 esac

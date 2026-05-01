@@ -175,6 +175,8 @@ db-list:
 local:
     path: uploads/file
     store-path: uploads/file
+    script-static-dir: ""
+    script-static-url-prefix: ""
 
 # autocode configuration
 autocode:

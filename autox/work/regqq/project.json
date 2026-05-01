@@ -1,0 +1,9 @@
+{
+  "name": "regqq",
+  "main": "update.js",
+  "ignore": ["build"],
+  "launchConfig": {},
+  "packageName": "com.autox.regqq",
+  "versionName": "0.0.1",
+  "versionCode": 1
+}

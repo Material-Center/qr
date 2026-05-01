@@ -91,6 +91,9 @@ jwt:
 local:
     path: uploads/file
     store-path: uploads/file
+    # 可选：自行同步文件到 script-static-dir 后，通过 GET /{script-static-url-prefix}/... 访问
+    script-static-dir: "static/scripts"
+    script-static-url-prefix: "remote/scripts"
 mcp:
     name: GVA_MCP
     version: v1.0.0
