@@ -19,4 +19,9 @@ type RegisterConfigUpsert struct {
 	CaptchaAccount  string `json:"captchaAccount" form:"captchaAccount"`
 	CaptchaPassword string `json:"captchaPassword" form:"captchaPassword"`
 	CaptchaToken    string `json:"captchaToken" form:"captchaToken"`
+
+	PhoneImageProvider          string `json:"phoneImageProvider" form:"phoneImageProvider"`
+	PhoneImageProviderUsername  string `json:"phoneImageProviderUsername" form:"phoneImageProviderUsername"`
+	PhoneImageProviderPassword  string `json:"phoneImageProviderPassword" form:"phoneImageProviderPassword"`
+	PhoneImageProviderSecretKey string `json:"phoneImageProviderSecretKey" form:"phoneImageProviderSecretKey"`
 }

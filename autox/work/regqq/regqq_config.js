@@ -1,0 +1,45 @@
+const RegQQConfig = {
+  serverBaseURL: "https://www.qq123qq.com/api",
+  cacheToolBaseURL: "http://127.0.0.1:9091",
+  cacheToolPackageName: "com.extracache.cachetool",
+  cacheToolAppName: "CacheTool",
+  cacheToolLaunchTimeoutMs: 15000,
+  cacheToolStatusRetryIntervalMs: 1000,
+  qqPackageName: "com.tencent.mobileqq",
+  qqAppName: "QQ",
+  taskPollIntervalMs: 2000,
+  taskErrorRetryIntervalMs: 5000,
+  heartbeatIntervalMs: 30000,
+  cacheUploadTimeoutMs: 60000,
+  resetAfterSuccess: true,
+  exceptionFlow: {
+    defaultRetryLimit: 0,
+    retryIntervalMs: 1000,
+    reportStageException: true,
+    resetOnFailure: true,
+    stageRetryLimits: {
+      open_login_page: 0,
+      handle_authorize_dialog: 0,
+      input_phone: 0,
+      wait_or_submit_verify_code: 0,
+      complete_profile: 0,
+      wait_login_success: 0,
+      submit_cache: 0,
+      reset_environment: 0,
+    },
+  },
+  imageVerify: {
+    endpoint: "http://gpu1.xinyuocr.xyz:8889/api/qrcode/predict",
+    modelName: "普通模型",
+    keyCode: "",
+    question: "框出正确位置",
+    system: "",
+    pressDurationMs: 50,
+    clickIntervalMs: 300,
+    screenshotDir: files.cwd() + "/capture",
+  },
+};
+
+module.exports = {
+  RegQQConfig,
+};

@@ -27,6 +27,7 @@ type ServiceGroup struct {
 	LoginLogService
 	ApiTokenService
 	RegisterTaskService
+	PhoneRegisterTaskService
 	RegisterConfigService
 	QQCacheService
 }

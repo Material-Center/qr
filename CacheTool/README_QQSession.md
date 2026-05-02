@@ -38,7 +38,7 @@ Result<Boolean> result = service.migrateSession("QQ", "123456789", "新GUID");
 ## 项目结构
 
 ```
-com.extracache.logintool/
+com.extracache.cachetool/
 ├── base/                      # 基础组件
 │   ├── Result.java           # 统一返回结果封装
 │   └── Constants.java        # 常量定义

@@ -50,6 +50,8 @@ public class Constants {
     public static final String API_QQ_TEST = "/qqtest";
     public static final String API_QQ_TIM = "/qqtim";
     public static final String API_IMPORT = "/import";
+    public static final String API_STATUS = "/status";
+    public static final String API_PHONE_REGISTER_PUSH_CACHE = "/phoneRegister/pushCache";
     
     // 日志标签
     public static final String LOG_TAG = "QQSessionManager";

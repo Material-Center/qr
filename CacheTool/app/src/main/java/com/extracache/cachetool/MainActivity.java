@@ -5,6 +5,7 @@ import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -22,9 +23,9 @@ import com.extracache.cachetool.base.Result;
 import com.extracache.cachetool.http.QQSessionHttpServer;
 import com.extracache.cachetool.model.SessionData;
 import com.extracache.cachetool.network.ServerApi;
+import com.extracache.cachetool.service.SessionIniSerializer;
 import com.extracache.cachetool.utils.AssetsUtils;
 import com.extracache.cachetool.utils.DeviceUtils;
-import com.extracache.cachetool.utils.HexUtils;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -32,7 +33,6 @@ import org.json.JSONObject;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
-import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = Constants.LOG_TAG;
@@ -50,8 +50,10 @@ public class MainActivity extends AppCompatActivity {
     private MaterialButton btnExtractCache;
     private MaterialButton btnLogout;
     private TextView textTitle;
+    private TextView textServerStatus;
     private TextView textResult;
     private ScrollView scrollResult;
+    private View viewServerStatusDot;
     
     // HTTP服务器相关
     private QQSessionHttpServer httpServer;
@@ -74,6 +76,7 @@ public class MainActivity extends AppCompatActivity {
         
         // 初始化UI组件
         initViews();
+        updateServerStatusIndicator(false, "服务启动中");
         
         // 设置按钮点击事件
         btnExport.setOnClickListener(new View.OnClickListener() {
@@ -126,6 +129,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void initViews() {
         textTitle = findViewById(R.id.text_title);
+        textServerStatus = findViewById(R.id.text_server_status);
         editInput = findViewById(R.id.edit_input);
         layoutInput = findViewById(R.id.layout_input);
         btnExport = findViewById(R.id.btn_export);
@@ -133,6 +137,7 @@ public class MainActivity extends AppCompatActivity {
         btnLogout = findViewById(R.id.btn_logout);
         textResult = findViewById(R.id.text_result);
         scrollResult = findViewById(R.id.scroll_result);
+        viewServerStatusDot = findViewById(R.id.view_server_status_dot);
     }
 
     private void restoreLoginSession() {
@@ -232,10 +237,12 @@ public class MainActivity extends AppCompatActivity {
         
         if (inputText.isEmpty()) {
             editInput.setError("请输入账号");
+            Toast.makeText(this, "开始提取失败：请输入账号", Toast.LENGTH_SHORT).show();
             return;
         }
         if (!inputText.matches("\\d+")) {
             editInput.setError("账号只能输入数字");
+            Toast.makeText(this, "开始提取失败：账号只能输入数字", Toast.LENGTH_SHORT).show();
             return;
         }
         
@@ -245,6 +252,7 @@ public class MainActivity extends AppCompatActivity {
         
         // 显示处理状态
         showResult("正在检查Root权限...");
+        Toast.makeText(this, "开始提取缓存并登录", Toast.LENGTH_SHORT).show();
         
         // 直接检查root权限
         new Thread(() -> checkAndRequestRoot(() -> performImport(inputText), "提取缓存并登录")).start();
@@ -467,10 +475,12 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 if (result.isSuccess()) {
                     Log.i(TAG, "HTTP服务器启动成功，端口: " + Constants.DEFAULT_SERVER_PORT);
+                    updateServerStatusIndicator(true, "服务运行中");
                     // 可选：显示启动成功的Toast
                     // Toast.makeText(this, "HTTP服务器已启动，端口: " + Constants.DEFAULT_SERVER_PORT, Toast.LENGTH_SHORT).show();
                 } else {
                     Log.e(TAG, "HTTP服务器启动失败: " + result.getMessage());
+                    updateServerStatusIndicator(false, "服务未运行");
                     Toast.makeText(this, "HTTP服务器启动失败: " + result.getMessage(), Toast.LENGTH_LONG).show();
                 }
             });
@@ -535,6 +545,7 @@ public class MainActivity extends AppCompatActivity {
         btnExtractCache.setEnabled(false);
         btnExtractCache.setText("上传中...");
         showResult("正在检查Root权限...");
+        Toast.makeText(this, "开始上传缓存", Toast.LENGTH_SHORT).show();
         
         // 在后台线程中执行提取操作
         new Thread(new Runnable() {
@@ -669,7 +680,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "设备ID: " + deviceId);
         
         // 生成INI格式的数据（参考extracache格式）
-        String iniContent = generateIniContent(sessionData);
+        String iniContent = SessionIniSerializer.toIni(sessionData, this);
         Log.d(TAG, "INI内容长度: " + iniContent.length());
         
         runOnUiThread(() -> {
@@ -737,46 +748,6 @@ public class MainActivity extends AppCompatActivity {
     }
     
     /**
-     * 生成INI格式的内容（参考extracache格式）
-     */
-    private String generateIniContent(SessionData sessionData) {
-        StringBuilder iniContent = new StringBuilder();
-        
-        String qqNumber = sessionData.getQq() != null ? sessionData.getQq() : "unknown";
-        iniContent.append("[").append(qqNumber).append("]\r\n");
-        
-        // 添加基本信息
-        iniContent.append("qqnum=").append(qqNumber).append("\r\n");
-        iniContent.append("guid=").append(sessionData.getGuid() != null ? sessionData.getGuid() : "").append("\r\n");
-        iniContent.append("uid=").append(sessionData.getUid() != null ? sessionData.getUid() : "").append("\r\n");
-        
-        // 添加所有Token信息
-        for (Map.Entry<String, String> entry : sessionData.getTokens().entrySet()) {
-            String key = entry.getKey();
-            String value = entry.getValue();
-            if (value != null && !value.trim().isEmpty()) {
-                iniContent.append(key).append("=").append(value).append("\r\n");
-            }
-        }
-        
-        // 处理 _sKey，生成 skey 字段
-        String sKey = sessionData.getSKey();
-        if (sKey != null && !sKey.trim().isEmpty()) {
-            // 将 _sKey 的十六进制字符串转换为普通字符串
-            String skeyString = HexUtils.hexStringToString(sKey);
-            if (!skeyString.isEmpty()) {
-                iniContent.append("skey=").append(skeyString).append("\r\n");
-            }
-        }
-        
-        // 添加时间戳
-        iniContent.append("extractTime=").append(System.currentTimeMillis()).append("\r\n");
-        iniContent.append("deviceInfo=").append(DeviceUtils.getDeviceInfo(this)).append("\r\n");
-        
-        return iniContent.toString();
-    }
-    
-    /**
      * 检查并请求外部存储权限
      */
     private void checkAndRequestStoragePermissions() {
@@ -806,6 +777,13 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        boolean running = httpServer != null && httpServer.isRunning();
+        updateServerStatusIndicator(running, running ? "服务运行中" : "服务未运行");
+    }
     
     @Override
     protected void onDestroy() {
@@ -814,8 +792,28 @@ public class MainActivity extends AppCompatActivity {
         // 停止HTTP服务器
         if (httpServer != null) {
             httpServer.stop();
+            updateServerStatusIndicator(false, "服务未运行");
             Log.d(TAG, "MainActivity销毁，HTTP服务器已停止");
         }
+    }
+
+    private void updateServerStatusIndicator(boolean isRunning, String statusText) {
+        if (textServerStatus != null) {
+            textServerStatus.setText(statusText);
+        }
+        if (viewServerStatusDot == null) {
+            return;
+        }
+        Drawable background = viewServerStatusDot.getBackground();
+        if (background == null) {
+            return;
+        }
+        Drawable tinted = background.mutate();
+        tinted.setTint(ContextCompat.getColor(
+                this,
+                isRunning ? android.R.color.holo_green_light : android.R.color.holo_red_light
+        ));
+        viewServerStatusDot.setBackground(tinted);
     }
     
     /**

@@ -1166,47 +1166,55 @@ func substringBetween(s, left, right string) string {
 }
 
 type systemRegisterConfig struct {
-	DefaultPassword string
-	NaichaAppID     string
-	NaichaSecret    string
-	NaichaCKMd5     string
-	IP138Token      string
-	ApiBase         string
-	ApiToken        string
-	ProxyPlatform   string
-	ProxyAccount    string
-	ProxyPassword   string
-	ProxySecretID   string
-	ProxySecretKey  string
-	CaptchaPlatform string
-	CaptchaAccount  string
-	CaptchaPassword string
-	CaptchaToken    string
+	DefaultPassword             string
+	NaichaAppID                 string
+	NaichaSecret                string
+	NaichaCKMd5                 string
+	IP138Token                  string
+	ApiBase                     string
+	ApiToken                    string
+	ProxyPlatform               string
+	ProxyAccount                string
+	ProxyPassword               string
+	ProxySecretID               string
+	ProxySecretKey              string
+	CaptchaPlatform             string
+	CaptchaAccount              string
+	CaptchaPassword             string
+	CaptchaToken                string
+	PhoneImageProvider          string
+	PhoneImageProviderUsername  string
+	PhoneImageProviderPassword  string
+	PhoneImageProviderSecretKey string
 }
 
 func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRegisterConfig, error) {
 	cfg := systemRegisterConfig{}
 	_ = leaderID
 	var adminCfg struct {
-		DefaultPassword string
-		NaichaAppID     string
-		NaichaSecret    string
-		NaichaCKMd5     string
-		IP138Token      string
-		ApiBase         string
-		ApiToken        string
-		ProxyPlatform   string
-		ProxyAccount    string
-		ProxyPassword   string
-		ProxySecretID   string
-		ProxySecretKey  string
-		CaptchaPlatform string
-		CaptchaAccount  string
-		CaptchaPassword string
-		CaptchaToken    string
+		DefaultPassword             string
+		NaichaAppID                 string
+		NaichaSecret                string
+		NaichaCKMd5                 string
+		IP138Token                  string
+		ApiBase                     string
+		ApiToken                    string
+		ProxyPlatform               string
+		ProxyAccount                string
+		ProxyPassword               string
+		ProxySecretID               string
+		ProxySecretKey              string
+		CaptchaPlatform             string
+		CaptchaAccount              string
+		CaptchaPassword             string
+		CaptchaToken                string
+		PhoneImageProvider          string
+		PhoneImageProviderUsername  string
+		PhoneImageProviderPassword  string
+		PhoneImageProviderSecretKey string
 	}
 	if err := global.GVA_DB.Model(&system.SysRegisterConfig{}).
-		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5, ip138_token, api_base, api_token, proxy_platform, proxy_account, proxy_password, proxy_secret_id, proxy_secret_key, captcha_platform, captcha_account, captcha_password, captcha_token").
+		Select("default_password, naicha_app_id, naicha_secret, naicha_ck_md5, ip138_token, api_base, api_token, proxy_platform, proxy_account, proxy_password, proxy_secret_id, proxy_secret_key, captcha_platform, captcha_account, captcha_password, captcha_token, phone_image_provider, phone_image_provider_username, phone_image_provider_password, phone_image_provider_secret_key").
 		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
 		First(&adminCfg).Error; err == nil {
 		cfg.DefaultPassword = adminCfg.DefaultPassword
@@ -1225,6 +1233,10 @@ func (s *RegisterTaskService) getRegisterRuntimeConfig(leaderID *uint) (systemRe
 		cfg.CaptchaAccount = adminCfg.CaptchaAccount
 		cfg.CaptchaPassword = adminCfg.CaptchaPassword
 		cfg.CaptchaToken = adminCfg.CaptchaToken
+		cfg.PhoneImageProvider = adminCfg.PhoneImageProvider
+		cfg.PhoneImageProviderUsername = adminCfg.PhoneImageProviderUsername
+		cfg.PhoneImageProviderPassword = adminCfg.PhoneImageProviderPassword
+		cfg.PhoneImageProviderSecretKey = adminCfg.PhoneImageProviderSecretKey
 	}
 	return cfg, nil
 }

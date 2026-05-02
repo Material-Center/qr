@@ -23,6 +23,31 @@ type QQCacheService struct{}
 var QQCacheServiceApp = new(QQCacheService)
 
 func (s *QQCacheService) UploadByApp(userID uint, req systemReq.QQCacheUpload) (system.SysQQCacheRecord, error) {
+	_ = userID
+	return s.uploadRecord(req)
+}
+
+func (s *QQCacheService) UploadPhoneRegister(req systemReq.QQCacheUpload) (systemRes system.SysQQCacheRecord, task system.SysPhoneRegisterTask, err error) {
+	if strings.TrimSpace(req.DeviceID) == "" {
+		return system.SysQQCacheRecord{}, system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
+	}
+	err = global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		record, upErr := s.uploadRecordTx(tx, req)
+		if upErr != nil {
+			return upErr
+		}
+		systemRes = record
+		completedTask, taskErr := (&PhoneRegisterTaskService{}).CompleteTaskAfterQQCacheUploadTx(tx, strings.TrimSpace(req.DeviceID), record.ID, record.QQNum)
+		if taskErr != nil {
+			return taskErr
+		}
+		task = completedTask
+		return nil
+	})
+	return systemRes, task, err
+}
+
+func (s *QQCacheService) uploadRecord(req systemReq.QQCacheUpload) (system.SysQQCacheRecord, error) {
 	qqNum := strings.TrimSpace(req.QQNum)
 	iniText := strings.TrimSpace(req.INI)
 	if qqNum == "" {
@@ -33,39 +58,48 @@ func (s *QQCacheService) UploadByApp(userID uint, req systemReq.QQCacheUpload) (
 	}
 
 	record := system.SysQQCacheRecord{}
-	now := time.Now()
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
-		phone := trimToPtr(req.Phone)
-		deviceID := trimToPtr(req.DeviceID)
-		entity := system.SysQQCacheRecord{
-			Phone:    phone,
-			QQNum:    qqNum,
-			QQPwd:    strings.TrimSpace(req.QQPwd),
-			INI:      stringPtr(iniText),
-			DeviceID: deviceID,
-		}
-		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "qq_num"}},
-			DoUpdates: clause.Assignments(map[string]any{
-				"phone":             phone,
-				"qq_pwd":            strings.TrimSpace(req.QQPwd),
-				"ini":               iniText,
-				"device_id":         deviceID,
-				"extractor":         nil,
-				"extract_record_id": nil,
-				"extraction_at":     nil,
-				"updated_at":        now,
-				"deleted_at":        nil,
-			}),
-		}).Create(&entity).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("qq_num = ?", qqNum).First(&record).Error; err != nil {
-			return err
-		}
-		return nil
+		var upErr error
+		record, upErr = s.uploadRecordTx(tx, req)
+		return upErr
 	})
 	return record, err
+}
+
+func (s *QQCacheService) uploadRecordTx(tx *gorm.DB, req systemReq.QQCacheUpload) (system.SysQQCacheRecord, error) {
+	qqNum := strings.TrimSpace(req.QQNum)
+	iniText := strings.TrimSpace(req.INI)
+	now := time.Now()
+	phone := trimToPtr(req.Phone)
+	deviceID := trimToPtr(req.DeviceID)
+	entity := system.SysQQCacheRecord{
+		Phone:    phone,
+		QQNum:    qqNum,
+		QQPwd:    strings.TrimSpace(req.QQPwd),
+		INI:      stringPtr(iniText),
+		DeviceID: deviceID,
+	}
+	if err := tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "qq_num"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"phone":             phone,
+			"qq_pwd":            strings.TrimSpace(req.QQPwd),
+			"ini":               iniText,
+			"device_id":         deviceID,
+			"extractor":         nil,
+			"extract_record_id": nil,
+			"extraction_at":     nil,
+			"updated_at":        now,
+			"deleted_at":        nil,
+		}),
+	}).Create(&entity).Error; err != nil {
+		return system.SysQQCacheRecord{}, err
+	}
+	var record system.SysQQCacheRecord
+	if err := tx.Where("qq_num = ?", qqNum).First(&record).Error; err != nil {
+		return system.SysQQCacheRecord{}, err
+	}
+	return record, nil
 }
 
 func (s *QQCacheService) ExtractByApp(userID uint, req systemReq.QQCacheExtract) (system.SysQQCacheRecord, error) {
@@ -198,7 +232,7 @@ func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, error) {
 		if rec.INI == nil || strings.TrimSpace(*rec.INI) == "" {
 			continue
 		}
-		name := fmt.Sprintf("%d_%s.ini", rec.ID, sanitizeQQCacheZipEntryBase(rec.QQNum))
+		name := fmt.Sprintf("%s.ini", sanitizeQQCacheZipEntryBase(rec.QQNum))
 		w, err := zw.Create(name)
 		if err != nil {
 			_ = zw.Close()

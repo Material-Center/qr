@@ -50,6 +50,31 @@ func (a *QQCacheApi) Upload(c *gin.Context) {
 	response.OkWithDetailed(record.QQNum, "上传成功", c)
 }
 
+// UploadPhoneRegister
+// @Tags      QQCache
+// @Summary   手机号注册任务上传QQ缓存并完成任务
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.QQCacheUpload  true  "上传缓存参数"
+// @Success   200   {object}  response.Response{data=systemRes.QQCacheUploadPhoneRegisterResponse,msg=string}
+// @Router    /qqCache/uploadPhoneRegister [post]
+func (a *QQCacheApi) UploadPhoneRegister(c *gin.Context) {
+	var req systemReq.QQCacheUpload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	record, _, err := qqCacheService.UploadPhoneRegister(req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(systemRes.QQCacheUploadPhoneRegisterResponse{
+		QQCacheRecordID: record.ID,
+		QQNum:           record.QQNum,
+	}, "上传成功", c)
+}
+
 // Extract
 // @Tags      QQCache
 // @Summary   App提取QQ缓存

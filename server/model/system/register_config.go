@@ -30,4 +30,9 @@ type SysRegisterConfig struct {
 	CaptchaAccount  string `json:"captchaAccount" gorm:"size:128;comment:验证码账号"`
 	CaptchaPassword string `json:"captchaPassword" gorm:"size:128;comment:验证码密码"`
 	CaptchaToken    string `json:"captchaToken" gorm:"size:256;comment:验证码token"`
+
+	PhoneImageProvider          string `json:"phoneImageProvider" gorm:"size:32;comment:手机号注册图片识别供应商"`
+	PhoneImageProviderUsername  string `json:"phoneImageProviderUsername" gorm:"size:128;comment:手机号注册图片识别账号"`
+	PhoneImageProviderPassword  string `json:"phoneImageProviderPassword" gorm:"size:128;comment:手机号注册图片识别密码"`
+	PhoneImageProviderSecretKey string `json:"phoneImageProviderSecretKey" gorm:"size:256;comment:手机号注册图片识别密钥"`
 }

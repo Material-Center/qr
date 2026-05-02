@@ -1,0 +1,581 @@
+<template>
+  <div class="legacy-center compact-page">
+    <el-card
+      shadow="never"
+      class="mb-3"
+    >
+      <template #header>创建注册任务</template>
+
+      <el-form
+        label-width="72px"
+        class="compact-form"
+      >
+        <el-form-item label="手机号">
+          <el-input
+            v-model="phoneInput"
+            placeholder="请输入手机号"
+          />
+        </el-form-item>
+        <el-form-item>
+          <el-button
+            size="small"
+            type="primary"
+            @click="createTask"
+          >创建任务</el-button>
+        </el-form-item>
+      </el-form>
+
+      <div v-if="activeTasks.length">
+        <el-divider class="my-2">当前可操作任务</el-divider>
+        <el-card
+          v-for="task in activeTasks"
+          :key="task.id"
+          shadow="never"
+          class="mb-3"
+        >
+          <el-alert
+            :title="taskTitle(task)"
+            :description="task.stepHint || ''"
+            :type="taskAlertType(task)"
+            show-icon
+            :closable="false"
+          />
+          <div class="task-state-bar">
+            <el-tag
+              size="small"
+              :type="taskStateTagType(task)"
+            >
+              {{ taskStateText(task) }}
+            </el-tag>
+          </div>
+          <el-form
+            label-width="72px"
+            class="mt-2 compact-form"
+          >
+            <el-form-item label="手机号">
+              <el-input
+                :model-value="task.phone"
+                disabled
+              />
+            </el-form-item>
+            <el-form-item :label="task.verifyLabel || '验证码'">
+              <el-input
+                v-model="verifyCodeMap[task.id]"
+                :placeholder="task.verifyPlace || '请输入验证码'"
+                :disabled="task?.needVerifyCode === false"
+              />
+            </el-form-item>
+            <el-form-item>
+              <div class="task-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  class="action-btn"
+                  :disabled="isSubmitDisabled(task)"
+                  @click="submitStep(task)"
+                >{{ task.submitText || '提交' }}</el-button>
+                <el-button
+                  size="small"
+                  class="action-btn"
+                  @click="retryStep(task)"
+                >{{ task.retryText || '重试' }}</el-button>
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  class="action-btn action-btn-danger"
+                  @click="markFail(task)"
+                >{{ task.failText || '失败' }}</el-button>
+              </div>
+            </el-form-item>
+            <el-form-item
+              v-if="task.lastError"
+              label="最近错误"
+            >
+              <span class="text-red-500">{{ task.lastError }}</span>
+            </el-form-item>
+            <el-form-item label="过期时间">
+              <span>{{ safeFormatDate(task.expiresAt) }}</span>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </div>
+    </el-card>
+
+    <el-card shadow="never">
+      <template #header>我的任务记录</template>
+      <el-row
+        :gutter="12"
+        class="mb-3"
+        style="font-size: 12px;"
+      >
+        <el-col :span="8">成功登录数：{{ counters.success }}</el-col>
+        <el-col :span="8">失败：{{ counters.fail }}</el-col>
+        <el-col :span="8">处理中：{{ counters.processing }}</el-col>
+      </el-row>
+      <div class="table-wrap">
+        <el-table
+          :data="myTasks"
+          row-key="ID"
+          size="small"
+        >
+          <el-table-column
+            label="任务ID"
+            prop="ID"
+            width="90"
+          />
+          <el-table-column
+            label="手机号"
+            min-width="130"
+          >
+            <template #default="scope">
+              <el-button
+                type="primary"
+                link
+                @click="openQQListDialog(scope.row)"
+              >
+                {{ scope.row.phone }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="登录成功数"
+            prop="loginSuccessCount"
+            width="110"
+          />
+          <el-table-column
+            label="状态"
+            min-width="100"
+          >
+            <template #default="scope">
+              <el-tag :type="statusTagType(scope.row)">
+                {{ statusText(scope.row) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="步骤"
+            min-width="100"
+          >
+            <template #default="scope">
+              {{ stepText(scope.row.currentStep) }}
+            </template>
+          </el-table-column>
+          <el-table-column
+            label="错误"
+            prop="lastError"
+            min-width="140"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            label="完成时间"
+            min-width="170"
+          >
+            <template #default="scope">
+              {{ safeFormatDate(scope.row.finishedAt) }}
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-card>
+
+    <el-dialog
+      v-model="qqDialogVisible"
+      title="任务详情"
+      width="92%"
+      style="max-width: 420px;"
+    >
+      <div style="margin-bottom: 8px;">手机号：{{ qqDialogPhone || '-' }}</div>
+      <div style="margin-bottom: 8px;">登录成功数：{{ qqDialogList.length }}</div>
+      <el-empty
+        v-if="!qqDialogList.length"
+        description="暂无成功登录QQ"
+      />
+      <el-scrollbar
+        v-else
+        max-height="280px"
+      >
+        <el-tag
+          v-for="qq in qqDialogList"
+          :key="qq"
+          style="margin: 0 8px 8px 0;"
+          type="info"
+        >
+          {{ qq }}
+        </el-tag>
+      </el-scrollbar>
+      <el-alert
+        v-if="qqDialogFailReason"
+        title="失败原因"
+        :description="qqDialogFailReason"
+        type="error"
+        show-icon
+        :closable="false"
+        style="margin-top: 8px;"
+      />
+      <template #footer>
+        <el-button @click="qqDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import {
+  createRegisterTask,
+  getActiveRegisterTasks,
+  getRegisterTaskList,
+  submitRegisterTaskStep
+} from '@/api/registerTask'
+import { formatDate } from '@/utils/format'
+
+defineOptions({
+  name: 'RegisterTaskLegacyCenter'
+})
+
+const phoneInput = ref('')
+const activeTasks = ref([])
+const verifyCodeMap = ref({})
+const taskStateMap = ref({})
+const myTasks = ref([])
+const refreshTimer = ref(null)
+const countdownTimer = ref(null)
+const refreshing = ref(false)
+const nowTs = ref(Date.now())
+const counters = ref({
+  success: 0,
+  fail: 0,
+  processing: 0
+})
+const qqDialogVisible = ref(false)
+const qqDialogPhone = ref('')
+const qqDialogList = ref([])
+const qqDialogFailReason = ref('')
+
+const stepText = (step) => {
+  if (step === 'phone_bind') return '查绑'
+  if (step === 'change_password') return '改密'
+  if (step === 'login') return '登录'
+  return step || '-'
+}
+
+const statusText = (task) => {
+  if (!task?.finishedAt) return '处理中'
+  if (task?.statusCode === 0) return '成功'
+  return '失败'
+}
+
+const statusTagType = (task) => {
+  if (!task?.finishedAt) return 'warning'
+  if (task?.statusCode === 0) return 'success'
+  return 'danger'
+}
+
+const safeFormatDate = (value) => {
+  if (!value) return '-'
+  const ts = new Date(value).getTime()
+  if (Number.isNaN(ts)) return '-'
+  return formatDate(value)
+}
+
+const remainSeconds = computed(() => {
+  return (expiresAt, finishedAt) => {
+    if (!expiresAt || finishedAt) return null
+    const diff = Math.floor((new Date(expiresAt).getTime() - nowTs.value) / 1000)
+    return diff > 0 ? diff : 0
+  }
+})
+
+const remainText = (task) => {
+  const seconds = remainSeconds.value(task?.expiresAt, task?.finishedAt)
+  if (seconds === null) return '--:--'
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+const taskTitle = (task) => {
+  if (!task?.id) return '当前任务'
+  const title = task?.stepTitle || stepText(task.currentStep)
+  const progress = task?.progress
+    ? ` ${task.progress}`
+    : ''
+  return `任务#${task.id} ${title}${progress} 剩余 ${remainText(task)}`
+}
+
+const taskStateText = (task) => {
+  const needVerify = task?.needVerifyCode !== false
+  if (needVerify) return '等待验证码'
+  if (task?.submitText === '等待重试') return '步骤失败'
+  if (task?.submitText === '处理中') return '处理中'
+  return '待处理'
+}
+
+const taskStateTagType = (task) => {
+  const needVerify = task?.needVerifyCode !== false
+  if (needVerify) return 'warning'
+  if (task?.submitText === '等待重试') return 'danger'
+  return 'info'
+}
+
+const taskAlertType = (task) => {
+  if (task?.submitText === '等待重试') return 'error'
+  if (task?.needVerifyCode !== false) return 'warning'
+  return 'info'
+}
+
+const isSubmitDisabled = (task) => {
+  if (!task) return true
+  return task.currentStep !== 'login' && task.needVerifyCode === false
+}
+
+const loadActiveTask = async () => {
+  const res = await getActiveRegisterTasks()
+  activeTasks.value = Array.isArray(res.data) ? res.data : []
+  const nextMap = {}
+  const nextStateMap = {}
+  activeTasks.value.forEach((task) => {
+    const stateKey = `${task.currentStep}|${task.progress || ''}|${task.needVerifyCode ? '1' : '0'}|${task.lastError || ''}`
+    if (taskStateMap.value?.[task.id] !== stateKey) {
+      nextMap[task.id] = ''
+    } else {
+      nextMap[task.id] = verifyCodeMap.value?.[task.id] || ''
+    }
+    nextStateMap[task.id] = stateKey
+  })
+  taskStateMap.value = nextStateMap
+  verifyCodeMap.value = nextMap
+}
+
+const loadMyTasks = async () => {
+  const { data } = await getRegisterTaskList({
+    page: 1,
+    pageSize: 20
+  })
+  const rawList = data.list || []
+  myTasks.value = rawList.map((item) => {
+    const maskedList = Array.isArray(item?.loggedQQMaskedList) ? item.loggedQQMaskedList : []
+    const successCount = Number.isFinite(item?.loginSuccessCount)
+      ? item.loginSuccessCount
+      : maskedList.length
+    return {
+      ...item,
+      loginSuccessCount: successCount
+    }
+  })
+  counters.value = {
+    success: data.successCount || 0,
+    fail: data.failCount || 0,
+    processing: data.processingCount || 0
+  }
+}
+
+const openQQListDialog = (row) => {
+  qqDialogPhone.value = row?.phone || ''
+  qqDialogList.value = Array.isArray(row?.loggedQQMaskedList) ? row.loggedQQMaskedList : []
+  const isFailed = !!row?.finishedAt && row?.statusCode !== 0
+  qqDialogFailReason.value = isFailed ? String(row?.lastError || '').trim() || '无失败原因' : ''
+  qqDialogVisible.value = true
+}
+
+const refreshAll = async () => {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await Promise.all([loadActiveTask(), loadMyTasks()])
+  } finally {
+    refreshing.value = false
+    syncAutoRefreshByActiveTasks()
+  }
+}
+
+const createTask = async () => {
+  const phone = String(phoneInput.value || '').trim()
+  if (!phone) {
+    ElMessage.warning('请先输入手机号')
+    return
+  }
+  const res = await createRegisterTask({ phone })
+  if (res?.code !== 0) {
+    ElMessage.error(res?.msg || '任务创建失败')
+    return
+  }
+  ElMessage.success('任务创建成功')
+  phoneInput.value = ''
+  await refreshAll()
+}
+
+const submitStepCommon = async (task, payload) => {
+  if (!task?.id) return
+  await submitRegisterTaskStep({
+    taskId: task.id,
+    step: task.currentStep,
+    ...payload
+  })
+  verifyCodeMap.value[task.id] = ''
+  await refreshAll()
+}
+
+const submitStep = async (task) => {
+  const needVerify = task?.needVerifyCode !== false
+  const code = String(verifyCodeMap.value?.[task.id] || '').trim()
+  const label = task?.verifyLabel || '验证码'
+  if (task?.currentStep !== 'login' && !needVerify) {
+    ElMessage.warning(task?.stepHint || '当前步骤尚未发码，请先重试')
+    return
+  }
+  if (needVerify && !code) {
+    ElMessage.warning(`${label}不能为空`)
+    return
+  }
+  await submitStepCommon(task, {
+    action: 'submit',
+    verifyCode: code
+  })
+}
+
+const retryStep = async (task) => {
+  await submitStepCommon(task, {
+    action: 'retry'
+  })
+}
+
+const markFail = async (task) => {
+  await submitStepCommon(task, {
+    action: 'fail',
+    failMessage: '地推手动标记失败'
+  })
+}
+
+const startAutoRefresh = () => {
+  stopAutoRefresh()
+  refreshTimer.value = window.setInterval(async () => {
+    await refreshAll()
+  }, 5000)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer.value) {
+    clearInterval(refreshTimer.value)
+    refreshTimer.value = null
+  }
+}
+
+const syncAutoRefreshByActiveTasks = () => {
+  if (activeTasks.value.length > 0) {
+    if (!refreshTimer.value) {
+      startAutoRefresh()
+    }
+  } else {
+    stopAutoRefresh()
+  }
+}
+
+const startCountdown = () => {
+  stopCountdown()
+  countdownTimer.value = window.setInterval(() => {
+    nowTs.value = Date.now()
+  }, 1000)
+}
+
+const stopCountdown = () => {
+  if (countdownTimer.value) {
+    clearInterval(countdownTimer.value)
+    countdownTimer.value = null
+  }
+}
+
+onMounted(async () => {
+  try {
+    await refreshAll()
+    startCountdown()
+  } catch (e) {
+    ElMessage.error(e?.message || '加载失败')
+  }
+})
+
+onBeforeUnmount(() => {
+  stopAutoRefresh()
+  stopCountdown()
+})
+</script>
+
+<style scoped>
+.legacy-center {
+  padding-top: 8px;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 10px;
+}
+
+.compact-form :deep(.el-form-item__label) {
+  white-space: nowrap;
+}
+
+.compact-page :deep(.el-card__header) {
+  padding: 10px 12px;
+}
+
+.compact-page :deep(.el-card__body) {
+  padding: 10px;
+}
+
+.task-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.task-actions .action-btn {
+  margin-left: 0 !important;
+  width: 100%;
+}
+
+.task-actions .action-btn-danger {
+  grid-column: 1 / -1;
+}
+
+.task-state-bar {
+  margin-top: 8px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .compact-page :deep(.el-card__header) {
+    padding: 8px 10px;
+  }
+
+  .compact-page :deep(.el-card__body) {
+    padding: 8px;
+  }
+
+  .compact-form :deep(.el-form-item) {
+    margin-bottom: 8px;
+  }
+
+  .compact-form :deep(.el-form-item__label) {
+    width: 78px !important;
+  }
+
+  .compact-form :deep(.el-form-item__content) {
+    min-width: 0;
+  }
+
+  .compact-page :deep(.el-alert__title) {
+    font-size: 13px;
+  }
+
+  .compact-page :deep(.el-alert__description) {
+    font-size: 12px;
+    line-height: 1.35;
+  }
+}
+</style>

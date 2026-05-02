@@ -60,6 +60,7 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "register", Name: "register", Component: "view/routerHolder.vue", Sort: 5, Meta: Meta{Title: "注册任务", Icon: "tickets"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "qq-cache-manage", Name: "qqCacheManage", Component: "view/register/qqCacheManage.vue", Sort: 6, Meta: Meta{Title: "QQ缓存管理", Icon: "folder-opened"}},
 		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "register-task-center", Name: "registerTaskCenter", Component: "view/register/taskCenter.vue", Sort: 0, Meta: Meta{Title: "创建任务", Icon: "plus", DefaultMenu: true}},
+		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "phone-register-task-center", Name: "phoneRegisterTaskCenter", Component: "view/register/phoneTaskCenter.vue", Sort: 0, Meta: Meta{Title: "手机号注册任务", Icon: "iphone", DefaultMenu: true}},
 		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "person", Name: "person", Component: "view/person/person.vue", Sort: 4, Meta: Meta{Title: "个人信息", Icon: "message"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "example", Name: "example", Component: "view/example/index.vue", Sort: 7, Meta: Meta{Title: "示例文件", Icon: "management"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "systemTools", Name: "systemTools", Component: "view/systemTools/index.vue", Sort: 5, Meta: Meta{Title: "系统工具", Icon: "tools"}},
@@ -112,7 +113,8 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["systemTools"], Path: "mcpTest", Name: "mcpTest", Component: "view/systemTools/autoCode/mcpTest.vue", Sort: 7, Meta: Meta{Title: "Mcp Tools测试", Icon: "partly-cloudy"}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["systemTools"], Path: "sysVersion", Name: "sysVersion", Component: "view/systemTools/version/version.vue", Sort: 8, Meta: Meta{Title: "版本管理", Icon: "server"}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["systemTools"], Path: "sysError", Name: "sysError", Component: "view/systemTools/sysError/sysError.vue", Sort: 9, Meta: Meta{Title: "错误日志", Icon: "warn"}},
-		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "manage", Name: "registerTaskManage", Component: "view/register/taskManage.vue", Sort: 1, Meta: Meta{Title: "任务统计", Icon: "data-analysis"}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "phone-manage", Name: "phoneRegisterTaskManage", Component: "view/register/phoneTaskManage.vue", Sort: 1, Meta: Meta{Title: "注册统计", Icon: "data-analysis"}},
+		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "manage", Name: "registerTaskManage", Component: "view/register/taskManage.vue", Sort: 2, Meta: Meta{Title: "反扫统计", Icon: "data-analysis"}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "config", Name: "registerConfig", Component: "view/register/config.vue", Sort: 3, Meta: Meta{Title: "配置管理", Icon: "setting"}},
 		{MenuLevel: 1, Hidden: false, ParentId: menuNameMap["register"], Path: "debug-login", Name: "registerDebugLogin", Component: "view/register/debugLogin.vue", Sort: 4, Meta: Meta{Title: "登录调试", Icon: "cpu"}},
 

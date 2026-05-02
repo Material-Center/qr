@@ -7,12 +7,14 @@ import (
 
 type QQCacheRouter struct{}
 
-func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup) {
+func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *gin.RouterGroup) {
 	qqCacheRouter := Router.Group("qqCache").Use(middleware.OperationRecord())
 	qqCacheRouterWithoutRecord := Router.Group("qqCache")
+	publicQQCacheRouter := PublicGroup.Group("qqCache")
 	{
 		// upload/extract/exportIniZip 请求体或响应中含敏感缓存内容，不进入操作日志
 		qqCacheRouterWithoutRecord.POST("upload", qqCacheApi.Upload)
+		publicQQCacheRouter.POST("uploadPhoneRegister", qqCacheApi.UploadPhoneRegister)
 		qqCacheRouterWithoutRecord.POST("extract", qqCacheApi.Extract)
 		qqCacheRouterWithoutRecord.POST("exportIniZip", qqCacheApi.ExportIniZip)
 		qqCacheRouter.POST("list", qqCacheApi.List)

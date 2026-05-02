@@ -61,6 +61,32 @@
           <el-form-item :label="captchaTokenLabel">
             <el-input v-model="form.captchaToken" :placeholder="captchaTokenPlaceholder" />
           </el-form-item>
+          <el-divider content-position="left">手机号注册图片识别</el-divider>
+          <el-form-item label="识别 Provider">
+            <el-select
+              v-model="form.phoneImageProvider"
+              style="width: 100%"
+              placeholder="请选择图片识别 provider"
+            >
+              <el-option label="图鉴(tujian)" value="tujian" />
+              <el-option label="云码(yunma)" value="yunma" />
+              <el-option label="图灵(tuling)" value="tuling" />
+              <el-option label="图界(tujie)" value="tujie" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="识别账号">
+            <el-input
+              v-model="form.phoneImageProviderUsername"
+              placeholder="请输入图片识别账号"
+            />
+          </el-form-item>
+          <el-form-item :label="phoneImageSecretLabel">
+            <el-input
+              v-model="phoneImageSecretModel"
+              :show-password="phoneImageSecretType === 'password'"
+              :placeholder="phoneImageSecretPlaceholder"
+            />
+          </el-form-item>
           <el-form-item>
             <el-alert
               type="info"
@@ -130,7 +156,11 @@ const form = ref({
   captchaPlatform: '',
   captchaAccount: '',
   captchaPassword: '',
-  captchaToken: ''
+  captchaToken: '',
+  phoneImageProvider: '',
+  phoneImageProviderUsername: '',
+  phoneImageProviderPassword: '',
+  phoneImageProviderSecretKey: ''
 })
 
 const proxyAccountLabel = computed(() => {
@@ -185,6 +215,12 @@ const captchaTokenPlaceholder = computed(() => {
   return 'YY 模式可留空'
 })
 const leaderConfigHint = computed(() => {
+  if (form.value.phoneImageProvider === 'tujie') {
+    return '手机号注册强依赖图片识别：图界模式使用账号 + secretKey。'
+  }
+  if (form.value.phoneImageProvider) {
+    return '手机号注册强依赖图片识别：当前保存单一 provider 配置，后续由 AutoX 设备统一消费。'
+  }
   if (form.value.proxyPlatform === 'pingzan') {
     return '品赞代理：代理账号填写 no（套餐编号），代理密码填写 secret（密钥）；当前按固定 5 分钟 quality 池提取。'
   }
@@ -195,6 +231,36 @@ const leaderConfigHint = computed(() => {
     return 'FJ 平台：验证码账号(服务器地址)可留空使用默认值，验证码Token 必填，验证码密码可空。'
   }
   return 'YY 平台：验证码账号/验证码密码必填，验证码Token 可留空。'
+})
+
+const phoneImageSecretType = computed(() => {
+  return form.value.phoneImageProvider === 'tujie' ? 'secretKey' : 'password'
+})
+
+const phoneImageSecretLabel = computed(() => {
+  return form.value.phoneImageProvider === 'tujie' ? '识别 SecretKey' : '识别密码'
+})
+
+const phoneImageSecretPlaceholder = computed(() => {
+  if (form.value.phoneImageProvider === 'tujie') {
+    return '请输入图界 secretKey'
+  }
+  return '请输入图片识别密码'
+})
+
+const phoneImageSecretModel = computed({
+  get() {
+    return form.value.phoneImageProvider === 'tujie'
+      ? form.value.phoneImageProviderSecretKey
+      : form.value.phoneImageProviderPassword
+  },
+  set(value) {
+    if (form.value.phoneImageProvider === 'tujie') {
+      form.value.phoneImageProviderSecretKey = value
+      return
+    }
+    form.value.phoneImageProviderPassword = value
+  }
 })
 
 const loadConfig = async () => {
@@ -215,7 +281,11 @@ const loadConfig = async () => {
     captchaPlatform: data?.captchaPlatform || '',
     captchaAccount: data?.captchaAccount || '',
     captchaPassword: data?.captchaPassword || '',
-    captchaToken: data?.captchaToken || ''
+    captchaToken: data?.captchaToken || '',
+    phoneImageProvider: data?.phoneImageProvider || '',
+    phoneImageProviderUsername: data?.phoneImageProviderUsername || '',
+    phoneImageProviderPassword: data?.phoneImageProviderPassword || '',
+    phoneImageProviderSecretKey: data?.phoneImageProviderSecretKey || ''
   }
 }
 
@@ -245,6 +315,22 @@ const submit = async () => {
     ElMessage.warning('神龙代理 key 和 sign 不能为空')
     return
   }
+  if (!form.value.phoneImageProvider) {
+    ElMessage.warning('手机号注册图片识别必须选择 provider')
+    return
+  }
+  if (!form.value.phoneImageProviderUsername) {
+    ElMessage.warning('手机号注册图片识别必须填写账号')
+    return
+  }
+  if (form.value.phoneImageProvider === 'tujie' && !form.value.phoneImageProviderSecretKey) {
+    ElMessage.warning('图界模式必须填写 secretKey')
+    return
+  }
+  if (form.value.phoneImageProvider !== 'tujie' && !form.value.phoneImageProviderPassword) {
+    ElMessage.warning('手机号注册图片识别必须填写密码')
+    return
+  }
   await setMyRegisterConfig(form.value)
   ElMessage.success('保存成功')
   await loadConfig()
@@ -261,6 +347,7 @@ const checkConfig = async () => {
     const defaultPwd = data?.defaultPassword || {}
     const naicha = data?.naicha || {}
     const qsign = data?.qsign || {}
+    const phoneImageProvider = data?.phoneImageProvider || {}
     if (isAdminRole.value) {
       const lines = [
         defaultPwd.ok
@@ -272,11 +359,12 @@ const checkConfig = async () => {
         qsign.ok
           ? '签名服务配置已就绪'
           : `签名服务未配置：${qsign.message || '请先设置 apiBase/apiToken'}`,
+        `图片识别: ${phoneImageProvider.ok ? '可用' : '不可用'} (${phoneImageProvider.message || '-'})`,
         `代理: ${proxy.ok ? '可用' : '不可用'} (${proxy.message || '-'})`,
         `验证码: ${captcha.ok ? '可用' : '不可用'} (${captcha.message || '-'})`
       ]
       checkResultText.value = lines.join('；')
-      checkResultType.value = defaultPwd.ok && naicha.ok && qsign.ok && proxy.ok && captcha.ok ? 'success' : 'warning'
+      checkResultType.value = defaultPwd.ok && naicha.ok && qsign.ok && phoneImageProvider.ok && proxy.ok && captcha.ok ? 'success' : 'warning'
     }
     ElMessage.success('检测完成')
   } catch (e) {

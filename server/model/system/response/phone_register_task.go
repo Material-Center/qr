@@ -1,0 +1,77 @@
+package response
+
+import "time"
+
+type PhoneRegisterTaskActiveInfo struct {
+	ID               uint       `json:"id"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	Phone            string     `json:"phone"`
+	SMSReceiveMode   string     `json:"smsReceiveMode"`
+	Status           string     `json:"status"`
+	StatusCode       *int       `json:"statusCode"`
+	LastError        string     `json:"lastError"`
+	QQNum            string     `json:"qqNum"`
+	NeedPromoterCode bool       `json:"needPromoterCode"`
+	HolderDeviceID   *string    `json:"holderDeviceId,omitempty"`
+	ClaimedAt        *time.Time `json:"claimedAt,omitempty"`
+	LastHeartbeatAt  *time.Time `json:"lastHeartbeatAt,omitempty"`
+	ExpiresAt        time.Time  `json:"expiresAt"`
+	FinishedAt       *time.Time `json:"finishedAt"`
+}
+
+type PhoneRegisterTaskListResponse struct {
+	List            interface{} `json:"list"`
+	Total           int64       `json:"total"`
+	Page            int         `json:"page"`
+	PageSize        int         `json:"pageSize"`
+	SuccessCount    int64       `json:"successCount"`
+	FailCount       int64       `json:"failCount"`
+	ProcessingCount int64       `json:"processingCount"`
+}
+
+type PhoneRegisterTaskSummaryItem struct {
+	LeaderID        uint   `json:"leaderId"`
+	LeaderName      string `json:"leaderName"`
+	PromoterID      uint   `json:"promoterId"`
+	PromoterName    string `json:"promoterName"`
+	SuccessCount    int64  `json:"successCount"`
+	FailCount       int64  `json:"failCount"`
+	ProcessingCount int64  `json:"processingCount"`
+}
+
+type PhoneRegisterTaskSummaryResponse struct {
+	Leaders   []PhoneRegisterTaskSummaryItem `json:"leaders"`
+	Promoters []PhoneRegisterTaskSummaryItem `json:"promoters"`
+}
+
+type PhoneRegisterDeviceTaskInfo struct {
+	TaskID           uint       `json:"taskId"`
+	Phone            string     `json:"phone,omitempty"`
+	SMSReceiveMode   string     `json:"smsReceiveMode,omitempty"`
+	Status           string     `json:"status,omitempty"`
+	NeedPromoterCode bool       `json:"needPromoterCode"`
+	ExpiresAt        *time.Time `json:"expiresAt,omitempty"`
+	ClaimedAt        *time.Time `json:"claimedAt,omitempty"`
+	LastHeartbeatAt  *time.Time `json:"lastHeartbeatAt,omitempty"`
+	VerifyCode       string     `json:"verifyCode,omitempty"`
+}
+
+type PhoneRegisterDeviceHeartbeatResponse struct {
+	OK bool `json:"ok"`
+}
+
+type PhoneRegisterImageProviderConfig struct {
+	Provider  string `json:"provider"`
+	Username  string `json:"username"`
+	Password  string `json:"password"`
+	SecretKey string `json:"secretKey"`
+}
+
+type PhoneRegisterDeviceConfigResponse struct {
+	ImageProvider PhoneRegisterImageProviderConfig `json:"imageProvider"`
+}
+
+type QQCacheUploadPhoneRegisterResponse struct {
+	QQCacheRecordID uint   `json:"qqCacheRecordId"`
+	QQNum           string `json:"qqNum"`
+}

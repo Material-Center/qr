@@ -28,36 +28,38 @@ type ApiGroup struct {
 	ApiTokenApi
 	SkillsApi
 	RegisterTaskApi
+	PhoneRegisterTaskApi
 	RegisterConfigApi
 	QQCacheApi
 }
 
 var (
-	apiService              = service.ServiceGroupApp.SystemServiceGroup.ApiService
-	jwtService              = service.ServiceGroupApp.SystemServiceGroup.JwtService
-	menuService             = service.ServiceGroupApp.SystemServiceGroup.MenuService
-	userService             = service.ServiceGroupApp.SystemServiceGroup.UserService
-	initDBService           = service.ServiceGroupApp.SystemServiceGroup.InitDBService
-	casbinService           = service.ServiceGroupApp.SystemServiceGroup.CasbinService
-	baseMenuService         = service.ServiceGroupApp.SystemServiceGroup.BaseMenuService
-	authorityService        = service.ServiceGroupApp.SystemServiceGroup.AuthorityService
-	dictionaryService       = service.ServiceGroupApp.SystemServiceGroup.DictionaryService
-	authorityBtnService     = service.ServiceGroupApp.SystemServiceGroup.AuthorityBtnService
-	systemConfigService     = service.ServiceGroupApp.SystemServiceGroup.SystemConfigService
-	sysParamsService        = service.ServiceGroupApp.SystemServiceGroup.SysParamsService
-	operationRecordService  = service.ServiceGroupApp.SystemServiceGroup.OperationRecordService
-	dictionaryDetailService = service.ServiceGroupApp.SystemServiceGroup.DictionaryDetailService
-	autoCodeService         = service.ServiceGroupApp.SystemServiceGroup.AutoCodeService
-	autoCodePluginService   = service.ServiceGroupApp.SystemServiceGroup.AutoCodePlugin
-	autoCodePackageService  = service.ServiceGroupApp.SystemServiceGroup.AutoCodePackage
-	autoCodeHistoryService  = service.ServiceGroupApp.SystemServiceGroup.AutoCodeHistory
-	autoCodeTemplateService = service.ServiceGroupApp.SystemServiceGroup.AutoCodeTemplate
-	sysVersionService       = service.ServiceGroupApp.SystemServiceGroup.SysVersionService
-	sysErrorService         = service.ServiceGroupApp.SystemServiceGroup.SysErrorService
-	loginLogService         = service.ServiceGroupApp.SystemServiceGroup.LoginLogService
-	apiTokenService         = service.ServiceGroupApp.SystemServiceGroup.ApiTokenService
-	skillsService           = service.ServiceGroupApp.SystemServiceGroup.SkillsService
-	registerTaskService     = service.ServiceGroupApp.SystemServiceGroup.RegisterTaskService
-	registerConfigService   = service.ServiceGroupApp.SystemServiceGroup.RegisterConfigService
-	qqCacheService          = service.ServiceGroupApp.SystemServiceGroup.QQCacheService
+	apiService               = service.ServiceGroupApp.SystemServiceGroup.ApiService
+	jwtService               = service.ServiceGroupApp.SystemServiceGroup.JwtService
+	menuService              = service.ServiceGroupApp.SystemServiceGroup.MenuService
+	userService              = service.ServiceGroupApp.SystemServiceGroup.UserService
+	initDBService            = service.ServiceGroupApp.SystemServiceGroup.InitDBService
+	casbinService            = service.ServiceGroupApp.SystemServiceGroup.CasbinService
+	baseMenuService          = service.ServiceGroupApp.SystemServiceGroup.BaseMenuService
+	authorityService         = service.ServiceGroupApp.SystemServiceGroup.AuthorityService
+	dictionaryService        = service.ServiceGroupApp.SystemServiceGroup.DictionaryService
+	authorityBtnService      = service.ServiceGroupApp.SystemServiceGroup.AuthorityBtnService
+	systemConfigService      = service.ServiceGroupApp.SystemServiceGroup.SystemConfigService
+	sysParamsService         = service.ServiceGroupApp.SystemServiceGroup.SysParamsService
+	operationRecordService   = service.ServiceGroupApp.SystemServiceGroup.OperationRecordService
+	dictionaryDetailService  = service.ServiceGroupApp.SystemServiceGroup.DictionaryDetailService
+	autoCodeService          = service.ServiceGroupApp.SystemServiceGroup.AutoCodeService
+	autoCodePluginService    = service.ServiceGroupApp.SystemServiceGroup.AutoCodePlugin
+	autoCodePackageService   = service.ServiceGroupApp.SystemServiceGroup.AutoCodePackage
+	autoCodeHistoryService   = service.ServiceGroupApp.SystemServiceGroup.AutoCodeHistory
+	autoCodeTemplateService  = service.ServiceGroupApp.SystemServiceGroup.AutoCodeTemplate
+	sysVersionService        = service.ServiceGroupApp.SystemServiceGroup.SysVersionService
+	sysErrorService          = service.ServiceGroupApp.SystemServiceGroup.SysErrorService
+	loginLogService          = service.ServiceGroupApp.SystemServiceGroup.LoginLogService
+	apiTokenService          = service.ServiceGroupApp.SystemServiceGroup.ApiTokenService
+	skillsService            = service.ServiceGroupApp.SystemServiceGroup.SkillsService
+	registerTaskService      = service.ServiceGroupApp.SystemServiceGroup.RegisterTaskService
+	phoneRegisterTaskService = service.ServiceGroupApp.SystemServiceGroup.PhoneRegisterTaskService
+	registerConfigService    = service.ServiceGroupApp.SystemServiceGroup.RegisterConfigService
+	qqCacheService           = service.ServiceGroupApp.SystemServiceGroup.QQCacheService
 )

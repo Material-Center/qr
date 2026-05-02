@@ -50,7 +50,7 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 		// 业务角色
 		{AuthorityId: 100, AuthorityName: "管理员", ParentId: utils.Pointer[uint](0), DefaultRouter: "accountManage"},
 		{AuthorityId: 200, AuthorityName: "团长", ParentId: utils.Pointer[uint](100), DefaultRouter: "accountManage"},
-		{AuthorityId: 300, AuthorityName: "地推", ParentId: utils.Pointer[uint](200), DefaultRouter: "registerTaskCenter"},
+		{AuthorityId: 300, AuthorityName: "地推", ParentId: utils.Pointer[uint](200), DefaultRouter: "phoneRegisterTaskCenter"},
 		{AuthorityId: 400, AuthorityName: "App提取", ParentId: utils.Pointer[uint](100), DefaultRouter: "about"},
 		{AuthorityId: 500, AuthorityName: "App上传", ParentId: utils.Pointer[uint](100), DefaultRouter: "about"},
 	}

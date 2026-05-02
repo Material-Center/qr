@@ -9,6 +9,8 @@ import com.extracache.cachetool.QQSessionService;
 import com.extracache.cachetool.base.Constants;
 import com.extracache.cachetool.base.Result;
 import com.extracache.cachetool.model.SessionData;
+import com.extracache.cachetool.network.ServerApi;
+import com.extracache.cachetool.service.SessionIniSerializer;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -104,6 +106,10 @@ public class QQSessionHttpServer {
         }
         
         Log.i(TAG, "HTTP服务器已停止");
+    }
+
+    public boolean isRunning() {
+        return isRunning;
     }
     
     /**
@@ -273,6 +279,12 @@ public class QQSessionHttpServer {
                     
                 case Constants.API_IMPORT:
                     return handleImport(request.parameters);
+
+                case Constants.API_STATUS:
+                    return handleStatus();
+
+                case Constants.API_PHONE_REGISTER_PUSH_CACHE:
+                    return handlePhoneRegisterPushCache(request);
                     
                 default:
                     return handleNotFound(request.uri);
@@ -331,6 +343,18 @@ public class QQSessionHttpServer {
         } catch (Exception e) {
             Log.e(TAG, "处理QQ登录请求异常", e);
             return createErrorResponse("获取QQ登录数据异常: " + e.getMessage());
+        }
+    }
+
+    private HttpResponse handleStatus() {
+        try {
+            JSONObject response = getServerStatus();
+            response.put("status", "success");
+            response.put("message", "服务状态获取成功");
+            return new HttpResponse(200, "OK", "application/json", response.toString());
+        } catch (Exception e) {
+            Log.e(TAG, "获取服务状态异常", e);
+            return createErrorResponse("获取服务状态异常: " + e.getMessage());
         }
     }
     
@@ -482,6 +506,79 @@ public class QQSessionHttpServer {
             return createErrorResponse("导入数据异常: " + e.getMessage());
         }
     }
+
+    /**
+     * 本地手机号注册缓存上传入口。
+     * 由 AutoX 调本地 9091，CacheTool 负责读取当前 QQ 会话并转发到服务端。
+     */
+    private HttpResponse handlePhoneRegisterPushCache(HttpRequest request) {
+        if (!"POST".equalsIgnoreCase(request.method)) {
+            return new HttpResponse(405, "Method Not Allowed", "application/json",
+                    "{\"status\":\"error\",\"message\":\"仅支持POST\"}");
+        }
+
+        try {
+            JSONObject payload = parseJsonBody(request);
+            String deviceId = optTrim(payload, "deviceId");
+            String phone = optTrim(payload, "phone");
+            String qqPwd = optTrim(payload, "qqPwd");
+
+            if (deviceId.isEmpty()) {
+                return createBadRequestResponse("缺少deviceId参数");
+            }
+
+            Result<SessionData> sessionResult = sessionService.readQQSession();
+            if (sessionResult.isFailure() || sessionResult.getData() == null) {
+                return createErrorResponse("读取本机QQ缓存失败: " + sessionResult.getMessage());
+            }
+
+            SessionData sessionData = sessionResult.getData();
+            String qqNum = sessionData.getQq() != null ? sessionData.getQq().trim() : "";
+            if (qqNum.isEmpty()) {
+                return createErrorResponse("读取本机QQ缓存失败: 未获取到qq号");
+            }
+
+            String iniContent = SessionIniSerializer.toIni(sessionData, context);
+            String serverResponse = ServerApi.uploadPhoneRegisterCache(deviceId, phone, qqNum, qqPwd, iniContent);
+            return createPhoneRegisterPushCacheResponse(serverResponse);
+        } catch (JSONException e) {
+            Log.e(TAG, "解析pushCache请求体失败", e);
+            return createBadRequestResponse("请求体不是合法JSON: " + e.getMessage());
+        } catch (Exception e) {
+            Log.e(TAG, "pushCache处理异常", e);
+            return createErrorResponse("手机号注册缓存上传失败: " + e.getMessage());
+        }
+    }
+
+    private HttpResponse createPhoneRegisterPushCacheResponse(String serverResponse) {
+        if (serverResponse == null || serverResponse.trim().isEmpty()) {
+            return createErrorResponse("服务端返回为空");
+        }
+
+        try {
+            JSONObject upstream = new JSONObject(serverResponse);
+            int code = upstream.optInt("code", -1);
+            String msg = upstream.optString("msg", "");
+
+            JSONObject response = new JSONObject();
+            response.put("upstreamCode", code);
+            response.put("upstreamMsg", msg);
+            response.put("data", upstream.opt("data"));
+
+            if (code == 0) {
+                response.put("status", "success");
+                response.put("message", msg.isEmpty() ? "上传成功" : msg);
+                return new HttpResponse(200, "OK", "application/json", response.toString());
+            }
+
+            response.put("status", "error");
+            response.put("message", msg.isEmpty() ? "服务端业务处理失败" : msg);
+            return new HttpResponse(200, "OK", "application/json", response.toString());
+        } catch (JSONException e) {
+            Log.e(TAG, "解析手机号注册上传服务端响应失败", e);
+            return createErrorResponse("服务端返回格式异常: " + e.getMessage());
+        }
+    }
     
     /**
      * 处理未找到的路径
@@ -499,7 +596,8 @@ public class QQSessionHttpServer {
                     Constants.API_QQ_TIM,
                     Constants.API_QQ_SAVE + "?qq=xxx",
                     Constants.API_QQ_TEST + "?guid=xxx",
-                    Constants.API_IMPORT + "?data=xxx&qq=xxx"
+                    Constants.API_IMPORT + "?data=xxx&qq=xxx",
+                    Constants.API_PHONE_REGISTER_PUSH_CACHE
             });
             
             return new HttpResponse(404, "Not Found", "application/json", response.toString());
@@ -536,6 +634,32 @@ public class QQSessionHttpServer {
         } catch (JSONException e) {
             return new HttpResponse(500, "Internal Server Error", "text/plain", message);
         }
+    }
+
+    private HttpResponse createBadRequestResponse(String message) {
+        try {
+            JSONObject response = new JSONObject();
+            response.put("status", "error");
+            response.put("message", message);
+            return new HttpResponse(400, "Bad Request", "application/json", response.toString());
+        } catch (JSONException e) {
+            return new HttpResponse(400, "Bad Request", "text/plain", message);
+        }
+    }
+
+    private JSONObject parseJsonBody(HttpRequest request) throws JSONException {
+        if (request.body != null && !request.body.trim().isEmpty()) {
+            return new JSONObject(request.body);
+        }
+        JSONObject payload = new JSONObject();
+        for (Map.Entry<String, String> entry : request.parameters.entrySet()) {
+            payload.put(entry.getKey(), entry.getValue());
+        }
+        return payload;
+    }
+
+    private String optTrim(JSONObject payload, String key) {
+        return payload.optString(key, "").trim();
     }
     
     /**

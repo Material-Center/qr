@@ -59,6 +59,14 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		if err := validateCaptchaConfig(req.CaptchaPlatform, req.CaptchaAccount, req.CaptchaPassword, req.CaptchaToken); err != nil {
 			return system.SysRegisterConfig{}, err
 		}
+		if err := validatePhoneImageProviderConfig(
+			req.PhoneImageProvider,
+			req.PhoneImageProviderUsername,
+			req.PhoneImageProviderPassword,
+			req.PhoneImageProviderSecretKey,
+		); err != nil {
+			return system.SysRegisterConfig{}, err
+		}
 		data["default_password"] = req.DefaultPassword
 		data["naicha_app_id"] = req.NaichaAppID
 		data["naicha_secret"] = req.NaichaSecret
@@ -75,6 +83,10 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		data["captcha_account"] = req.CaptchaAccount
 		data["captcha_password"] = req.CaptchaPassword
 		data["captcha_token"] = req.CaptchaToken
+		data["phone_image_provider"] = strings.TrimSpace(req.PhoneImageProvider)
+		data["phone_image_provider_username"] = strings.TrimSpace(req.PhoneImageProviderUsername)
+		data["phone_image_provider_password"] = strings.TrimSpace(req.PhoneImageProviderPassword)
+		data["phone_image_provider_secret_key"] = strings.TrimSpace(req.PhoneImageProviderSecretKey)
 	case cfgRoleLeader:
 		return system.SysRegisterConfig{}, errors.New("团长配置能力已迁移到管理员，请联系管理员维护配置")
 	default:
@@ -106,6 +118,10 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.CaptchaAccount = req.CaptchaAccount
 			cfg.CaptchaPassword = req.CaptchaPassword
 			cfg.CaptchaToken = req.CaptchaToken
+			cfg.PhoneImageProvider = strings.TrimSpace(req.PhoneImageProvider)
+			cfg.PhoneImageProviderUsername = strings.TrimSpace(req.PhoneImageProviderUsername)
+			cfg.PhoneImageProviderPassword = strings.TrimSpace(req.PhoneImageProviderPassword)
+			cfg.PhoneImageProviderSecretKey = strings.TrimSpace(req.PhoneImageProviderSecretKey)
 		}
 		if err = global.GVA_DB.Create(&cfg).Error; err != nil {
 			return system.SysRegisterConfig{}, err
@@ -141,22 +157,26 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 		return nil, err
 	}
 	cfg := systemRegisterConfig{
-		DefaultPassword: cfgModel.DefaultPassword,
-		NaichaAppID:     cfgModel.NaichaAppID,
-		NaichaSecret:    cfgModel.NaichaSecret,
-		NaichaCKMd5:     cfgModel.NaichaCKMd5,
-		IP138Token:      cfgModel.IP138Token,
-		ApiBase:         cfgModel.ApiBase,
-		ApiToken:        cfgModel.ApiToken,
-		ProxyPlatform:   cfgModel.ProxyPlatform,
-		ProxyAccount:    cfgModel.ProxyAccount,
-		ProxyPassword:   cfgModel.ProxyPassword,
-		ProxySecretID:   cfgModel.ProxySecretID,
-		ProxySecretKey:  cfgModel.ProxySecretKey,
-		CaptchaPlatform: cfgModel.CaptchaPlatform,
-		CaptchaAccount:  cfgModel.CaptchaAccount,
-		CaptchaPassword: cfgModel.CaptchaPassword,
-		CaptchaToken:    cfgModel.CaptchaToken,
+		DefaultPassword:             cfgModel.DefaultPassword,
+		NaichaAppID:                 cfgModel.NaichaAppID,
+		NaichaSecret:                cfgModel.NaichaSecret,
+		NaichaCKMd5:                 cfgModel.NaichaCKMd5,
+		IP138Token:                  cfgModel.IP138Token,
+		ApiBase:                     cfgModel.ApiBase,
+		ApiToken:                    cfgModel.ApiToken,
+		ProxyPlatform:               cfgModel.ProxyPlatform,
+		ProxyAccount:                cfgModel.ProxyAccount,
+		ProxyPassword:               cfgModel.ProxyPassword,
+		ProxySecretID:               cfgModel.ProxySecretID,
+		ProxySecretKey:              cfgModel.ProxySecretKey,
+		CaptchaPlatform:             cfgModel.CaptchaPlatform,
+		CaptchaAccount:              cfgModel.CaptchaAccount,
+		CaptchaPassword:             cfgModel.CaptchaPassword,
+		CaptchaToken:                cfgModel.CaptchaToken,
+		PhoneImageProvider:          cfgModel.PhoneImageProvider,
+		PhoneImageProviderUsername:  cfgModel.PhoneImageProviderUsername,
+		PhoneImageProviderPassword:  cfgModel.PhoneImageProviderPassword,
+		PhoneImageProviderSecretKey: cfgModel.PhoneImageProviderSecretKey,
 	}
 
 	result := map[string]interface{}{
@@ -183,6 +203,11 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 		"qsign": map[string]interface{}{
 			"enabled": role == cfgRoleSuperAdmin || role == cfgRoleAdmin,
 			"ok":      strings.TrimSpace(cfg.ApiBase) != "" && strings.TrimSpace(cfg.ApiToken) != "",
+			"message": "",
+		},
+		"phoneImageProvider": map[string]interface{}{
+			"enabled": true,
+			"ok":      strings.TrimSpace(cfg.PhoneImageProvider) != "",
 			"message": "",
 		},
 	}
@@ -228,6 +253,22 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 			}
 		}
 	}
+
+	phoneImageProviderResult := map[string]interface{}{
+		"enabled": true,
+		"ok":      true,
+		"message": "图片识别配置已就绪",
+	}
+	if err := validatePhoneImageProviderConfig(
+		cfg.PhoneImageProvider,
+		cfg.PhoneImageProviderUsername,
+		cfg.PhoneImageProviderPassword,
+		cfg.PhoneImageProviderSecretKey,
+	); err != nil {
+		phoneImageProviderResult["ok"] = false
+		phoneImageProviderResult["message"] = err.Error()
+	}
+	result["phoneImageProvider"] = phoneImageProviderResult
 
 	if role == cfgRoleSuperAdmin || role == cfgRoleAdmin {
 		proxyResult := map[string]interface{}{
@@ -315,6 +356,32 @@ func validateCaptchaConfig(captchaPlatformRaw, captchaAccount, captchaPassword, 
 	case captchaProviderFJ:
 		if strings.TrimSpace(captchaToken) == "" {
 			return errors.New("FJ验证码需要配置 token")
+		}
+	}
+	return nil
+}
+
+func validatePhoneImageProviderConfig(providerRaw, username, password, secretKey string) error {
+	provider := strings.ToLower(strings.TrimSpace(providerRaw))
+	if provider == "" {
+		return errors.New("手机号注册图片识别必须选择 provider")
+	}
+	switch provider {
+	case "tujian", "yunma", "tuling", "tujie":
+	default:
+		return errors.New("不支持的手机号注册图片识别平台")
+	}
+	if strings.TrimSpace(username) == "" {
+		return errors.New("手机号注册图片识别必须配置账号")
+	}
+	switch provider {
+	case "tujie":
+		if strings.TrimSpace(secretKey) == "" {
+			return errors.New("图界需要配置 secretKey")
+		}
+	default:
+		if strings.TrimSpace(password) == "" {
+			return errors.New("手机号注册图片识别必须配置密码")
 		}
 	}
 	return nil

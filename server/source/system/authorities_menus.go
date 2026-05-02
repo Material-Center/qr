@@ -85,8 +85,10 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	// 注册任务菜单
 	registerParent, hasRegisterParent := menuNameMap["register"]
 	registerManageChild, hasRegisterManageChild := menuNameMap["registerTaskManage"]
+	phoneRegisterManageChild, hasPhoneRegisterManageChild := menuNameMap["phoneRegisterTaskManage"]
 	qqCacheMenu, hasQQCacheMenu := menuNameMap["qqCacheManage"]
 	registerCenterChild, hasRegisterCenterChild := menuNameMap["registerTaskCenter"]
+	phoneRegisterCenterChild, hasPhoneRegisterCenterChild := menuNameMap["phoneRegisterTaskCenter"]
 	registerConfigChild, hasRegisterConfigChild := menuNameMap["registerConfig"]
 	registerDebugChild, hasRegisterDebugChild := menuNameMap["registerDebugLogin"]
 	var adminRegisterMenus []sysModel.SysBaseMenu
@@ -99,6 +101,10 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 		adminRegisterMenus = append(adminRegisterMenus, registerManageChild)
 		leaderRegisterMenus = append(leaderRegisterMenus, registerManageChild)
 	}
+	if hasPhoneRegisterManageChild {
+		adminRegisterMenus = append(adminRegisterMenus, phoneRegisterManageChild)
+		leaderRegisterMenus = append(leaderRegisterMenus, phoneRegisterManageChild)
+	}
 	if hasRegisterConfigChild {
 		adminRegisterMenus = append(adminRegisterMenus, registerConfigChild)
 	}
@@ -109,6 +115,9 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	var registerPromoterMenus []sysModel.SysBaseMenu
 	if hasRegisterCenterChild {
 		registerPromoterMenus = append(registerPromoterMenus, registerCenterChild)
+	}
+	if hasPhoneRegisterCenterChild {
+		registerPromoterMenus = append(registerPromoterMenus, phoneRegisterCenterChild)
 	}
 
 	// 角色分配函数
@@ -125,7 +134,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 		return next, errors.Wrap(err, "为超级管理员分配菜单失败")
 	}
 
-	// 100 管理员：基础菜单 + 账号管理 + 注册任务统计
+	// 100 管理员：基础菜单 + 账号管理 + 统计菜单
 	adminMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	adminMenus = append(adminMenus, accountMenus...)
 	adminMenus = append(adminMenus, adminRegisterMenus...)
@@ -136,7 +145,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 		return next, errors.Wrap(err, "为管理员分配菜单失败")
 	}
 
-	// 200 团长：基础菜单 + 账号管理 + 注册任务统计（不包含配置管理和登录调试）
+	// 200 团长：基础菜单 + 账号管理 + 统计菜单（不包含配置管理和登录调试）
 	leaderMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
 	leaderMenus = append(leaderMenus, accountMenus...)
 	leaderMenus = append(leaderMenus, leaderRegisterMenus...)

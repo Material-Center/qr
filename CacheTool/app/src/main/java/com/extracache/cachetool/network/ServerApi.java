@@ -31,6 +31,7 @@ public class ServerApi {
     public static final String API_HOST = "https://www.qq123qq.com/api";
     private static final String LOGIN_ENDPOINT = "/base/appLogin";
     private static final String UPLOAD_ENDPOINT = "/qqCache/upload";
+    private static final String PHONE_REGISTER_UPLOAD_ENDPOINT = "/qqCache/uploadPhoneRegister";
     private static final String REQUEST_ENDPOINT = "/qqCache/extract";
     private static String authToken = "";
 
@@ -113,6 +114,19 @@ public class ServerApi {
         data.addProperty("deviceId", deviceId);
 
         return uploadData(data);
+    }
+
+    public static String uploadPhoneRegisterCache(String deviceId, String phone, String qqNumber, String qqPassword, String iniContent) throws IOException {
+        Log.d(TAG, "开始上传手机号注册缓存，deviceId: " + deviceId + ", QQ: " + qqNumber);
+
+        JsonObject data = new JsonObject();
+        data.addProperty("deviceId", deviceId != null ? deviceId : "");
+        data.addProperty("phone", phone != null ? phone : "");
+        data.addProperty("qqNum", qqNumber != null ? qqNumber : "");
+        data.addProperty("qqPwd", qqPassword != null ? qqPassword : "");
+        data.addProperty("ini", iniContent != null ? iniContent : "");
+
+        return postJson(PHONE_REGISTER_UPLOAD_ENDPOINT, data, false);
     }
 
     /**
@@ -210,30 +224,34 @@ public class ServerApi {
      */
     private static String uploadData(JsonObject data) throws IOException {
         ensureAuthed();
-        String url = API_HOST + UPLOAD_ENDPOINT;
+        return postJson(UPLOAD_ENDPOINT, data, true);
+    }
+
+    private static String postJson(String endpoint, JsonObject data, boolean withAuth) throws IOException {
+        String url = API_HOST + endpoint;
         String jsonData = data.toString();
 
-        Log.d(TAG, "上传URL: " + url);
-        Log.d(TAG, "上传数据: " + jsonData);
+        Log.d(TAG, "POST URL: " + url);
+        Log.d(TAG, "POST数据: " + jsonData);
 
         RequestBody body = RequestBody.create(jsonData, MediaType.parse("application/json; charset=utf-8"));
-
-        Request request = new Request.Builder()
+        Request.Builder builder = new Request.Builder()
                 .url(url)
                 .post(body)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "QQLoginTool/1.0")
-                .addHeader("x-token", authToken)
-                .build();
+                .addHeader("User-Agent", "QQLoginTool/1.0");
+        if (withAuth) {
+            builder.addHeader("x-token", authToken);
+        }
 
-        try (Response response = client.newCall(request).execute()) {
+        try (Response response = client.newCall(builder.build()).execute()) {
             String responseBody = response.body() != null ? response.body().string() : "";
 
             if (response.isSuccessful()) {
-                Log.d(TAG, "上传成功，响应: " + responseBody);
+                Log.d(TAG, "POST成功，响应: " + responseBody);
                 return responseBody;
             } else {
-                Log.e(TAG, "上传失败，状态码: " + response.code() + ", 响应: " + responseBody);
+                Log.e(TAG, "POST失败，状态码: " + response.code() + ", 响应: " + responseBody);
                 throw new IOException("HTTP错误 " + response.code() + ": " + responseBody);
             }
         }

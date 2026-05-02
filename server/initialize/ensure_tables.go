@@ -59,6 +59,7 @@ func (e *ensureTables) MigrateTable(ctx context.Context) (context.Context, error
 		sysModel.SysLoginLog{},
 		sysModel.SysApiToken{},
 		sysModel.SysRegisterTask{},
+		sysModel.SysPhoneRegisterTask{},
 		sysModel.SysRegisterConfig{},
 		sysModel.SysQQCacheRecord{},
 		adapter.CasbinRule{},
@@ -102,6 +103,7 @@ func (e *ensureTables) TableCreated(ctx context.Context) bool {
 		sysModel.Condition{},
 		sysModel.JoinTemplate{},
 		sysModel.SysRegisterTask{},
+		sysModel.SysPhoneRegisterTask{},
 		sysModel.SysRegisterConfig{},
 		sysModel.SysQQCacheRecord{},
 
