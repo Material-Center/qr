@@ -1,7 +1,8 @@
 const RegisterAction = {
-  OPEN_LOGIN_PAGE: "open_login_page",
+  OPEN_REGISTER_PAGE: "open_register_page",
   HANDLE_AUTHORIZE_DIALOG: "handle_authorize_dialog",
   INPUT_PHONE: "input_phone",
+  SECURITY_VERIFY: "security_verify",
   WAIT_OR_SUBMIT_VERIFY_CODE: "wait_or_submit_verify_code",
   COMPLETE_PROFILE: "complete_profile",
   WAIT_LOGIN_SUCCESS: "wait_login_success",

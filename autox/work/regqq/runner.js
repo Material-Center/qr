@@ -1,6 +1,6 @@
-const { RegisterContext } = require("./register_context");
-const { executeRegisterFlow } = require("./register_flow");
-const { handleFlowFailure } = require("./register_exception_flow");
+const { RegisterContext } = require("./context");
+const { executeRegisterFlow } = require("./flow");
+const { handleFlowFailure } = require("./exception_flow");
 
 function RegisterRunner(config) {
   this.config = config || {};
@@ -12,7 +12,8 @@ RegisterRunner.prototype.runOnce = function () {
   ctx.log("开始轮询手机号注册任务");
 
   const task = ctx.pollTask();
-  if (!task || !task.id) {
+  const taskId = ctx.getTaskId();
+  if (!task || !taskId) {
     ctx.log("当前没有待执行任务");
     return {
       ok: true,
@@ -22,7 +23,7 @@ RegisterRunner.prototype.runOnce = function () {
 
   ctx.log(
     "领取到任务 id=" +
-      task.id +
+      taskId +
       " phone=" +
       ctx.getTaskPhone() +
       " smsMode=" +
@@ -30,12 +31,14 @@ RegisterRunner.prototype.runOnce = function () {
   );
 
   try {
+    ctx.refreshTaskRuntimeConfig();
+    ctx.prepareQQProfileDraft(false);
     ctx.heartbeat();
     executeRegisterFlow(ctx);
-    ctx.log("任务流程执行完成 id=" + task.id);
+    ctx.log("任务流程执行完成 id=" + taskId);
     return {
       ok: true,
-      taskId: task.id,
+      taskId: taskId,
     };
   } catch (err) {
     const normalized = handleFlowFailure(ctx, err);

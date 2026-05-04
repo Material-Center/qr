@@ -1,5 +1,7 @@
 const { RegQQConfig } = require("./regqq_config");
-const { RegisterRunner } = require("./register_runner");
+const { RegisterRunner } = require("./runner");
+const { RegisterUIActions } = require("./ui_actions");
+const NodeDebugger = require("../../common/debuger");
 
 threads.start(function () {
   // eslint-disable-next-line no-constant-condition
@@ -36,6 +38,77 @@ setTimeout(function () {
 }, 1000);
 
 function main() {
+  auto.waitFor();
+
   const runner = new RegisterRunner(RegQQConfig);
-  runner.runForever();
+
+  try {
+    runEntry(runner);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function runEntry(runner) {
+  const devConfig = (RegQQConfig && RegQQConfig.dev) || {};
+  const entry = String(devConfig.entry || "worker")
+    .trim()
+    .toLowerCase();
+
+  if (entry === "worker") {
+    runner.runForever();
+    return;
+  }
+
+  if (entry === "once") {
+    runner.runOnce();
+    return;
+  }
+
+  if (entry === "upload_cache") {
+    bindMockTaskIfNeeded(runner, devConfig);
+    runner.ctx.uploadCurrentCache(String(devConfig.uploadCacheQQPwd || ""));
+    return;
+  }
+
+  if (entry === "image_verify") {
+    runner.ctx.solveImageVerification(devConfig.imageVerifyQuestion, {});
+    return;
+  }
+
+  if (entry === "custom") {
+    runCustomDevEntry(runner, devConfig);
+    return;
+  }
+
+  throw new Error("unknown regqq dev entry: " + entry);
+}
+
+function bindMockTaskIfNeeded(runner, devConfig) {
+  if (runner.ctx.getTaskId()) {
+    return;
+  }
+  const mockTask = devConfig && devConfig.mockTask;
+  if (mockTask && (mockTask.id || mockTask.taskId)) {
+    runner.ctx.bindTask(mockTask);
+  }
+}
+
+function runCustomDevEntry(runner, devConfig) {
+  bindMockTaskIfNeeded(runner, devConfig);
+
+  // const nodeDebugger = new NodeDebugger();
+  // nodeDebugger.dumpNodeTree(4);
+
+  runner.ctx.uploadCurrentCache("qwer1234");
+
+  runner.ctx.refreshTaskRuntimeConfig();
+  // runner.ctx.prepareQQProfileDraft(false);
+
+  // runner.ctx.ensureQQReady();
+  // RegisterUIActions.handleAuthorizeDialog(runner.ctx);
+  // RegisterUIActions.openRegisterPage(runner.ctx);
+  // RegisterUIActions.inputPhone(runner.ctx);
+  // RegisterUIActions.securityVerify(runner.ctx);
+  // RegisterUIActions.waitLoginSuccess(runner.ctx);
 }

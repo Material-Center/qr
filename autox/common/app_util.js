@@ -55,6 +55,24 @@ const AppUtils = {
   },
 
   /**
+   * 使用 pm clear 清理指定应用数据。
+   * @param {string} packageName Android 包名，如 com.tencent.mobileqq。
+   * @returns {boolean} 清理成功返回 true。
+   * @throws {Error} 包名为空或 shell 返回失败时抛出。
+   */
+  clearAppData(packageName) {
+    const pkg = String(packageName || "").trim();
+    if (!pkg) {
+      throw new Error("clear app data packageName is required");
+    }
+    const result = shell("pm clear " + pkg, true);
+    if (!result || result.code !== 0) {
+      throw new Error("pm clear failed: " + (result ? result.result : ""));
+    }
+    return true;
+  },
+
+  /**
    * 若出现「等待 / 关闭应用」类无响应对话框，则点击关闭应用。
    * @returns {boolean} 找到并处理了弹窗为 true，否则 false。
    */

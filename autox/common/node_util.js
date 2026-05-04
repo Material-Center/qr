@@ -41,6 +41,84 @@ function selectorForKind(kind, value) {
   return null;
 }
 
+function selectorForSpec(spec) {
+  if (!spec) {
+    return null;
+  }
+  if (typeof spec.findOne === "function" || typeof spec.exists === "function") {
+    return spec;
+  }
+
+  const kind = String(spec.kind || "").trim();
+  const value = String(spec.value || "").trim();
+  const match = String(spec.match || "exact").trim().toLowerCase();
+  if (!kind || !value) {
+    return null;
+  }
+
+  if (match === "contains") {
+    if (kind === "text") {
+      return textContains(value);
+    }
+    if (kind === "desc") {
+      return descContains(value);
+    }
+    return null;
+  }
+
+  if (match === "regex") {
+    if (kind === "text") {
+      return textMatches(value);
+    }
+    if (kind === "desc") {
+      return descMatches(value);
+    }
+    return null;
+  }
+
+  return selectorForKind(kind, value);
+}
+
+function selectorExistsBySpec(spec) {
+  const selector = selectorForSpec(spec);
+  if (!selector) {
+    return false;
+  }
+  try {
+    return selector.exists();
+  } catch (e) {
+    return false;
+  }
+}
+
+function normalizeSpecList(specs) {
+  if (!specs) {
+    return [];
+  }
+  if (Array.isArray(specs)) {
+    return specs;
+  }
+  return [specs];
+}
+
+function checkSpecs(specs, mode) {
+  const list = normalizeSpecList(specs);
+  if (!list.length) {
+    return false;
+  }
+  const checkMode = String(mode || "all").trim().toLowerCase();
+  let matchedCount = 0;
+  for (let i = 0; i < list.length; i++) {
+    if (selectorExistsBySpec(list[i])) {
+      matchedCount += 1;
+    }
+  }
+  if (checkMode === "any") {
+    return matchedCount > 0;
+  }
+  return matchedCount === list.length;
+}
+
 const NodeUtils = {
   /**
    * 在给定超时内判断选择器是否能找到控件。
@@ -237,6 +315,86 @@ const NodeUtils = {
       n += 50;
     }
     return false;
+  },
+
+  /**
+   * 轮询直到指定控件消失。
+   * @param {"text"|"name"|"desc"|"id"} kind 选择器类型。
+   * @param {string} value 匹配值。
+   * @param {number} maxWaitMs 最长等待毫秒数。
+   * @returns {boolean} 在时限内消失为 true，超时为 false。
+   */
+  waitNodeGone(kind, value, maxWaitMs) {
+    var n = 0;
+    while (n < maxWaitMs) {
+      sleep(50);
+      if (!NodeUtils.nodeExists(kind, value)) {
+        return true;
+      }
+      n += 50;
+    }
+    return false;
+  },
+
+  /**
+   * 等待页面变化，可组合旧页锚点消失、新页锚点出现、Activity 变化三种条件。
+   * @param {{
+   *   oldPage?: object|object[],
+   *   oldPageMode?: "all"|"any",
+   *   newPage?: object|object[],
+   *   newPageMode?: "all"|"any",
+   *   activityChanged?: boolean,
+   *   initialActivity?: string,
+   *   timeoutMs?: number,
+   *   intervalMs?: number
+   * }} options 页面变化判断配置。
+   * spec 结构示例：{kind: "text", value: "下一步", match: "exact|contains|regex"}
+   * @returns {{changed: boolean, reason: string, activity: string}} 判断结果。
+   */
+  waitPageChanged(options) {
+    const opts = options || {};
+    const timeoutMs = Number(opts.timeoutMs || 5000) || 5000;
+    const intervalMs = Number(opts.intervalMs || 100) || 100;
+    const oldPage = normalizeSpecList(opts.oldPage);
+    const newPage = normalizeSpecList(opts.newPage);
+    const waitActivityChanged = opts.activityChanged === true;
+    const initialActivity = opts.initialActivity || currentActivity();
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+      const current = currentActivity();
+      const activityChanged = waitActivityChanged && current !== initialActivity;
+      const oldPageGone = oldPage.length
+        ? !checkSpecs(oldPage, opts.oldPageMode || "all")
+        : false;
+      const newPageReady = newPage.length
+        ? checkSpecs(newPage, opts.newPageMode || "all")
+        : false;
+
+      if (activityChanged || oldPageGone || newPageReady) {
+        let reason = "unknown";
+        if (newPageReady) {
+          reason = "new_page_ready";
+        } else if (oldPageGone) {
+          reason = "old_page_gone";
+        } else if (activityChanged) {
+          reason = "activity_changed";
+        }
+        return {
+          changed: true,
+          reason: reason,
+          activity: current,
+        };
+      }
+
+      sleep(intervalMs);
+    }
+
+    return {
+      changed: false,
+      reason: "timeout",
+      activity: currentActivity(),
+    };
   },
 
   /**

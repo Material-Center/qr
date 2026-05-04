@@ -1,19 +1,22 @@
 const {
   RegisterAction,
   RegisterFailureAction,
-} = require("./register_constants");
+} = require("./constants");
 const {
   createExceptionDecision,
   normalizeRegisterError,
-} = require("./register_error");
-const { RegisterUIActions } = require("./register_ui_actions");
+} = require("./error");
+const { RegisterUIActions } = require("./ui_actions");
+const NodeDebugger = require("../../common/debuger");
 
 const STAGE_HANDLER_MAP = {};
-STAGE_HANDLER_MAP[RegisterAction.OPEN_LOGIN_PAGE] =
-  "handleOpenLoginPageException";
+STAGE_HANDLER_MAP[RegisterAction.OPEN_REGISTER_PAGE] =
+  "handleOpenRegisterPageException";
 STAGE_HANDLER_MAP[RegisterAction.HANDLE_AUTHORIZE_DIALOG] =
   "handleAuthorizeDialogException";
 STAGE_HANDLER_MAP[RegisterAction.INPUT_PHONE] = "handleInputPhoneException";
+STAGE_HANDLER_MAP[RegisterAction.SECURITY_VERIFY] =
+  "handleSecurityVerifyException";
 STAGE_HANDLER_MAP[RegisterAction.WAIT_OR_SUBMIT_VERIFY_CODE] =
   "handleVerifyCodeException";
 STAGE_HANDLER_MAP[RegisterAction.COMPLETE_PROFILE] =
@@ -158,6 +161,29 @@ function safeReset(ctx, reason) {
   }
 }
 
+function shouldDumpNodeTreeForError(err) {
+  if (!err || !err.message) {
+    return false;
+  }
+  return String(err.message).indexOf("未找到") >= 0;
+}
+
+function safeDumpNodeTree(ctx, err) {
+  if (!shouldDumpNodeTreeForError(err)) {
+    return;
+  }
+  try {
+    ctx.log("检测到节点未找到错误，开始打印节点树");
+    const nodeDebugger = new NodeDebugger();
+    nodeDebugger.dumpNodeTree();
+  } catch (dumpErr) {
+    ctx.log(
+      "打印节点树失败: " +
+        (dumpErr && dumpErr.message ? dumpErr.message : String(dumpErr))
+    );
+  }
+}
+
 function handleStageException(ctx, stageAction, stageError) {
   const config = resolveExceptionConfig(ctx);
   const resolved = resolveDecisionByHandlers(ctx, stageAction, stageError);
@@ -244,10 +270,12 @@ function handleFlowFailure(ctx, err) {
   const normalized = normalizeRegisterError("flow", err);
   normalized.decision = normalized.decision || resolveDefaultDecision(normalized);
 
+  safeDumpNodeTree(ctx, normalized);
+
   if (!normalized.isTodo && normalized.shouldReport !== false) {
     safeReport(
       ctx,
-      RegisterAction.FLOW_FAILED,
+      "fail",
       normalized.message,
       normalized.statusCode
     );

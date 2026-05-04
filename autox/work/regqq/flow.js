@@ -1,20 +1,25 @@
-const { RegisterAction } = require("./register_constants");
-const { RegisterUIActions } = require("./register_ui_actions");
-const { runStageWithExceptionHandling } = require("./register_exception_flow");
+const { RegisterAction } = require("./constants");
+const { RegisterUIActions } = require("./ui_actions");
+const { runStageWithExceptionHandling } = require("./exception_flow");
 
 function executeRegisterFlow(ctx) {
   ctx.ensureTask();
-
-  runStageWithExceptionHandling(ctx, RegisterAction.OPEN_LOGIN_PAGE, function () {
-    RegisterUIActions.openLoginPage(ctx);
-  });
+  ctx.ensureQQReady();
 
   runStageWithExceptionHandling(ctx, RegisterAction.HANDLE_AUTHORIZE_DIALOG, function () {
     RegisterUIActions.handleAuthorizeDialog(ctx);
   });
 
+  runStageWithExceptionHandling(ctx, RegisterAction.OPEN_REGISTER_PAGE, function () {
+    RegisterUIActions.openRegisterPage(ctx);
+  });
+
   runStageWithExceptionHandling(ctx, RegisterAction.INPUT_PHONE, function () {
     RegisterUIActions.inputPhone(ctx);
+  });
+
+  runStageWithExceptionHandling(ctx, RegisterAction.SECURITY_VERIFY, function () {
+    RegisterUIActions.securityVerify(ctx);
   });
 
   runStageWithExceptionHandling(ctx, RegisterAction.WAIT_OR_SUBMIT_VERIFY_CODE, function () {

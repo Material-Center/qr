@@ -450,13 +450,27 @@ func (s *PhoneRegisterTaskService) GetDeviceConfig() (systemRes.PhoneRegisterDev
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return systemRes.PhoneRegisterDeviceConfigResponse{}, err
 	}
+	imageVerify := systemRes.PhoneRegisterImageVerifyConfig{
+		Provider: strings.TrimSpace(cfg.PhoneImageProvider),
+		Question: "框出正确位置",
+		System:   "",
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.PhoneImageProvider)) {
+	case "tuling":
+		imageVerify.Endpoint = "http://www.fdyscloud.com.cn/tuling/predict"
+		imageVerify.Username = strings.TrimSpace(cfg.PhoneImageProviderUsername)
+		imageVerify.Password = strings.TrimSpace(cfg.PhoneImageProviderPassword)
+		imageVerify.RequestID = "42077360"
+		imageVerify.Version = "3.1.1"
+	case "tujie":
+		imageVerify.Endpoint = "http://gpu1.xinyuocr.xyz:8889/api/qrcode/predict"
+		imageVerify.ModelName = "普通模型"
+		imageVerify.KeyCode = strings.TrimSpace(cfg.PhoneImageProviderSecretKey)
+	default:
+		imageVerify.Endpoint = ""
+	}
 	return systemRes.PhoneRegisterDeviceConfigResponse{
-		ImageProvider: systemRes.PhoneRegisterImageProviderConfig{
-			Provider:  cfg.PhoneImageProvider,
-			Username:  cfg.PhoneImageProviderUsername,
-			Password:  cfg.PhoneImageProviderPassword,
-			SecretKey: cfg.PhoneImageProviderSecretKey,
-		},
+		ImageVerify: imageVerify,
 	}, nil
 }
 

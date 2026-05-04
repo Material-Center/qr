@@ -10,6 +10,16 @@ function ensureImageVerifyEnabled(config) {
   if (!config || !config.endpoint) {
     throw new Error("图片验证 endpoint 未配置");
   }
+  const provider = normalizeProvider(config);
+  if (provider === "tuling") {
+    if (!config.username) {
+      throw new Error("图灵图片验证 username 未配置");
+    }
+    if (!config.password) {
+      throw new Error("图灵图片验证 password 未配置");
+    }
+    return;
+  }
   if (!config.keyCode) {
     throw new Error("图片验证 keyCode 未配置");
   }
@@ -61,6 +71,113 @@ function tryParseJson(text) {
   return JSON.parse(text);
 }
 
+function normalizeProvider(config) {
+  return String((config && config.provider) || "")
+    .trim()
+    .toLowerCase();
+}
+
+function parseJsonIfString(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const text = value.trim();
+  if (!text) {
+    return value;
+  }
+  if (
+    (text.charAt(0) === "[" && text.charAt(text.length - 1) === "]") ||
+    (text.charAt(0) === "{" && text.charAt(text.length - 1) === "}")
+  ) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return value;
+    }
+  }
+  return value;
+}
+
+function toBoxCenter(box) {
+  if (!Array.isArray(box) || box.length === 0) {
+    return null;
+  }
+
+  const first = Array.isArray(box[0]) ? box[0] : box;
+  if (!Array.isArray(first) || first.length < 4) {
+    return null;
+  }
+
+  const left = Number(first[0]);
+  const top = Number(first[1]);
+  const right = Number(first[2]);
+  const bottom = Number(first[3]);
+  if (
+    Number.isNaN(left) ||
+    Number.isNaN(top) ||
+    Number.isNaN(right) ||
+    Number.isNaN(bottom)
+  ) {
+    return null;
+  }
+
+  return {
+    x: (left + right) / 2,
+    y: (top + bottom) / 2,
+  };
+}
+
+function parseTujiePoints(result) {
+  const parsedMsg = parseJsonIfString(result && result.msg);
+  if (!Array.isArray(parsedMsg)) {
+    return [];
+  }
+
+  const items = parsedMsg.slice();
+  items.sort(function (a, b) {
+    const aLabel = Number(a && a.label);
+    const bLabel = Number(b && b.label);
+    if (Number.isNaN(aLabel) || Number.isNaN(bLabel)) {
+      return 0;
+    }
+    return aLabel - bLabel;
+  });
+
+  const points = [];
+  for (let i = 0; i < items.length; i++) {
+    const point = toBoxCenter(items[i] && items[i].box);
+    if (point) {
+      points.push(point);
+    }
+  }
+  return points;
+}
+
+function parseTulingPoints(result) {
+  const data = result && result.data ? result.data : {};
+  const keys = Object.keys(data || {});
+  keys.sort(function (a, b) {
+    const aNum = Number(String(a).replace(/[^\d]/g, ""));
+    const bNum = Number(String(b).replace(/[^\d]/g, ""));
+    if (Number.isNaN(aNum) || Number.isNaN(bNum)) {
+      return 0;
+    }
+    return aNum - bNum;
+  });
+
+  const points = [];
+  for (let i = 0; i < keys.length; i++) {
+    const item = data[keys[i]] || {};
+    const x = Number(item["X坐标值"]);
+    const y = Number(item["Y坐标值"]);
+    if (Number.isNaN(x) || Number.isNaN(y)) {
+      continue;
+    }
+    points.push({ x: x, y: y });
+  }
+  return points;
+}
+
 function normalizePointsFromUnknown(result) {
   if (!result) {
     return [];
@@ -79,6 +196,17 @@ function normalizePointsFromUnknown(result) {
     return result.result;
   }
   return [];
+}
+
+function normalizePointsByProvider(result, config) {
+  const provider = normalizeProvider(config);
+  if (provider === "tujie") {
+    return parseTujiePoints(result);
+  }
+  if (provider === "tuling") {
+    return parseTulingPoints(result);
+  }
+  return normalizePointsFromUnknown(result);
 }
 
 function toPoint(item) {
@@ -174,6 +302,10 @@ function createImageVerifyService(config) {
     if (!ok) {
       throw new Error("请求截图权限失败");
     }
+
+    // 申请截图会有一个弹窗，容易导致截图失败，所以等待1秒再截图。
+    sleep(1000);
+
     screenCaptureReady = true;
     return true;
   }
@@ -231,28 +363,42 @@ function createImageVerifyService(config) {
 
   function predictImage(base64Image, question, options) {
     ensureImageVerifyEnabled(imageVerifyConfig);
-    const req = {
-      base64Image: base64Image,
-      modelName: String(imageVerifyConfig.modelName || "普通模型"),
-      keyCode: String(imageVerifyConfig.keyCode || ""),
-      question: normalizeQuestion(question, imageVerifyConfig),
-      system: String(imageVerifyConfig.system || ""),
-    };
-
+    const provider = normalizeProvider(imageVerifyConfig);
     const endpoint =
       (options && options.endpoint) || String(imageVerifyConfig.endpoint);
+    let req = null;
+    if (provider === "tuling") {
+      req = {
+        username: String(imageVerifyConfig.username || ""),
+        password: String(imageVerifyConfig.password || ""),
+        b64: base64Image,
+        ID: String(imageVerifyConfig.requestId || "42077360"),
+        version: String(imageVerifyConfig.version || "3.1.1"),
+      };
+    } else {
+      req = {
+        base64Image: base64Image,
+        modelName: String(imageVerifyConfig.modelName || "普通模型"),
+        keyCode: String(imageVerifyConfig.keyCode || ""),
+        question: normalizeQuestion(question, imageVerifyConfig),
+        system: String(imageVerifyConfig.system || ""),
+      };
+    }
     const response = http.postJson(endpoint, req);
     const bodyText = response.body ? response.body.string() : "";
+    console.log(
+      "图片验证请求响应: status=" + response.statusCode + " body=" + bodyText,
+    );
     if (response.statusCode !== 200) {
       throw new Error(
-        "图片验证请求失败: status=" + response.statusCode + " body=" + bodyText
+        "图片验证请求失败: status=" + response.statusCode + " body=" + bodyText,
       );
     }
     return tryParseJson(bodyText);
   }
 
   function parsePoints(result, region) {
-    const rawPoints = normalizePointsFromUnknown(result);
+    const rawPoints = normalizePointsByProvider(result, imageVerifyConfig);
     const points = [];
     for (let i = 0; i < rawPoints.length; i++) {
       const point = toPoint(rawPoints[i]);

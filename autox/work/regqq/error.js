@@ -1,7 +1,7 @@
 const {
   RegisterExceptionType,
   RegisterFailureAction,
-} = require("./register_constants");
+} = require("./constants");
 
 function createRegisterError(type, message, options) {
   const err = new Error(message || "register flow error");
@@ -56,6 +56,25 @@ function normalizeRegisterError(stageAction, err, options) {
     err.stageAction = err.stageAction || stageAction;
     err.attempt = extra.attempt || err.attempt || 1;
     return err;
+  }
+
+  if (err && err.action) {
+    const normalizedDecisionError = createRegisterError(
+      RegisterExceptionType.UNKNOWN,
+      err.message || "register flow error",
+      {
+        stageAction: stageAction,
+        statusCode: err.statusCode,
+        retryable: err.action === RegisterFailureAction.RETRY_STAGE,
+        shouldReport: err.shouldReport !== false,
+        shouldReset: err.shouldReset !== false,
+        isTodo: false,
+        cause: err,
+      }
+    );
+    normalizedDecisionError.attempt = extra.attempt || 1;
+    normalizedDecisionError.decision = err;
+    return normalizedDecisionError;
   }
 
   const message = err && err.message ? err.message : String(err);

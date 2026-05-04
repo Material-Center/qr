@@ -60,15 +60,21 @@ type PhoneRegisterDeviceHeartbeatResponse struct {
 	OK bool `json:"ok"`
 }
 
-type PhoneRegisterImageProviderConfig struct {
+type PhoneRegisterImageVerifyConfig struct {
 	Provider  string `json:"provider"`
+	Endpoint  string `json:"endpoint"`
 	Username  string `json:"username"`
 	Password  string `json:"password"`
-	SecretKey string `json:"secretKey"`
+	ModelName string `json:"modelName"`
+	KeyCode   string `json:"keyCode"`
+	RequestID string `json:"requestId"`
+	Version   string `json:"version"`
+	Question  string `json:"question"`
+	System    string `json:"system"`
 }
 
 type PhoneRegisterDeviceConfigResponse struct {
-	ImageProvider PhoneRegisterImageProviderConfig `json:"imageProvider"`
+	ImageVerify PhoneRegisterImageVerifyConfig `json:"imageVerify"`
 }
 
 type QQCacheUploadPhoneRegisterResponse struct {

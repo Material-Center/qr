@@ -1,8 +1,11 @@
 /**
  * @file device_util.js
- * @description 设备与网络相关工具：飞行模式、联网状态、Root 下 Wi‑Fi 连接、序列号读取等。
- * @see 依赖 Auto.js 全局：shell、sleep、log、context、device、importClass
+ * @description 设备与网络相关工具：飞行模式、联网状态、Root/UI 下 Wi‑Fi 连接、序列号读取等。
+ * @see 依赖 Auto.js 全局：shell、sleep、log、context、device、importClass、launch、id、text、className、click
  */
+
+const { NodeUtils } = require("./node_util");
+const { GestureUtils } = require("./gesture_util");
 
 const DeviceUtils = {
   /**
@@ -55,17 +58,17 @@ const DeviceUtils = {
   setAirplaneModeEnabled(enabled) {
     shell(
       "settings put global airplane_mode_on " + (enabled ? "1" : "0"),
-      true
+      true,
     );
     shell(
       "am broadcast -a android.intent.action.AIRPLANE_MODE --ez state " +
         enabled,
-      true
+      true,
     );
     shell(
       "am broadcast -a android.intent.action.AIRPLANE_MODE_CHANGED --ez state " +
         enabled,
-      true
+      true,
     );
   },
 
@@ -149,6 +152,175 @@ const DeviceUtils = {
   },
 
   /**
+   * 使用系统设置页 UI 流程连接 Wi‑Fi，适配当前项目已有的 MI 8 / P10 行为。
+   * @param {string} ssid Wi‑Fi 名称。
+   * @param {string} password Wi‑Fi 密码。
+   * @param {number} [timeoutMs=60000] 最长等待连接成功时间。
+   * @returns {boolean} 成功连接返回 true。
+   * @throws {Error} 连接失败或超时抛错。
+   */
+  connectWifiWithSettings(ssid, password, timeoutMs = 60 * 1000) {
+    const networkName = String(ssid || "").trim();
+    const networkPassword = String(password || "").trim();
+    if (!networkName) {
+      throw new Error("wifi ssid is required");
+    }
+    if (!networkPassword) {
+      throw new Error("wifi password is required");
+    }
+    if (this.getNetworkAvailable() && this.getNetworkType() === "wifi") {
+      log("当前 Wi-Fi 已连接，跳过设置页连接");
+      return true;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      if (device.model === "MI 8") {
+        this._connectWifiMI8(networkName, networkPassword);
+      } else {
+        this._connectWifiP10(networkName, networkPassword);
+      }
+      sleep(2000);
+      if (this.getNetworkAvailable() && this.getNetworkType() === "wifi") {
+        log("设置页连接 Wi-Fi 成功");
+        return true;
+      }
+    }
+    throw new Error("Wi-Fi 设置页连接超时");
+  },
+
+  /**
+   * 优先走 root 连接，失败后回退到系统设置页 UI 连接。
+   * @param {string} ssid Wi‑Fi 名称。
+   * @param {string} password Wi‑Fi 密码。
+   * @param {{timeoutMs?: number, allowUiFallback?: boolean}} [options]
+   * @returns {boolean} 连接成功返回 true。
+   * @throws {Error} 所有方式失败时抛错。
+   */
+  ensureWifiConnected(ssid, password, options = {}) {
+    const timeoutMs = Number(options.timeoutMs || 60 * 1000) || 60 * 1000;
+    const allowUiFallback = options.allowUiFallback !== false;
+    if (this.getNetworkAvailable() && this.getNetworkType() === "wifi") {
+      log("当前 Wi-Fi 已连接");
+      return true;
+    }
+    try {
+      this.connectWifiWithRoot(ssid, password, timeoutMs);
+      return true;
+    } catch (rootErr) {
+      log("root 连接 Wi-Fi 失败: " + rootErr.message);
+      if (!allowUiFallback) {
+        throw rootErr;
+      }
+    }
+    this.connectWifiWithSettings(ssid, password, timeoutMs);
+    return true;
+  },
+
+  _connectWifiP10(ssid, password) {
+    log("开始通过设置页连接 Wi-Fi(P10)");
+    launch("com.android.settings");
+    sleep(500);
+    NodeUtils.clickTextContains("无线和网络");
+    sleep(500);
+    NodeUtils.clickTextContains("WLAN");
+    sleep(500);
+
+    const switchNode = className("android.widget.Switch").findOne(1000);
+    if (!switchNode) {
+      throw new Error("未找到 Wi-Fi 开关");
+    }
+    if (!switchNode.checked()) {
+      log("打开 Wi-Fi");
+      switchNode.click();
+      sleep(1000);
+    }
+
+    while (!NodeUtils.waitNodeMatchExists("text", "添加其他网络…", 500)) {
+      if (this.getNetworkAvailable() && this.getNetworkType() === "wifi") {
+        log("当前 Wi-Fi 已连接");
+        return true;
+      }
+      GestureUtils.swipeToBottom();
+    }
+
+    const addWifiBtn = text("添加其他网络…").findOne(1000);
+    if (!addWifiBtn || !addWifiBtn.parent()) {
+      throw new Error("未找到添加其他网络按钮");
+    }
+    addWifiBtn.parent().click();
+
+    const ssidInput = id("ssid").findOne(1000);
+    const passwordInput = id("password").findOne(1000);
+    if (!ssidInput || !passwordInput) {
+      throw new Error("未找到 Wi-Fi 输入框");
+    }
+    ssidInput.setText(ssid);
+    NodeUtils.clickTextContains("安全性");
+    sleep(200);
+    NodeUtils.clickTextContains("WPA/WPA2/FT PSK");
+    passwordInput.setText(password);
+    const connectBtn = id("btn_wifi_connect").findOne(1000);
+    if (!connectBtn) {
+      throw new Error("未找到 Wi-Fi 连接按钮");
+    }
+    connectBtn.click();
+    return true;
+  },
+
+  _connectWifiMI8(ssid, password) {
+    log("开始通过设置页连接 Wi-Fi(MI 8)");
+    launch("com.android.settings");
+    sleep(500);
+    NodeUtils.clickTextContains("WLAN");
+
+    let switchReady = false;
+    while (!switchReady) {
+      const switchNode = className("android.widget.CheckBox").findOne(1000);
+      if (!switchNode) {
+        throw new Error("未找到 Wi-Fi 复选框");
+      }
+      switchReady = switchNode.checked();
+      if (!switchReady) {
+        const rect = switchNode.bounds();
+        if (!click(rect.centerX(), rect.centerY())) {
+          throw new Error("开启 Wi-Fi 失败");
+        }
+        sleep(1000);
+      }
+    }
+
+    if (this.getNetworkAvailable() && this.getNetworkType() === "wifi") {
+      log("当前 Wi-Fi 已连接");
+      return true;
+    }
+
+    while (!NodeUtils.waitNodeMatchExists("text", "添加网络", 500)) {
+      GestureUtils.swipeToBottom();
+      sleep(1000);
+    }
+
+    NodeUtils.clickTextContains("添加网络");
+    sleep(1000);
+
+    const ssidInput = id("ssid").findOne(1000);
+    const passwordInput = id("password").findOne(1000);
+    if (!ssidInput || !passwordInput) {
+      throw new Error("未找到 Wi-Fi 输入框");
+    }
+    ssidInput.setText(ssid);
+    sleep(500);
+    click(620, 788);
+    sleep(500);
+    NodeUtils.clickTextContains("WPA/WPA2-Personal");
+    sleep(500);
+    passwordInput.setText(password);
+    sleep(500);
+    click(970, 166);
+    return true;
+  },
+
+  /**
    * 读取设备序列号：优先 device.serial，若为 unknown 则尝试 getprop ro.serialno。
    * @returns {string} 序列号字符串。
    * @throws {Error} 读取过程异常时抛出。
@@ -166,6 +338,27 @@ const DeviceUtils = {
     } catch (error) {
       console.error("get serial number error: ", error);
       throw error;
+    }
+  },
+
+  /**
+   * 请求截图权限
+   * @returns {boolean} true 表示请求成功，false 表示请求失败
+   */
+  requestScreenAuthPermission() {
+    let Thread = threads.start(function () {
+      if (auto.service != null) {
+        let Allow = textMatches(/(允许|立即开始|统一)/).findOne(10 * 1000);
+        if (Allow) {
+          Allow.click();
+        }
+      }
+    });
+    if (!requestScreenCapture()) {
+      return false;
+    } else {
+      Thread.interrupt();
+      return true;
     }
   },
 };

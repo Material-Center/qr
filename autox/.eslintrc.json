@@ -83,6 +83,7 @@
     "textStartsWith": true,
     "id": true,
     "desc": true,
+    "descContains": true,
     "descStartsWith": true,
     "AnimatorSet": true,
     "click": true,
