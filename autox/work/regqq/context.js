@@ -14,6 +14,7 @@ const REMOTE_REPORT_ACTIONS = {
 
 const PROFILE_ALPHA_CHARS = "abcdefghijklmnopqrstuvwxyz";
 const PROFILE_DIGIT_CHARS = "0123456789";
+const PROFILE_SYMBOL_CHARS = "!@#$%^&*()_+-=[]{}|;:,.<>?";
 const DEFAULT_HARD_MODIFY_HOST_IP_FILE = "/sdcard/ip.txt";
 const DEFAULT_HARD_MODIFY_BACKUP_IP_FILE = "/sdcard/ip.txt.bak";
 
@@ -43,17 +44,56 @@ function generateQQUsername() {
   return randomFromCharset(length, PROFILE_ALPHA_CHARS);
 }
 
+function pickRandomItems(items, count) {
+  const source = Array.isArray(items) ? items.slice() : [];
+  for (let i = source.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = source[i];
+    source[i] = source[j];
+    source[j] = temp;
+  }
+  return source.slice(0, Math.max(0, Number(count || 0) || 0));
+}
+
+function shuffleString(text) {
+  const chars = String(text || "").split("");
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = chars[i];
+    chars[i] = chars[j];
+    chars[j] = temp;
+  }
+  return chars.join("");
+}
+
 function generateQQPassword() {
-  return (
-    randomFromCharset(5, PROFILE_ALPHA_CHARS) +
-    randomFromCharset(5, PROFILE_DIGIT_CHARS)
-  );
+  const totalLength = 10;
+  const charsets = [
+    PROFILE_ALPHA_CHARS,
+    PROFILE_DIGIT_CHARS,
+    PROFILE_SYMBOL_CHARS,
+  ];
+  const requiredCharsets = pickRandomItems(charsets, 2);
+  let password = "";
+
+  for (let i = 0; i < requiredCharsets.length; i++) {
+    password += randomFromCharset(1, requiredCharsets[i]);
+  }
+
+  const mergedCharset = charsets.join("");
+  password += randomFromCharset(totalLength - password.length, mergedCharset);
+  return shuffleString(password);
 }
 
 function resolveHardModifyConfig(config) {
   const source = (config && config.resetEnvironment && config.resetEnvironment.hardModify) || {};
   return {
     enabled: source.enabled !== false,
+    startupGuardEnabled: source.startupGuardEnabled !== false,
+    startupRetryIntervalMs:
+      Number(source.startupRetryIntervalMs || 10 * 1000) || 10 * 1000,
+    startupAllowBackupAfterMs:
+      Number(source.startupAllowBackupAfterMs || 60 * 1000) || 60 * 1000,
     enableWifiBeforeTrigger: source.enableWifiBeforeTrigger !== false,
     enableUsbDebugBeforeTrigger: source.enableUsbDebugBeforeTrigger !== false,
     wifiSSID: String(source.wifiSSID || "").trim(),
@@ -92,6 +132,7 @@ function RegisterContext(config) {
   this.currentTask = null;
   this.profileDraft = null;
   this.hardModifyTriggered = false;
+  this.startupGuardReady = false;
   this.registerSuccessReported = false;
   this.heartbeatThread = null;
   this.heartbeatStopFlag = true;
@@ -380,6 +421,9 @@ RegisterContext.prototype.ensureQQReady = function () {
   var shouldClearData = config.clearQQDataBeforeLaunch !== false;
   var clearDelayMs = Number(config.clearQQDataDelayMs || 1500) || 1500;
 
+  this.log("打开 QQ 前关闭 USB 调试");
+  this.setUsbDebugEnabledForReset(false);
+
   if (shouldClearData) {
     if (!packageName) {
       throw new Error("clear qq data requires qqPackageName");
@@ -536,7 +580,7 @@ RegisterContext.prototype.setUsbDebugEnabledForReset = function (enabled) {
   return true;
 };
 
-RegisterContext.prototype.getHardModifyHostIP = function () {
+RegisterContext.prototype.getHardModifyHostIP = function (useBackup) {
   const config = resolveHardModifyConfig(this.config);
   let text = "";
   let usedBackup = false;
@@ -544,7 +588,10 @@ RegisterContext.prototype.getHardModifyHostIP = function () {
   try {
     text = readHardModifyHostIPText(config.hostIPFile);
   } catch (primaryErr) {
-    this.log("读取硬改 ip 文件失败，尝试备份文件 path=" + config.backupHostIPFile);
+    if (!useBackup) {
+      throw primaryErr;
+    }
+    this.log("读取硬改 ip 备份文件 path=" + config.backupHostIPFile);
     text = readHardModifyHostIPText(config.backupHostIPFile);
     usedBackup = true;
   }
@@ -559,13 +606,50 @@ RegisterContext.prototype.getHardModifyHostIP = function () {
   );
 
   if (!usedBackup) {
+    this.log("写入硬改 ip 备份文件 path=" + config.backupHostIPFile);
     files.write(config.backupHostIPFile, text);
     if (files.exists(config.hostIPFile)) {
       files.remove(config.hostIPFile);
+      this.log("删除硬改 ip 文件 path=" + config.hostIPFile);
     }
   }
 
   return hostIP;
+};
+
+RegisterContext.prototype.ensureStartupGuardReady = function () {
+  const config = resolveHardModifyConfig(this.config);
+  if (!config.enabled || !config.startupGuardEnabled || this.startupGuardReady) {
+    return true;
+  }
+
+  this.log(
+    "开始检查中控IP，" +
+      Math.floor(config.startupAllowBackupAfterMs / 1000) +
+      "s 后会尝试获取备份IP文件"
+  );
+
+  const startedAt = Date.now();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const elapsedMs = Date.now() - startedAt;
+    const useBackup = elapsedMs >= config.startupAllowBackupAfterMs;
+    try {
+      this.getHardModifyHostIP(useBackup);
+      this.startupGuardReady = true;
+      this.log("启动门禁检查通过");
+      return true;
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      this.log(
+        "获取中控IP失败，等待重试 useBackup=" +
+          useBackup +
+          " message=" +
+          message
+      );
+      sleep(config.startupRetryIntervalMs);
+    }
+  }
 };
 
 RegisterContext.prototype.checkHardModifyServer = function (hostIP) {
@@ -629,7 +713,7 @@ RegisterContext.prototype.resetEnvironment = function () {
       sleep(1000 * 10);
     }
   }
-  const hostIP = this.getHardModifyHostIP();
+  const hostIP = this.getHardModifyHostIP(true);
   if (!this.checkHardModifyServer(hostIP)) {
     throw new Error("硬改自动化服务器不可用");
   }

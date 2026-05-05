@@ -17,6 +17,9 @@ const RegQQConfig = {
   resetEnvironment: {
     hardModify: {
       enabled: true,
+      startupGuardEnabled: true,
+      startupRetryIntervalMs: 10 * 1000,
+      startupAllowBackupAfterMs: 60 * 1000,
       enableWifiBeforeTrigger: true,
       enableUsbDebugBeforeTrigger: true,
       useDeviceIdAsWifiSSID: true,

@@ -32,12 +32,17 @@ const currentUser = computed(() => userStore.userInfo || {})
 
 <style scoped>
 .task-center {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
   max-width: 960px;
   margin: 0 auto;
   padding: 8px;
   box-sizing: border-box;
-  min-height: 100vh;
-  min-height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
 }
 
 .user-bar {

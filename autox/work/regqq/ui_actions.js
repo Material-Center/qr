@@ -72,6 +72,41 @@ function waitForVerifyCodeStagePassed(ctx, timeoutMs) {
   return isVerifyCodeStagePassedNow(ctx);
 }
 
+function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
+  const buttonText = "同意并继续";
+  const maxWaitMs = Number(timeoutMs || 8000) || 8000;
+  const startedAt = Date.now();
+  let clickCount = 0;
+
+  while (Date.now() - startedAt < maxWaitMs) {
+    const agreeNode = text(buttonText).findOne(clickCount === 0 ? 1000 : 300);
+    if (!agreeNode) {
+      return {
+        success: clickCount > 0,
+        clicked: clickCount,
+      };
+    }
+
+    if (!NodeUtils.clickUiObject(agreeNode, false)) {
+      NodeUtils.clickByElement(agreeNode);
+    }
+    clickCount += 1;
+    ctx.log("同意并继续按钮已点击，第" + clickCount + "次");
+
+    if (NodeUtils.waitNodeGone("text", buttonText, 800)) {
+      return {
+        success: true,
+        clicked: clickCount,
+      };
+    }
+  }
+
+  return {
+    success: false,
+    clicked: clickCount,
+  };
+}
+
 function ensureManualVerifyCodePage(ctx) {
   if (isVerifyCodeStagePassedNow(ctx)) {
     return true;
@@ -285,19 +320,21 @@ const RegisterUIActions = {
 
     ctx.log("手机号输入完成");
 
-    const agreeNode = text("同意并继续").findOne(1000);
-    if (!agreeNode) {
+    const agreeResult = clickAgreeAndContinueUntilGone(ctx, 8000);
+    if (!agreeResult.clicked) {
       throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
         message: "未找到同意并继续按钮",
         shouldReport: true,
         shouldReset: true,
       });
     }
-    if (!NodeUtils.clickUiObject(agreeNode, false)) {
-      NodeUtils.clickByElement(agreeNode);
+    if (!agreeResult.success) {
+      throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+        message: "同意并继续按钮点击后未消失",
+        shouldReport: true,
+        shouldReset: true,
+      });
     }
-
-    ctx.log("同意并继续按钮已点击");
   },
 
   securityVerify(ctx) {

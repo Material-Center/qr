@@ -9,6 +9,7 @@ function RegisterRunner(config) {
 
 RegisterRunner.prototype.runOnce = function () {
   const ctx = this.ctx;
+  ctx.ensureStartupGuardReady();
   ctx.log("开始轮询手机号注册任务");
 
   const task = ctx.pollTask();
