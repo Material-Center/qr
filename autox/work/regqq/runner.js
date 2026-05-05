@@ -34,6 +34,7 @@ RegisterRunner.prototype.runOnce = function () {
     ctx.refreshTaskRuntimeConfig();
     ctx.prepareQQProfileDraft(false);
     ctx.heartbeat();
+    ctx.startTaskHeartbeatLoop();
     executeRegisterFlow(ctx);
     ctx.log("任务流程执行完成 id=" + taskId);
     return {
@@ -44,6 +45,8 @@ RegisterRunner.prototype.runOnce = function () {
     const normalized = handleFlowFailure(ctx, err);
     ctx.log("任务流程失败: " + normalized.message);
     throw normalized;
+  } finally {
+    ctx.stopTaskHeartbeatLoop();
   }
 };
 

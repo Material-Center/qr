@@ -99,9 +99,6 @@ function runCustomDevEntry(runner, devConfig) {
 
   // const nodeDebugger = new NodeDebugger();
   // nodeDebugger.dumpNodeTree(4);
-
-  runner.ctx.uploadCurrentCache("qwer1234");
-
   runner.ctx.refreshTaskRuntimeConfig();
   // runner.ctx.prepareQQProfileDraft(false);
 

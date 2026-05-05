@@ -370,7 +370,7 @@ const RegisterUIActions = {
 
   completeProfile(ctx) {
     ctx.log("准备填写昵称、用户名等资料");
-    if (!hasVerifyCodeNextStageFeature()) {
+    if (!hasVerifyCodeNextStageFeature(ctx)) {
       throw createStageFailure(
         "没有触发设置账号信息页面",
         PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
@@ -433,6 +433,7 @@ const RegisterUIActions = {
         PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
       );
     }
+    ctx.reportRegisterSuccessIfNeeded("注册成功，等待上传缓存");
     ctx.log("登录成功页面已进入");
   },
 

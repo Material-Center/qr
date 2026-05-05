@@ -1,9 +1,9 @@
 /**
  * @file node_util.js
  * @description 无障碍 UI 自动化：选择器存在性、点击、等待、数字输入等，封装 Auto.js 控件 API。
- * @see 依赖 Auto.js 全局：text、className、desc、id、textContains、descContains、descMatches、textMatches、device、click、sleep、KeyCode、log
+ * @see 依赖 Auto.js 全局：text、className、desc、id、textContains、descContains、descMatches、textMatches、device、click、sleep、KeyCode、log、setText、input
  */
-/* global text, className, desc, id, textContains, descContains, descMatches, textMatches, device, click, sleep, KeyCode, log */
+/* global text, className, desc, id, textContains, descContains, descMatches, textMatches, device, click, sleep, KeyCode, log, setText, input */
 
 /** 数字字符到 Android KeyEvent 键码的映射（内部使用）。 */
 const numberKeyCodeMap = {
@@ -504,6 +504,22 @@ const NodeUtils = {
       KeyCode(numberKeyCodeMap[arr[i]]);
       sleep(50);
     }
+  },
+
+  /**
+   * 向当前聚焦输入框写入文本。
+   * @param {string} textValue 文本内容。
+   * @returns {boolean} 成功输入返回 true。
+   */
+  inputText(textValue) {
+    const value = String(textValue || "");
+    if (typeof setText === "function") {
+      return setText(value);
+    }
+    if (typeof input === "function") {
+      return input(value);
+    }
+    throw new Error("text input api is not available");
   },
 };
 

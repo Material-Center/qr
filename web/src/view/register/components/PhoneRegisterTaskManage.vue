@@ -320,7 +320,7 @@ const safeFormatDate = (value) => {
 
 const smsModeText = (mode) => {
   if (mode === 'PLATFORM_SEND') return '平台发码'
-  if (mode === 'USER_SENT_TO_TX') return '用户转发到腾讯'
+  if (mode === 'USER_SENT_TO_TX') return '自己发码'
   return mode || '-'
 }
 

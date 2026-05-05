@@ -3,6 +3,7 @@ package system
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -238,7 +239,8 @@ func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, error) {
 			_ = zw.Close()
 			return nil, err
 		}
-		if _, err := w.Write([]byte(*rec.INI)); err != nil {
+		normalizedINI := normalizeQQCacheExportINI(*rec.INI)
+		if _, err := w.Write([]byte(normalizedINI)); err != nil {
 			_ = zw.Close()
 			return nil, err
 		}
@@ -251,6 +253,75 @@ func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, error) {
 		return nil, errors.New("所选记录均无缓存内容可导出")
 	}
 	return buf.Bytes(), nil
+}
+
+func normalizeQQCacheExportINI(raw string) string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	lines := strings.Split(raw, "\n")
+	output := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, ";") || strings.HasPrefix(trimmed, "#") {
+			output = append(output, line)
+			continue
+		}
+		key, hasKV := splitINIKeyValue(line)
+		if !hasKV {
+			output = append(output, line)
+			continue
+		}
+		if strings.HasPrefix(key, "_") {
+			continue
+		}
+		if strings.EqualFold(key, "deviceInfo") {
+			output = append(output, normalizeQQCacheDeviceInfoLine(key, line))
+			continue
+		}
+		output = append(output, line)
+	}
+
+	text := strings.Join(output, "\r\n")
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
+	if !strings.HasSuffix(text, "\r\n") {
+		text += "\r\n"
+	}
+	return text
+}
+
+func normalizeQQCacheDeviceInfoLine(key string, line string) string {
+	index := strings.IndexAny(line, "=:")
+	if index <= 0 {
+		return line
+	}
+	value := strings.TrimSpace(line[index+1:])
+	if value == "" {
+		return strings.TrimSpace(key) + string(line[index]) + `{"model":"XiaoMi 17"}`
+	}
+	var deviceInfo map[string]any
+	if err := json.Unmarshal([]byte(value), &deviceInfo); err != nil {
+		return line
+	}
+	deviceInfo["model"] = "XiaoMi 17"
+	normalizedValue, err := json.Marshal(deviceInfo)
+	if err != nil {
+		return line
+	}
+	return strings.TrimSpace(key) + string(line[index]) + string(normalizedValue)
+}
+
+func splitINIKeyValue(line string) (string, bool) {
+	index := strings.IndexAny(line, "=:")
+	if index <= 0 {
+		return "", false
+	}
+	key := strings.TrimSpace(line[:index])
+	if key == "" {
+		return "", false
+	}
+	return key, true
 }
 
 func sanitizeQQCacheZipEntryBase(qq string) string {

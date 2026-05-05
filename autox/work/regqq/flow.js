@@ -35,6 +35,7 @@ function executeRegisterFlow(ctx) {
   });
 
   runStageWithExceptionHandling(ctx, RegisterAction.SUBMIT_CACHE, function () {
+    ctx.reportRegisterSuccessIfNeeded("注册成功，等待上传缓存");
     ctx.uploadCurrentCache("");
   });
 

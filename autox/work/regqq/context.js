@@ -92,6 +92,9 @@ function RegisterContext(config) {
   this.currentTask = null;
   this.profileDraft = null;
   this.hardModifyTriggered = false;
+  this.registerSuccessReported = false;
+  this.heartbeatThread = null;
+  this.heartbeatStopFlag = true;
 }
 
 RegisterContext.prototype.log = function (message) {
@@ -106,12 +109,16 @@ RegisterContext.prototype.bindTask = function (task) {
   const nextTaskId = this.getTaskId();
   if (!nextTaskId) {
     this.profileDraft = null;
+    this.hardModifyTriggered = false;
+    this.registerSuccessReported = false;
     return this.currentTask;
   }
   if (this.profileDraft && this.profileDraft.taskId === nextTaskId) {
     return this.currentTask;
   }
   if (prevTaskId !== nextTaskId) {
+    this.hardModifyTriggered = false;
+    this.registerSuccessReported = false;
     this.prepareQQProfileDraft(true);
   }
   return this.currentTask;
@@ -245,9 +252,11 @@ RegisterContext.prototype.prepareQQProfileDraft = function (forceRefresh) {
   ) {
     return this.profileDraft;
   }
+  const username = generateQQUsername();
   this.profileDraft = {
     taskId: taskId,
-    username: generateQQUsername(),
+    nickname: generateQQUsername(),
+    username: username,
     password: generateQQPassword(),
   };
   this.log(
@@ -257,6 +266,15 @@ RegisterContext.prototype.prepareQQProfileDraft = function (forceRefresh) {
       this.profileDraft.password.length
   );
   return this.profileDraft;
+};
+
+RegisterContext.prototype.getTaskNickname = function () {
+  const draft = this.prepareQQProfileDraft(false);
+  return draft && draft.nickname ? String(draft.nickname) : "";
+};
+
+RegisterContext.prototype.getTaskUsername = function () {
+  return this.getQQUsername();
 };
 
 RegisterContext.prototype.getQQUsername = function () {
@@ -304,6 +322,55 @@ RegisterContext.prototype.waitForPendingVerifyCode = function (timeoutMs, option
     sleep(Math.min(pollIntervalMs, Math.max(maxWaitMs - (Date.now() - startAt), 0)));
   }
   return "";
+};
+
+RegisterContext.prototype.startTaskHeartbeatLoop = function () {
+  const intervalMs =
+    Number(this.config.heartbeatIntervalMs || 30000) || 30000;
+  if (
+    this.heartbeatThread &&
+    typeof this.heartbeatThread.isAlive === "function" &&
+    this.heartbeatThread.isAlive()
+  ) {
+    return this.heartbeatThread;
+  }
+  const ctx = this;
+  this.heartbeatStopFlag = false;
+  this.heartbeatThread = threads.start(function () {
+    while (!ctx.heartbeatStopFlag) {
+      sleep(intervalMs);
+      if (ctx.heartbeatStopFlag) {
+        break;
+      }
+      try {
+        if (ctx.getTaskId()) {
+          ctx.heartbeat();
+        }
+      } catch (err) {
+        ctx.log(
+          "后台心跳失败: " +
+            (err && err.message ? err.message : String(err))
+        );
+      }
+    }
+  });
+  return this.heartbeatThread;
+};
+
+RegisterContext.prototype.stopTaskHeartbeatLoop = function () {
+  this.heartbeatStopFlag = true;
+  if (!this.heartbeatThread) {
+    return;
+  }
+  try {
+    this.heartbeatThread.interrupt();
+  } catch (err) {
+    this.log(
+      "停止后台心跳线程失败: " +
+        (err && err.message ? err.message : String(err))
+    );
+  }
+  this.heartbeatThread = null;
 };
 
 RegisterContext.prototype.ensureQQReady = function () {
@@ -359,6 +426,19 @@ RegisterContext.prototype.uploadCurrentCache = function (qqPwd) {
     phone: this.getTaskPhone(),
     qqPwd: resolvedQQPwd,
   });
+};
+
+RegisterContext.prototype.reportRegisterSuccessIfNeeded = function (message) {
+  if (this.registerSuccessReported) {
+    return {
+      skipped: true,
+    };
+  }
+  const reportMessage =
+    String(message || "").trim() || "注册成功，等待上传缓存";
+  const result = this.report("register_success", reportMessage);
+  this.registerSuccessReported = true;
+  return result;
 };
 
 RegisterContext.prototype.ensureCacheToolReady = function () {
