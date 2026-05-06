@@ -9,10 +9,7 @@ const {
   hasVerifyCodeNextStageFeature,
   isLoginSuccessPage,
 } = require("./page_util");
-const {
-  createTodoError,
-  createExceptionDecision,
-} = require("./error");
+const { createTodoError, createExceptionDecision } = require("./error");
 const {
   getVerifyCodeStagePolicy,
   isVerifyCodeStagePassed,
@@ -105,6 +102,46 @@ function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
     success: false,
     clicked: clickCount,
   };
+}
+
+function openOtherPhoneRegisterIfNeeded(ctx, timeoutMs) {
+  const inputPhoneText = "输入手机号码";
+  const otherPhoneText = "其他手机号注册";
+  const maxWaitMs = Number(timeoutMs || 5000) || 5000;
+  const startedAt = Date.now();
+  let clickCount = 0;
+
+  while (Date.now() - startedAt < maxWaitMs) {
+    if (text(inputPhoneText).findOne(300)) {
+      return true;
+    }
+
+    const otherPhoneRegisterNode = text(otherPhoneText).findOne(500);
+    if (!otherPhoneRegisterNode) {
+      sleep(200);
+      continue;
+    }
+
+    clickCount += 1;
+    ctx.log("其他手机号注册按钮已找到，准备点击，第" + clickCount + "次");
+    const clicked =
+      NodeUtils.clickUiObject(otherPhoneRegisterNode, false) ||
+      NodeUtils.clickByElement(otherPhoneRegisterNode);
+    if (!clicked) {
+      throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+        message: "其他手机号注册按钮点击失败",
+        shouldReport: true,
+        shouldReset: true,
+      });
+    }
+
+    if (NodeUtils.waitNodeExists("text", inputPhoneText, 1500)) {
+      ctx.log("已进入手机号输入页面");
+      return true;
+    }
+  }
+
+  return text(inputPhoneText).findOne(300) != null;
 }
 
 function ensureManualVerifyCodePage(ctx) {
@@ -299,6 +336,13 @@ const RegisterUIActions = {
     }
 
     ensureAgreementChecked(ctx, 3000);
+    if (!openOtherPhoneRegisterIfNeeded(ctx, 5000)) {
+      throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+        message: "未进入手机号输入页面",
+        shouldReport: true,
+        shouldReset: true,
+      });
+    }
   },
 
   inputPhone(ctx) {
@@ -415,11 +459,13 @@ const RegisterUIActions = {
     }
 
     // 先清空数据，再输入数据
-    descContains("清空").find().forEach(item => {
-      if (!NodeUtils.clickUiObject(item, false)) {
-        NodeUtils.clickByElement(item);
-      }
-    });
+    descContains("清空")
+      .find()
+      .forEach((item) => {
+        if (!NodeUtils.clickUiObject(item, false)) {
+          NodeUtils.clickByElement(item);
+        }
+      });
 
     const editTexts = className("android.widget.EditText").find();
     if (editTexts && editTexts.size() < 2) {

@@ -1,7 +1,7 @@
 const { RegQQConfig } = require("./regqq_config");
 const { RegisterRunner } = require("./runner");
 const { RegisterUIActions } = require("./ui_actions");
-const NodeDebugger = require("../../common/debuger");
+const { PermissionUtils } = require("../../common/permission_util");
 
 threads.start(function () {
   // eslint-disable-next-line no-constant-condition
@@ -39,6 +39,10 @@ setTimeout(function () {
 
 function main() {
   auto.waitFor();
+
+  if (!PermissionUtils.ensureExternalStoragePermission({ timeoutMs: 15000 })) {
+    throw new Error("外部文件读写权限未授权");
+  }
 
   const runner = new RegisterRunner(RegQQConfig);
 

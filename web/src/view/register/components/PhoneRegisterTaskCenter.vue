@@ -44,64 +44,62 @@
 
       <div v-if="activeTasks.length">
         <el-divider class="my-2">当前任务</el-divider>
-        <el-card
-          v-for="task in activeTasks"
-          :key="task.id"
-          shadow="never"
-          class="mb-3"
-        >
-          <div class="task-title-row">
-            <div>
-              <div class="task-title">任务#{{ task.id }}</div>
-              <div class="task-subtitle">
-                创建于 {{ safeFormatDate(task.createdAt) }}，剩余 {{ remainText(task) }}
+        <div class="active-task-grid">
+          <el-card
+            v-for="task in activeTasks"
+            :key="task.id"
+            shadow="never"
+          >
+            <div class="task-title-row">
+              <div>
+                <div class="task-title-line">
+                  <span class="task-title">任务#{{ task.id }}</span>
+                  <el-tag
+                    size="small"
+                    :type="statusTagType(task.status, task.finishedAt)"
+                  >
+                    {{ statusText(task.status) }}
+                  </el-tag>
+                </div>
+                <div class="task-subtitle">
+                  创建于 {{ safeFormatDate(task.createdAt) }}，剩余 {{ remainText(task) }}
+                </div>
               </div>
             </div>
-            <el-tag :type="statusTagType(task.status, task.finishedAt)">
-              {{ statusText(task.status) }}
-            </el-tag>
-          </div>
 
-          <el-descriptions
-            :column="1"
-            border
-            size="small"
-            class="mt-3"
-          >
-            <el-descriptions-item label="手机号">
-              {{ task.phone || '-' }}
-            </el-descriptions-item>
-            <el-descriptions-item label="收码方式">
-              {{ smsModeText(task.smsReceiveMode) }}
-            </el-descriptions-item>
-            <el-descriptions-item label="设备">
-              {{ task.holderDeviceId || '-' }}
-            </el-descriptions-item>
-            <el-descriptions-item label="最近错误">
-              <span :class="{ 'text-red-500': task.lastError }">{{ task.lastError || '-' }}</span>
-            </el-descriptions-item>
-          </el-descriptions>
+            <div class="task-brief">
+              <span>手机号：{{ task.phone || '-' }}，收码方式：{{ smsModeText(task.smsReceiveMode) }}</span>
+            </div>
+            <div
+              v-if="task.lastError"
+              class="task-error"
+            >
+              最近错误：{{ task.lastError }}
+            </div>
 
-          <el-form
-            v-if="task.needPromoterCode"
-            label-width="88px"
-            class="compact-form mt-3"
-          >
-            <el-form-item label="验证码">
-              <el-input
-                v-model="verifyCodeMap[task.id]"
-                placeholder="请输入验证码"
-              />
-            </el-form-item>
-            <el-form-item>
-              <el-button
-                size="small"
-                type="primary"
-                @click="submitCode(task)"
-              >提交验证码</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
+            <el-form
+              v-if="task.needPromoterCode"
+              label-width="88px"
+              class="compact-form mt-3"
+            >
+              <el-form-item label="验证码">
+                <el-input
+                  v-model="verifyCodeMap[task.id]"
+                  placeholder="请输入验证码"
+                />
+              </el-form-item>
+              <el-form-item>
+                <el-button
+                  size="small"
+                  type="primary"
+                  @click="submitCode(task)"
+                >
+                  提交验证码
+                </el-button>
+              </el-form-item>
+            </el-form>
+          </el-card>
+        </div>
       </div>
     </el-card>
 
@@ -163,14 +161,6 @@
             prop="qqNum"
             min-width="120"
           />
-          <el-table-column
-            label="设备"
-            min-width="140"
-          >
-            <template #default="scope">
-              {{ scope.row.holderDeviceId || '-' }}
-            </template>
-          </el-table-column>
           <el-table-column
             label="错误"
             prop="lastError"
@@ -469,6 +459,18 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
+.active-task-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.task-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .task-title {
   font-size: 15px;
   font-weight: 600;
@@ -478,6 +480,21 @@ onBeforeUnmount(() => {
   margin-top: 4px;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.task-brief {
+  margin-top: 8px;
+  color: var(--el-text-color-regular);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.task-error {
+  margin-top: 6px;
+  color: var(--el-color-danger);
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .table-wrap {
@@ -497,6 +514,10 @@ onBeforeUnmount(() => {
   .task-title-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .active-task-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

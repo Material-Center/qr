@@ -162,11 +162,27 @@ function getNetworkState() {
   var cm = context.getSystemService(context.CONNECTIVITY_SERVICE);
   var net = cm.getActiveNetworkInfo();
 
-  if (net == null || !net.isAvailable()) {
-    toastLog("网络连接不可用!");
-    return false;
-  } else {
+  if (isNetworkUsable(net)) {
     toastLog("网络连接可用!");
     return true;
   }
+
+  var wifiNet = cm.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+  if (isNetworkUsable(wifiNet)) {
+    toastLog("Wi-Fi 网络连接可用!");
+    return true;
+  }
+
+  var mobileNet = cm.getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
+  if (isNetworkUsable(mobileNet)) {
+    toastLog("移动网络连接可用!");
+    return true;
+  }
+
+  toastLog("网络连接不可用!");
+  return false;
+}
+
+function isNetworkUsable(net) {
+  return net != null && (net.isConnected() || net.isConnectedOrConnecting() || net.isAvailable());
 }
