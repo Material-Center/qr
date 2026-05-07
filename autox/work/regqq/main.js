@@ -104,12 +104,12 @@ function runCustomDevEntry(runner, devConfig) {
   // const nodeDebugger = new NodeDebugger();
   // nodeDebugger.dumpNodeTree(4);
   runner.ctx.refreshTaskRuntimeConfig();
-  // runner.ctx.prepareQQProfileDraft(false);
+  runner.ctx.prepareQQProfileDraft(false);
 
-  // runner.ctx.ensureQQReady();
-  // RegisterUIActions.handleAuthorizeDialog(runner.ctx);
-  // RegisterUIActions.openRegisterPage(runner.ctx);
-  // RegisterUIActions.inputPhone(runner.ctx);
-  // RegisterUIActions.securityVerify(runner.ctx);
-  // RegisterUIActions.waitLoginSuccess(runner.ctx);
+  runner.ctx.ensureQQReady();
+  RegisterUIActions.handleAuthorizeDialog(runner.ctx);
+  RegisterUIActions.openRegisterPage(runner.ctx);
+  RegisterUIActions.inputPhone(runner.ctx);
+  RegisterUIActions.securityVerify(runner.ctx);
+  RegisterUIActions.waitLoginSuccess(runner.ctx);
 }
