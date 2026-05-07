@@ -97,7 +97,7 @@ function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
       };
     }
 
-    sleep(200);
+    sleep(1000);
   }
 
   return {
