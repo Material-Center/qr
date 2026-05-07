@@ -1,7 +1,7 @@
 /**
  * @file permission_util.js
- * @description Android 权限工具：外部文件读写权限检测、申请和设置页跳转。
- * @see 依赖 Auto.js/AutoX 全局：context、runtime、app、sleep、toastLog、importClass
+ * @description Android 权限工具：外部文件读写权限检测和申请。
+ * @see 依赖 Auto.js/AutoX 全局：context、runtime、sleep、toastLog、importClass
  */
 
 const READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
@@ -10,17 +10,6 @@ const WRITE_EXTERNAL_STORAGE = "android.permission.WRITE_EXTERNAL_STORAGE";
 function getSdkInt() {
   importClass(android.os.Build);
   return Build.VERSION.SDK_INT;
-}
-
-function getPackageName() {
-  if (
-    typeof context !== "undefined" &&
-    context &&
-    typeof context.getPackageName === "function"
-  ) {
-    return context.getPackageName();
-  }
-  return "";
 }
 
 function hasRuntimePermission(permission) {
@@ -129,79 +118,14 @@ const PermissionUtils = {
   },
 
   /**
-   * 判断是否具备 Android 11+ 管理所有文件权限。
-   * Android 10 及以下不需要该权限，直接返回 true。
-   * @returns {boolean} 已具备或无需该权限为 true。
-   */
-  hasManageAllFilesPermission() {
-    if (getSdkInt() < 30) {
-      return true;
-    }
-    importClass(android.os.Environment);
-    return Environment.isExternalStorageManager();
-  },
-
-  /**
-   * 打开当前应用的“管理所有文件”权限设置页。
-   * @param {string} [packageName] 应用包名，默认取当前 context 包名。
-   * @returns {boolean} 成功发起跳转为 true。
-   */
-  openManageAllFilesPermissionSettings(packageName) {
-    const pkg = String(packageName || getPackageName() || "").trim();
-    try {
-      if (typeof app === "undefined" || !app) {
-        return false;
-      }
-      app.startActivity({
-        action: "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION",
-        data: "package:" + pkg,
-        flags: ["activity_new_task"],
-      });
-      return true;
-    } catch (e) {
-      try {
-        app.startActivity({
-          action: "android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION",
-          flags: ["activity_new_task"],
-        });
-        return true;
-      } catch (fallbackError) {
-        return false;
-      }
-    }
-  },
-
-  /**
    * 确保外部文件读写权限可用。
-   * Android 11+ 检测“管理所有文件”权限；没有时跳转设置页并等待用户授权。
-   * Android 10 及以下申请 READ/WRITE_EXTERNAL_STORAGE。
-   * @param {{timeoutMs?: number, openSettings?: boolean, toast?: boolean}} [options]
+   * 仅申请 READ/WRITE_EXTERNAL_STORAGE，不跳转“管理所有文件”设置页。
+   * @param {{timeoutMs?: number, toast?: boolean}} [options]
    * @returns {boolean} 权限已具备为 true，否则 false。
    */
   ensureExternalStoragePermission(options = {}) {
     const timeoutMs = Number(options.timeoutMs || 15000) || 15000;
-    const openSettings = options.openSettings !== false;
     const showToast = options.toast !== false;
-
-    if (getSdkInt() >= 30) {
-      if (this.hasManageAllFilesPermission()) {
-        return true;
-      }
-      if (!openSettings) {
-        return false;
-      }
-      if (showToast) {
-        this.toast("请开启管理所有文件权限");
-      }
-      const watcher = startPermissionAllowWatcher(timeoutMs);
-      if (!this.openManageAllFilesPermissionSettings()) {
-        stopWatcher(watcher);
-        return false;
-      }
-      const granted = waitUntil(() => this.hasManageAllFilesPermission(), timeoutMs, 500);
-      stopWatcher(watcher);
-      return granted;
-    }
 
     if (showToast && !this.hasLegacyExternalStoragePermission()) {
       this.toast("正在申请外部文件读写权限");
