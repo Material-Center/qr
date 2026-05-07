@@ -71,10 +71,10 @@
               <span>手机号：{{ task.phone || '-' }}，收码方式：{{ smsModeText(task.smsReceiveMode) }}</span>
             </div>
             <div
-              v-if="task.lastError"
+              v-if="promoterErrorText(task)"
               class="task-error"
             >
-              最近错误：{{ task.lastError }}
+              最近错误：{{ promoterErrorText(task) }}
             </div>
 
             <el-form
@@ -163,10 +163,13 @@
           />
           <el-table-column
             label="错误"
-            prop="lastError"
             min-width="160"
             show-overflow-tooltip
-          />
+          >
+            <template #default="scope">
+              {{ promoterErrorText(scope.row) }}
+            </template>
+          </el-table-column>
           <el-table-column
             label="完成时间"
             min-width="170"
@@ -303,6 +306,22 @@ const statusTagType = (status, finishedAt) => {
   if (status === 'waiting_promoter_code') return 'warning'
   if (!finishedAt) return 'info'
   return 'info'
+}
+
+const promoterErrorText = (task) => {
+  const raw = String(task?.lastError || '').trim()
+  if (!raw) return ''
+  if (task?.status === 'failed') return '注册失败'
+  if (
+    raw.includes('没有触发') ||
+    raw.includes('未找到') ||
+    raw.includes('超时') ||
+    raw.includes('异常') ||
+    raw.includes('失败')
+  ) {
+    return '注册失败'
+  }
+  return raw
 }
 
 const loadActiveTasks = async () => {

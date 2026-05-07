@@ -22,7 +22,7 @@ const RegQQConfig = {
       startupAllowBackupAfterMs: 60 * 1000,
       enableWifiBeforeTrigger: true,
       enableUsbDebugBeforeTrigger: true,
-      useDeviceIdAsWifiSSID: true,
+      useDeviceIdAsWifiSSID: false,
       wifiSSID: "ddddffff",
       wifiPassword: "1234567890",
       wifiConnectTimeoutMs: 60 * 1000,

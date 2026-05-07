@@ -227,6 +227,7 @@ function runStageWithExceptionHandling(ctx, stageAction, execute) {
   const retryLimit = resolveStageRetryLimit(ctx, stageAction);
   let attempt = 0;
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     attempt += 1;
     ctx.report(stageAction, "start");

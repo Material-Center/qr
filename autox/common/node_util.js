@@ -496,13 +496,14 @@ const NodeUtils = {
   /**
    * 通过 KeyCode 依次输入数字字符串（如密码纯数字）。
    * @param {string|number} numstr 仅含 0-9 的字符串或数字。
+   * @param {number} delayMs 每个数字输入之间的延迟毫秒数。
    * @returns {void} 无返回值；非法字符无映射时 KeyCode(undefined) 行为由运行时决定。
    */
-  inputNumber(numstr) {
+  inputNumber(numstr, delayMs = 50) {
     const arr = String(numstr).split("");
     for (let i = 0; i < arr.length; i++) {
       KeyCode(numberKeyCodeMap[arr[i]]);
-      sleep(50);
+      sleep(delayMs);
     }
   },
 

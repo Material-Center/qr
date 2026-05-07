@@ -271,6 +271,7 @@ function handlePlatformSendVerifyCode(ctx, policy) {
 
 function handleUserSentToTXVerifyCode(ctx, policy) {
   ctx.log("用户已发送验证码模式，准备点击我已发送");
+  const waitSeconds = Math.floor(policy.manualSubmitIntervalMs / 1000);
   for (let attempt = 1; attempt <= policy.manualSubmitMaxAttempts; attempt++) {
     if (isVerifyCodeStagePassedNow(ctx)) {
       return;
@@ -278,17 +279,16 @@ function handleUserSentToTXVerifyCode(ctx, policy) {
 
     ensureManualVerifyCodePage(ctx);
     clickTextButton("我已发送", 2000, "未找到我已发送按钮");
-    ctx.log("我已发送按钮已点击，attempt=" + attempt);
+    ctx.log(
+      "我已发送按钮已点击，attempt=" + attempt + "，等待" + waitSeconds + "秒",
+    );
 
     if (waitForVerifyCodeStagePassed(ctx, policy.manualSubmitIntervalMs)) {
       return;
     }
   }
 
-  throw createStageFailure(
-    "点击我已发送 3 次后仍未进入下一阶段",
-    PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
-  );
+  throw createStageFailure("未发", PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL);
 }
 
 const RegisterUIActions = {
@@ -360,7 +360,11 @@ const RegisterUIActions = {
       NodeUtils.clickByElement(phoneNode);
     }
     sleep(500);
-    NodeUtils.inputNumber(ctx.getTaskPhone());
+    NodeUtils.inputNumber(ctx.getTaskPhone(), 100);
+    sleep(500);
+
+    // 点一下键盘失焦
+    click(device.width / 2, 100);
 
     ctx.log("手机号输入完成");
 
@@ -375,6 +379,22 @@ const RegisterUIActions = {
     if (!agreeResult.success) {
       throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
         message: "同意并继续按钮点击后未消失",
+        shouldReport: true,
+        shouldReset: true,
+      });
+    }
+
+    // 有些手机号是注册失败的，需要处理
+    if (NodeUtils.waitNodeMatchExists("text", "注册失败", 1000)) {
+      if (NodeUtils.waitNodeMatchExists("text", "更换手机号码后重试", 1000)) {
+        throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+          message: "注册失败，更换手机号码后重试",
+          shouldReport: true,
+          shouldReset: false,
+        });
+      }
+      throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+        message: "注册失败",
         shouldReport: true,
         shouldReset: true,
       });

@@ -17,6 +17,12 @@ const PROFILE_DIGIT_CHARS = "0123456789";
 const PROFILE_SYMBOL_CHARS = "!@#$%^&*()_+-=[]{}|;:,.<>?";
 const DEFAULT_HARD_MODIFY_HOST_IP_FILE = "/sdcard/ip.txt";
 const DEFAULT_HARD_MODIFY_BACKUP_IP_FILE = "/sdcard/ip.txt.bak";
+const HARD_MODIFY_DEBUG_WIFI_BY_DEVICE_ID = {
+  "1546c952": {
+    wifiSSID: "306",
+    wifiPassword: "AAABBBCCC!@#",
+  },
+};
 
 function readHardModifyHostIPText(path) {
   return String(files.read(path) || "");
@@ -114,6 +120,24 @@ function resolveHardModifyConfig(config) {
     responseWarnMs: Number(source.responseWarnMs || 5000) || 5000,
     beforeTriggerSleepMs: Number(source.beforeTriggerSleepMs || 1000) || 1000,
     afterTriggerSleepMs: Number(source.afterTriggerSleepMs || 3000) || 3000,
+  };
+}
+
+function resolveHardModifyWifiConfig(deviceId, config) {
+  const normalizedDeviceId = String(deviceId || "").trim().toLowerCase();
+  const debugWifi = HARD_MODIFY_DEBUG_WIFI_BY_DEVICE_ID[normalizedDeviceId];
+  if (debugWifi && debugWifi.wifiSSID && debugWifi.wifiPassword) {
+    return {
+      wifiSSID: String(debugWifi.wifiSSID || "").trim(),
+      wifiPassword: String(debugWifi.wifiPassword || "").trim(),
+      source: "debug-device-map",
+    };
+  }
+
+  return {
+    wifiSSID: config.useDeviceIdAsWifiSSID ? deviceId : config.wifiSSID,
+    wifiPassword: config.wifiPassword,
+    source: config.useDeviceIdAsWifiSSID ? "device-id" : "config",
   };
 }
 
@@ -538,17 +562,17 @@ RegisterContext.prototype.ensureCacheToolReady = function () {
 
 RegisterContext.prototype.enableWifiForReset = function () {
   const config = resolveHardModifyConfig(this.config);
-  const wifiSSID = config.useDeviceIdAsWifiSSID
-    ? this.deviceId
-    : config.wifiSSID;
+  const wifiConfig = resolveHardModifyWifiConfig(this.deviceId, config);
+  const wifiSSID = wifiConfig.wifiSSID;
+  const wifiPassword = wifiConfig.wifiPassword;
   if (!wifiSSID) {
     throw new Error("未配置 Wi-Fi 名称");
   }
-  if (!config.wifiPassword) {
+  if (!wifiPassword) {
     throw new Error("未配置 Wi-Fi 密码");
   }
-  this.log("尝试连接 Wi-Fi ssid=" + wifiSSID);
-  DeviceUtils.ensureWifiConnected(wifiSSID, config.wifiPassword, {
+  this.log("尝试连接 Wi-Fi ssid=" + wifiSSID + " source=" + wifiConfig.source);
+  DeviceUtils.ensureWifiConnected(wifiSSID, wifiPassword, {
     timeoutMs: config.wifiConnectTimeoutMs,
     allowUiFallback: true,
   });

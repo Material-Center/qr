@@ -48,8 +48,24 @@ RegisterRunner.prototype.runOnce = function () {
     throw normalized;
   } finally {
     ctx.stopTaskHeartbeatLoop();
+    openCurrentAutoXApp();
   }
 };
+
+function openCurrentAutoXApp() {
+  const packageName =
+    typeof context !== "undefined" &&
+    context &&
+    typeof context.getPackageName === "function"
+      ? context.getPackageName()
+      : "";
+  if (!packageName) {
+    console.warn("未获取到当前 AutoX 包名，无法打开应用");
+    return false;
+  }
+  console.log("runOnce 结束，打开当前 AutoX app: " + packageName);
+  return launch(packageName);
+}
 
 RegisterRunner.prototype.runForever = function () {
   const ctx = this.ctx;
