@@ -28,6 +28,22 @@ function createStageFailure(message, statusCode) {
 }
 
 function clickTextButton(pattern, timeoutMs, failureMessage, clickLabel) {
+  const button = text(pattern).findOne(timeoutMs);
+  if (!button) {
+    throw createStageFailure(
+      failureMessage,
+      PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
+    );
+  }
+  if (!NodeUtils.clickUiObject(button, false)) {
+    NodeUtils.clickByElement(button);
+  }
+  if (clickLabel) {
+    log(clickLabel);
+  }
+}
+
+function clickTextContainsButton(pattern, timeoutMs, failureMessage, clickLabel) {
   const button = textContains(pattern).findOne(timeoutMs);
   if (!button) {
     throw createStageFailure(
@@ -154,7 +170,7 @@ function ensureManualVerifyCodePage(ctx) {
     return true;
   }
   if (isInputVerifyCodePage(1000)) {
-    clickTextButton("收不到短信验证码", 1000, "未找到收不到验证码按钮");
+    clickTextContainsButton("收不到短信验证码", 1000, "未找到收不到验证码按钮");
     ctx.log("已点击收不到验证码按钮");
   }
   if (!isSendVerifyCodeManualPage(2000)) {
