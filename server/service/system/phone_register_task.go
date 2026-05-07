@@ -186,7 +186,6 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	if err != nil {
 		return phoneRegisterTaskListResult{}, err
 	}
-	statDB = applyPhoneRegisterTaskQueryFilters(statDB, req)
 
 	type counter struct {
 		Success    int64 `gorm:"column:success"`
@@ -616,7 +615,14 @@ func applyPhoneRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID
 
 func applyPhoneRegisterTaskQueryFilters(db *gorm.DB, req systemReq.PhoneRegisterTaskList) *gorm.DB {
 	if status := strings.TrimSpace(req.Status); status != "" {
-		db = db.Where("status = ?", status)
+		if status == "processing" {
+			db = db.Where("status NOT IN ?", []string{
+				system.PhoneRegisterStatusSucceeded,
+				system.PhoneRegisterStatusFailed,
+			})
+		} else {
+			db = db.Where("status = ?", status)
+		}
 	}
 	if req.StatusCode != nil {
 		db = db.Where("status_code = ?", *req.StatusCode)

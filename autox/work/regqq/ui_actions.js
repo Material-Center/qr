@@ -76,7 +76,7 @@ function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
   let clickCount = 0;
 
   while (Date.now() - startedAt < maxWaitMs) {
-    const agreeNode = text(buttonText).findOne(clickCount === 0 ? 1000 : 300);
+    const agreeNode = textContains(buttonText).findOne(clickCount === 0 ? 1000 : 300);
     if (!agreeNode) {
       return {
         success: clickCount > 0,
@@ -96,6 +96,8 @@ function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
         clicked: clickCount,
       };
     }
+
+    sleep(200);
   }
 
   return {
@@ -390,7 +392,7 @@ const RegisterUIActions = {
         throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
           message: "注册失败，更换手机号码后重试",
           shouldReport: true,
-          shouldReset: false,
+          shouldReset: true,
         });
       }
       throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {

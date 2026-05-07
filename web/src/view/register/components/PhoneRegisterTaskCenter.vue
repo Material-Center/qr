@@ -105,6 +105,20 @@
 
     <el-card shadow="never">
       <template #header>我的手机号注册任务</template>
+      <div class="task-list-toolbar">
+        <el-select
+          v-model="taskListStatus"
+          size="small"
+          class="status-filter"
+          placeholder="注册状态"
+          @change="handleStatusChange"
+        >
+          <el-option label="全部" value="" />
+          <el-option label="执行中" value="processing" />
+          <el-option label="成功" value="succeeded" />
+          <el-option label="失败" value="failed" />
+        </el-select>
+      </div>
       <el-row
         :gutter="12"
         class="mb-3"
@@ -119,28 +133,29 @@
           :data="myTasks"
           row-key="ID"
           size="small"
+          class="my-task-table"
         >
           <el-table-column
             label="任务ID"
             prop="ID"
-            width="90"
+            :width="taskColumnWidth.id"
           />
           <el-table-column
             label="创建时间"
-            min-width="170"
+            :min-width="taskColumnWidth.createdAt"
           >
             <template #default="scope">
-              {{ safeFormatDate(scope.row.CreatedAt) }}
+              <span class="task-time-cell">{{ safeFormatDate(scope.row.CreatedAt) }}</span>
             </template>
           </el-table-column>
           <el-table-column
             label="手机号"
             prop="phone"
-            min-width="130"
+            :min-width="taskColumnWidth.phone"
           />
           <el-table-column
             label="收码方式"
-            min-width="120"
+            :min-width="taskColumnWidth.smsMode"
           >
             <template #default="scope">
               {{ smsModeText(scope.row.smsReceiveMode) }}
@@ -148,7 +163,7 @@
           </el-table-column>
           <el-table-column
             label="状态"
-            min-width="130"
+            :min-width="taskColumnWidth.status"
           >
             <template #default="scope">
               <el-tag :type="statusTagType(scope.row.status, scope.row.finishedAt)">
@@ -159,11 +174,11 @@
           <el-table-column
             label="QQ号"
             prop="qqNum"
-            min-width="120"
+            :min-width="taskColumnWidth.qqNum"
           />
           <el-table-column
             label="错误"
-            min-width="160"
+            :min-width="taskColumnWidth.error"
             show-overflow-tooltip
           >
             <template #default="scope">
@@ -172,13 +187,25 @@
           </el-table-column>
           <el-table-column
             label="完成时间"
-            min-width="170"
+            :min-width="taskColumnWidth.finishedAt"
           >
             <template #default="scope">
-              {{ safeFormatDate(scope.row.finishedAt) }}
+              <span class="task-time-cell">{{ safeFormatDate(scope.row.finishedAt) }}</span>
             </template>
           </el-table-column>
         </el-table>
+      </div>
+      <div class="task-pagination">
+        <el-pagination
+          v-model:current-page="taskPage"
+          v-model:page-size="taskPageSize"
+          :page-sizes="[10, 20, 50]"
+          :total="taskTotal"
+          size="small"
+          layout="total, sizes, prev, pager, next"
+          @current-change="loadMyTasks"
+          @size-change="handlePageSizeChange"
+        />
       </div>
     </el-card>
   </div>
@@ -205,15 +232,46 @@ const phoneInput = ref('')
 const smsReceiveMode = ref(DEFAULT_SMS_RECEIVE_MODE)
 const activeTasks = ref([])
 const myTasks = ref([])
+const taskListStatus = ref('processing')
+const taskPage = ref(1)
+const taskPageSize = ref(10)
+const taskTotal = ref(0)
 const verifyCodeMap = ref({})
 const refreshTimer = ref(null)
 const countdownTimer = ref(null)
 const refreshing = ref(false)
 const nowTs = ref(Date.now())
+const windowWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth)
 const counters = ref({
   success: 0,
   fail: 0,
   processing: 0
+})
+
+const isMobile = computed(() => windowWidth.value <= 768)
+const taskColumnWidth = computed(() => {
+  if (isMobile.value) {
+    return {
+      id: 64,
+      createdAt: 120,
+      phone: 105,
+      smsMode: 76,
+      status: 88,
+      qqNum: 92,
+      error: 100,
+      finishedAt: 120
+    }
+  }
+  return {
+    id: 90,
+    createdAt: 170,
+    phone: 130,
+    smsMode: 120,
+    status: 130,
+    qqNum: 120,
+    error: 160,
+    finishedAt: 170
+  }
 })
 
 const normalizeSmsReceiveMode = (value) => {
@@ -336,10 +394,12 @@ const loadActiveTasks = async () => {
 
 const loadMyTasks = async () => {
   const { data } = await getPhoneRegisterTaskList({
-    page: 1,
-    pageSize: 20
+    page: taskPage.value,
+    pageSize: taskPageSize.value,
+    status: taskListStatus.value
   })
   myTasks.value = data?.list || []
+  taskTotal.value = data?.total || 0
   counters.value = {
     success: data?.successCount || 0,
     fail: data?.failCount || 0,
@@ -356,6 +416,16 @@ const refreshAll = async () => {
     refreshing.value = false
     syncAutoRefresh()
   }
+}
+
+const handleStatusChange = async () => {
+  taskPage.value = 1
+  await loadMyTasks()
+}
+
+const handlePageSizeChange = async () => {
+  taskPage.value = 1
+  await loadMyTasks()
 }
 
 const createTask = async () => {
@@ -413,6 +483,10 @@ const syncAutoRefresh = () => {
   }
 }
 
+const handleWindowResize = () => {
+  windowWidth.value = window.innerWidth
+}
+
 const startCountdown = () => {
   stopCountdown()
   countdownTimer.value = window.setInterval(() => {
@@ -429,6 +503,8 @@ const stopCountdown = () => {
 
 onMounted(async () => {
   try {
+    window.addEventListener('resize', handleWindowResize)
+    handleWindowResize()
     smsReceiveMode.value = loadLastSmsReceiveMode()
     await refreshAll()
     startCountdown()
@@ -438,6 +514,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleWindowResize)
   stopAutoRefresh()
   stopCountdown()
 })
@@ -516,9 +593,30 @@ onBeforeUnmount(() => {
   word-break: break-word;
 }
 
+.task-list-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.status-filter {
+  width: 140px;
+}
+
 .table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+}
+
+.task-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.task-time-cell {
+  line-height: 1;
+  display: block;
 }
 
 @media (max-width: 768px) {
@@ -537,6 +635,34 @@ onBeforeUnmount(() => {
 
   .active-task-grid {
     grid-template-columns: 1fr;
+  }
+
+  .task-list-toolbar,
+  .task-pagination {
+    justify-content: flex-start;
+  }
+
+  .status-filter {
+    width: 120px;
+  }
+
+  .my-task-table {
+    font-size: 12px;
+  }
+
+  .my-task-table :deep(.el-table__cell) {
+    padding: 4px 0;
+  }
+
+  .my-task-table :deep(.cell) {
+    padding: 0 4px;
+    line-height: 1.3;
+  }
+
+  .my-task-table :deep(.el-tag) {
+    height: 20px;
+    padding: 0 5px;
+    font-size: 11px;
   }
 }
 </style>
