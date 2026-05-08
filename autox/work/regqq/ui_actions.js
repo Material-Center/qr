@@ -50,8 +50,18 @@ function clickTextButton(pattern, timeoutMs, failureMessage, clickLabel) {
   clickMatchedButton(text(pattern), timeoutMs, failureMessage, clickLabel);
 }
 
-function clickTextContainsButton(pattern, timeoutMs, failureMessage, clickLabel) {
-  clickMatchedButton(textContains(pattern), timeoutMs, failureMessage, clickLabel);
+function clickTextContainsButton(
+  pattern,
+  timeoutMs,
+  failureMessage,
+  clickLabel,
+) {
+  clickMatchedButton(
+    textContains(pattern),
+    timeoutMs,
+    failureMessage,
+    clickLabel,
+  );
 }
 
 function clickRegisterAndLogin(ctx) {
@@ -60,11 +70,7 @@ function clickRegisterAndLogin(ctx) {
 
   for (let i = 0; i < maxClickCount; i++) {
     try {
-      clickTextContainsButton(
-        "注册并登录",
-        2000,
-        "未找到注册并登录按钮",
-      );
+      clickTextContainsButton("注册并登录", 2000, "未找到注册并登录按钮");
       hasButton = true;
     } catch (e) {
       sleep(500);
@@ -130,7 +136,9 @@ function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
   let clickCount = 0;
 
   while (Date.now() - startedAt < maxWaitMs) {
-    const agreeNode = textContains(buttonText).findOne(clickCount === 0 ? 1000 : 300);
+    const agreeNode = textContains(buttonText).findOne(
+      clickCount === 0 ? 1000 : 300,
+    );
     if (!agreeNode) {
       return {
         success: clickCount > 0,
@@ -144,7 +152,7 @@ function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
     clickCount += 1;
     sleep(CLICK_AFTER_DELAY_MS);
 
-    if (NodeUtils.waitNodeGone("text", buttonText, 800)) {
+    if (NodeUtils.waitNodeGone("text", buttonText, 3000)) {
       return {
         success: true,
         clicked: clickCount,
@@ -321,7 +329,15 @@ function handleUserSentToTXVerifyCode(ctx, policy) {
 
     ensureManualVerifyCodePage(ctx);
     clickTextContainsButton("我已发送", 2000, "未找到我已发送按钮");
-    ctx.log("验证码阶段: 已点击我已发送 " + attempt + "/" + policy.manualSubmitMaxAttempts + "，等待" + waitSeconds + "秒");
+    ctx.log(
+      "验证码阶段: 已点击我已发送 " +
+        attempt +
+        "/" +
+        policy.manualSubmitMaxAttempts +
+        "，等待" +
+        waitSeconds +
+        "秒",
+    );
     sleep(CLICK_AFTER_DELAY_MS);
 
     if (waitForVerifyCodeStagePassed(ctx, policy.manualSubmitIntervalMs)) {
@@ -407,7 +423,7 @@ const RegisterUIActions = {
     // 点一下键盘失焦
     click(device.width / 2, 100);
 
-    const agreeResult = clickAgreeAndContinueUntilGone(ctx, 8000);
+    const agreeResult = clickAgreeAndContinueUntilGone(ctx, 15 * 1000);
     if (!agreeResult.clicked) {
       throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
         message: "未找到同意并继续按钮",
