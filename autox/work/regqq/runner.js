@@ -10,12 +10,10 @@ function RegisterRunner(config) {
 RegisterRunner.prototype.runOnce = function () {
   const ctx = this.ctx;
   ctx.ensureStartupGuardReady();
-  ctx.log("开始轮询手机号注册任务");
 
   const task = ctx.pollTask();
   const taskId = ctx.getTaskId();
   if (!task || !taskId) {
-    ctx.log("当前没有待执行任务");
     return {
       ok: true,
       idle: true,
@@ -76,7 +74,7 @@ RegisterRunner.prototype.runForever = function () {
     pollIntervalMs;
 
   ctx.log(
-    "启动自动轮询 worker pollIntervalMs=" +
+    "worker启动 pollIntervalMs=" +
       pollIntervalMs +
       " errorRetryIntervalMs=" +
       errorRetryIntervalMs

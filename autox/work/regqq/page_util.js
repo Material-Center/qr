@@ -38,7 +38,6 @@ function ensureAgreementChecked(ctx, timeoutMs) {
     }
 
     if (agreeNode.checked()) {
-      ctx.log("同意协议已勾选");
       return true;
     }
 

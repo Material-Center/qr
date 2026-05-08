@@ -462,6 +462,63 @@ const NodeUtils = {
   },
 
   /**
+   * 从 selector 的匹配结果中找可点击节点。
+   * 查找顺序：
+   * 1. 所有匹配节点自身 clickable 的节点；
+   * 2. 所有匹配节点向上找到的第一个 clickable 父节点；
+   * 3. 找不到可点击节点时返回第一个匹配节点作为 fallback。
+   * @param {object} selector Auto.js UiSelector。
+   * @param {number} [timeoutMs=1000] 最长等待毫秒数。
+   * @returns {{node: object|null, fallbackNode: object}|null}
+   */
+  findClickableMatch(selector, timeoutMs = 1000) {
+    const maxWaitMs = Number(timeoutMs || 1000) || 1000;
+    const startedAt = Date.now();
+    let fallbackNode = null;
+
+    while (Date.now() - startedAt < maxWaitMs) {
+      const nodes = selector.find();
+      const size =
+        nodes && typeof nodes.size === "function" ? nodes.size() : 0;
+      const nodeList = [];
+      for (let i = 0; i < size; i++) {
+        const node = nodes.get(i);
+        if (!node) {
+          continue;
+        }
+        if (!fallbackNode) {
+          fallbackNode = node;
+        }
+        nodeList.push(node);
+        if (node.clickable && node.clickable()) {
+          return {
+            node: node,
+            fallbackNode: node,
+          };
+        }
+      }
+      for (let i = 0; i < nodeList.length; i++) {
+        const node = nodeList[i];
+        const clickableNode = NodeUtils.findClickableAncestor(node);
+        if (clickableNode) {
+          return {
+            node: clickableNode,
+            fallbackNode: node,
+          };
+        }
+      }
+      sleep(100);
+    }
+
+    return fallbackNode
+      ? {
+          node: null,
+          fallbackNode: fallbackNode,
+        }
+      : null;
+  },
+
+  /**
    * 自节点向上直到遇到 clickable 节点（与 findClickableAncestor 类似，原地沿 parent 爬升）。
    * @param {object|null} e 起始 UiObject。
    * @returns {object|null} 第一个可点击节点；无则返回 null（当 e 已为 null 时）。

@@ -285,6 +285,46 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 	}, nil
 }
 
+func (s *PhoneRegisterTaskService) GetTaskLogs(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskLogList) ([]system.SysPhoneRegisterTaskLog, int64, int, int, error) {
+	if req.TaskID == 0 {
+		return nil, 0, 0, 0, errors.New("taskId不能为空")
+	}
+
+	taskDB := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).Where("id = ?", req.TaskID)
+	taskDB, err := applyPhoneRegisterTaskRoleFilter(taskDB, operatorRole, operatorID, systemReq.PhoneRegisterTaskList{})
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	var count int64
+	if err = taskDB.Count(&count).Error; err != nil {
+		return nil, 0, 0, 0, err
+	}
+	if count == 0 {
+		return nil, 0, 0, 0, errors.New("无权限查看任务日志")
+	}
+
+	page := req.Page
+	pageSize := req.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 100
+	}
+
+	db := global.GVA_DB.Model(&system.SysPhoneRegisterTaskLog{}).Where("task_id = ?", req.TaskID)
+	var total int64
+	if err = db.Count(&total).Error; err != nil {
+		return nil, 0, 0, 0, err
+	}
+
+	var logs []system.SysPhoneRegisterTaskLog
+	if err = db.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&logs).Error; err != nil {
+		return nil, 0, 0, 0, err
+	}
+	return logs, total, page, pageSize, nil
+}
+
 func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDevicePoll) (system.SysPhoneRegisterTask, bool, error) {
 	deviceID := strings.TrimSpace(req.DeviceID)
 	if deviceID == "" {
@@ -441,6 +481,40 @@ func (s *PhoneRegisterTaskService) DeviceReport(req systemReq.PhoneRegisterDevic
 		return system.SysPhoneRegisterTask{}, err
 	}
 	return task, nil
+}
+
+func (s *PhoneRegisterTaskService) DeviceLog(req systemReq.PhoneRegisterDeviceLog) error {
+	deviceID := strings.TrimSpace(req.DeviceID)
+	message := strings.TrimSpace(req.Message)
+	if deviceID == "" {
+		return errors.New("deviceId不能为空")
+	}
+	if message == "" {
+		return errors.New("message不能为空")
+	}
+	var clientTime *time.Time
+	if rawClientTime := strings.TrimSpace(req.ClientTime); rawClientTime != "" {
+		if parsed, err := time.Parse(time.RFC3339Nano, rawClientTime); err == nil {
+			clientTime = &parsed
+		}
+	}
+	global.GVA_LOG.Info("手机号注册设备日志",
+		zap.String("deviceId", deviceID),
+		zap.Uint("taskId", req.TaskID),
+		zap.String("clientTime", strings.TrimSpace(req.ClientTime)),
+		zap.String("message", message),
+	)
+	if req.TaskID != 0 {
+		if err := global.GVA_DB.Create(&system.SysPhoneRegisterTaskLog{
+			TaskID:     req.TaskID,
+			DeviceID:   deviceID,
+			ClientTime: clientTime,
+			Message:    message,
+		}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *PhoneRegisterTaskService) GetDeviceConfig() (systemRes.PhoneRegisterDeviceConfigResponse, error) {

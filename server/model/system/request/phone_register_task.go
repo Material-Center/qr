@@ -48,3 +48,15 @@ type PhoneRegisterDeviceReport struct {
 	Message    string `json:"message" form:"message"`
 	StatusCode *int   `json:"statusCode" form:"statusCode"`
 }
+
+type PhoneRegisterDeviceLog struct {
+	DeviceID   string `json:"deviceId" form:"deviceId"`
+	TaskID     uint   `json:"taskId" form:"taskId"`
+	ClientTime string `json:"clientTime" form:"clientTime"`
+	Message    string `json:"message" form:"message"`
+}
+
+type PhoneRegisterTaskLogList struct {
+	request.PageInfo
+	TaskID uint `json:"taskId" form:"taskId"`
+}

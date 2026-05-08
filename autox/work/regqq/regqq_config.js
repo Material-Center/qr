@@ -76,7 +76,7 @@ const RegQQConfig = {
     mockTask: {
       id: "local-dev-task",
       phone: "18819351383",
-      smsReceiveMode: "PLATFORM_SEND", // USER_SENT_TO_TX | PLATFORM_SEND
+      smsReceiveMode: "USER_SENT_TO_TX", // USER_SENT_TO_TX | PLATFORM_SEND
     },
   },
 };

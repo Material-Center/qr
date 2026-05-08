@@ -17,6 +17,7 @@ const {
 
 const PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL = 1001;
 const PHONE_REGISTER_STATUS_CODE_VERIFY_CODE_TIMEOUT = 1002;
+const CLICK_AFTER_DELAY_MS = 1500;
 
 function createStageFailure(message, statusCode) {
   return createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
@@ -27,36 +28,29 @@ function createStageFailure(message, statusCode) {
   });
 }
 
-function clickTextButton(pattern, timeoutMs, failureMessage, clickLabel) {
-  const button = text(pattern).findOne(timeoutMs);
-  if (!button) {
+function clickMatchedButton(selector, timeoutMs, failureMessage, clickLabel) {
+  const match = NodeUtils.findClickableMatch(selector, timeoutMs);
+  if (!match) {
     throw createStageFailure(
       failureMessage,
       PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
     );
   }
-  if (!NodeUtils.clickUiObject(button, false)) {
-    NodeUtils.clickByElement(button);
+  const target = match.node || match.fallbackNode;
+  if (!NodeUtils.clickUiObject(target, false)) {
+    NodeUtils.clickByElement(match.fallbackNode || target);
   }
   if (clickLabel) {
     log(clickLabel);
   }
 }
 
+function clickTextButton(pattern, timeoutMs, failureMessage, clickLabel) {
+  clickMatchedButton(text(pattern), timeoutMs, failureMessage, clickLabel);
+}
+
 function clickTextContainsButton(pattern, timeoutMs, failureMessage, clickLabel) {
-  const button = textContains(pattern).findOne(timeoutMs);
-  if (!button) {
-    throw createStageFailure(
-      failureMessage,
-      PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
-    );
-  }
-  if (!NodeUtils.clickUiObject(button, false)) {
-    NodeUtils.clickByElement(button);
-  }
-  if (clickLabel) {
-    log(clickLabel);
-  }
+  clickMatchedButton(textContains(pattern), timeoutMs, failureMessage, clickLabel);
 }
 
 function readVerifyCodeStageState(ctx) {
@@ -104,7 +98,7 @@ function clickAgreeAndContinueUntilGone(ctx, timeoutMs) {
       NodeUtils.clickByElement(agreeNode);
     }
     clickCount += 1;
-    ctx.log("同意并继续按钮已点击，第" + clickCount + "次");
+    sleep(CLICK_AFTER_DELAY_MS);
 
     if (NodeUtils.waitNodeGone("text", buttonText, 800)) {
       return {
@@ -141,7 +135,6 @@ function openOtherPhoneRegisterIfNeeded(ctx, timeoutMs) {
     }
 
     clickCount += 1;
-    ctx.log("其他手机号注册按钮已找到，准备点击，第" + clickCount + "次");
     const clicked =
       NodeUtils.clickUiObject(otherPhoneRegisterNode, false) ||
       NodeUtils.clickByElement(otherPhoneRegisterNode);
@@ -154,7 +147,6 @@ function openOtherPhoneRegisterIfNeeded(ctx, timeoutMs) {
     }
 
     if (NodeUtils.waitNodeExists("text", inputPhoneText, 1500)) {
-      ctx.log("已进入手机号输入页面");
       return true;
     }
   }
@@ -171,7 +163,6 @@ function ensureManualVerifyCodePage(ctx) {
   }
   if (isInputVerifyCodePage(1000)) {
     clickTextContainsButton("收不到短信验证码", 1000, "未找到收不到验证码按钮");
-    ctx.log("已点击收不到验证码按钮");
   }
   if (!isSendVerifyCodeManualPage(2000)) {
     throw createStageFailure(
@@ -206,7 +197,6 @@ function clearAndInputVerifyCode(verifyCode) {
 
 function clickResendVerifyCode(ctx) {
   clickTextButton("重新发送", 2000, "未找到重新发送按钮");
-  ctx.log("重新发送按钮已点击");
 }
 
 function handlePlatformSendVerifyCode(ctx, policy) {
@@ -218,7 +208,7 @@ function handlePlatformSendVerifyCode(ctx, policy) {
   }
 
   ctx.report("enter_waiting_code", "已进入验证码等待阶段");
-  ctx.log("输入验证码页面已进入，开始等待地推提交验证码");
+  ctx.log("验证码阶段: 等待地推提交验证码");
 
   let lastSubmittedCode = "";
   for (
@@ -228,14 +218,6 @@ function handlePlatformSendVerifyCode(ctx, policy) {
   ) {
     const roundWaitMs = policy.waitRounds[roundIndex];
     const roundDeadlineAt = Date.now() + roundWaitMs;
-    ctx.log(
-      "验证码等待第 " +
-        (roundIndex + 1) +
-        " 轮，最长等待 " +
-        roundWaitMs +
-        "ms",
-    );
-
     while (Date.now() < roundDeadlineAt) {
       if (isVerifyCodeStagePassedNow(ctx)) {
         ctx.report("consume_code_success", "验证码阶段已通过");
@@ -259,7 +241,7 @@ function handlePlatformSendVerifyCode(ctx, policy) {
         continue;
       }
 
-      ctx.log("检测到新验证码，准备输入");
+      ctx.log("验证码阶段: 收到验证码，准备输入");
       clearAndInputVerifyCode(code);
       lastSubmittedCode = code;
 
@@ -272,8 +254,6 @@ function handlePlatformSendVerifyCode(ctx, policy) {
         ctx.report("consume_code_success", "验证码已消费并进入下一阶段");
         return;
       }
-
-      ctx.log("当前验证码未推进到下一阶段，继续等待新的验证码");
     }
 
     if (roundIndex < policy.resendCount) {
@@ -288,7 +268,7 @@ function handlePlatformSendVerifyCode(ctx, policy) {
 }
 
 function handleUserSentToTXVerifyCode(ctx, policy) {
-  ctx.log("用户已发送验证码模式，准备点击我已发送");
+  ctx.log("验证码阶段: 我已发码模式");
   const waitSeconds = Math.floor(policy.manualSubmitIntervalMs / 1000);
   for (let attempt = 1; attempt <= policy.manualSubmitMaxAttempts; attempt++) {
     if (isVerifyCodeStagePassedNow(ctx)) {
@@ -296,10 +276,9 @@ function handleUserSentToTXVerifyCode(ctx, policy) {
     }
 
     ensureManualVerifyCodePage(ctx);
-    clickTextButton("我已发送", 2000, "未找到我已发送按钮");
-    ctx.log(
-      "我已发送按钮已点击，attempt=" + attempt + "，等待" + waitSeconds + "秒",
-    );
+    clickTextContainsButton("我已发送", 2000, "未找到我已发送按钮");
+    ctx.log("验证码阶段: 已点击我已发送 " + attempt + "/" + policy.manualSubmitMaxAttempts + "，等待" + waitSeconds + "秒");
+    sleep(CLICK_AFTER_DELAY_MS);
 
     if (waitForVerifyCodeStagePassed(ctx, policy.manualSubmitIntervalMs)) {
       return;
@@ -332,11 +311,11 @@ const RegisterUIActions = {
         shouldReset: false,
       });
     }
-    ctx.log("用户隐私弹窗已同意");
+    ctx.log("授权弹窗已处理");
   },
 
   openRegisterPage(ctx) {
-    ctx.log("准备打开 QQ 注册页面");
+    ctx.log("打开QQ注册页");
     if (!NodeUtils.waitNodeExists("id", "btn_register", 2000)) {
       throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
         message: "注册按钮未找到",
@@ -364,7 +343,7 @@ const RegisterUIActions = {
   },
 
   inputPhone(ctx) {
-    ctx.log("准备输入手机号: " + ctx.getTaskPhone());
+    ctx.log("输入手机号");
 
     const phoneNode = text("输入手机号码").findOne(1000);
     if (!phoneNode) {
@@ -383,8 +362,6 @@ const RegisterUIActions = {
 
     // 点一下键盘失焦
     click(device.width / 2, 100);
-
-    ctx.log("手机号输入完成");
 
     const agreeResult = clickAgreeAndContinueUntilGone(ctx, 8000);
     if (!agreeResult.clicked) {
@@ -420,12 +397,10 @@ const RegisterUIActions = {
   },
 
   securityVerify(ctx) {
-    ctx.log("准备处理安全验证");
-
     if (!isSecurityVerifyPage()) {
-      ctx.log("当前页面未出现安全验证，跳过该阶段");
       return;
     }
+    ctx.log("处理安全验证");
 
     let tryCount = 0;
 
@@ -441,7 +416,6 @@ const RegisterUIActions = {
       tryCount++;
 
       const challenge = ctx.solveImageVerification("框出正确位置", {});
-      ctx.log("安全验证截图已生成 path=" + challenge.debugPath);
       challenge.click();
 
       const confirmNode = textMatches("确定").findOne(1000);
@@ -455,8 +429,6 @@ const RegisterUIActions = {
       if (!NodeUtils.clickUiObject(confirmNode, false)) {
         NodeUtils.clickByElement(confirmNode);
       }
-
-      ctx.log("确定按钮已点击");
       sleep(3000);
     }
 
@@ -465,7 +437,7 @@ const RegisterUIActions = {
 
   waitOrSubmitVerifyCode(ctx) {
     const mode = ctx.getSmsReceiveMode();
-    ctx.log("准备处理验证码，模式: " + mode);
+    ctx.log("处理验证码 mode=" + mode);
     const policy = getVerifyCodeStagePolicy(mode);
     if (!policy) {
       throw createStageFailure(
@@ -488,7 +460,7 @@ const RegisterUIActions = {
   },
 
   completeProfile(ctx) {
-    ctx.log("准备填写昵称、用户名等资料");
+    ctx.log("填写账号资料");
     if (!hasVerifyCodeNextStageFeature(ctx)) {
       throw createStageFailure(
         "没有触发设置账号信息页面",
@@ -544,7 +516,7 @@ const RegisterUIActions = {
         PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
       );
     }
-    ctx.log("注册并登录按钮已点击");
+    ctx.log("已点击注册并登录");
   },
 
   waitLoginSuccess(ctx) {
@@ -555,7 +527,7 @@ const RegisterUIActions = {
       );
     }
     ctx.reportRegisterSuccessIfNeeded("注册成功，等待上传缓存");
-    ctx.log("登录成功页面已进入");
+    ctx.log("登录成功");
   },
 
   handleCommonException(ctx, exceptionState) {
@@ -575,92 +547,38 @@ const RegisterUIActions = {
   },
 
   handleOpenRegisterPageException(ctx, exceptionState) {
-    ctx.log(
-      "注册页面异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleAuthorizeDialogException(ctx, exceptionState) {
-    ctx.log(
-      "待实现授权弹窗异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleInputPhoneException(ctx, exceptionState) {
-    ctx.log(
-      "待实现手机号输入异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleSecurityVerifyException(ctx, exceptionState) {
-    ctx.log(
-      "待实现安全验证异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleVerifyCodeException(ctx, exceptionState) {
-    ctx.log(
-      "待实现验证码异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleCompleteProfileException(ctx, exceptionState) {
-    ctx.log(
-      "待实现资料填写异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleWaitLoginSuccessException(ctx, exceptionState) {
-    ctx.log(
-      "待实现登录完成异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleSubmitCacheException(ctx, exceptionState) {
-    ctx.log(
-      "待实现缓存提交异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 
   handleResetEnvironmentException(ctx, exceptionState) {
-    ctx.log(
-      "待实现环境重置异常处理 type=" +
-        exceptionState.type +
-        " message=" +
-        exceptionState.message,
-    );
     return null;
   },
 };

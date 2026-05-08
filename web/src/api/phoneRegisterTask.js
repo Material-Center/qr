@@ -46,3 +46,10 @@ export const getPhoneRegisterTaskSummary = (params) => {
   })
 }
 
+export const getPhoneRegisterTaskLogs = (data) => {
+  return service({
+    url: '/phoneRegisterTask/logs',
+    method: 'post',
+    data
+  })
+}

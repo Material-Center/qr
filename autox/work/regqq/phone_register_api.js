@@ -95,6 +95,15 @@ function createPhoneRegisterApiClient(options) {
       return post("/phoneRegisterTask/device/report", payload);
     },
 
+    log(deviceId, taskId, message) {
+      return post("/phoneRegisterTask/device/log", {
+        deviceId,
+        taskId,
+        clientTime: new Date().toISOString(),
+        message,
+      });
+    },
+
     getConfig(deviceId) {
       return get("/phoneRegisterTask/device/config", { deviceId });
     },

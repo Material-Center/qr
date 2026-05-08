@@ -41,6 +41,56 @@ CREATE TABLE IF NOT EXISTS `sys_phone_register_tasks` (
   KEY `idx_sys_phone_register_tasks_expires_at` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+CREATE TABLE IF NOT EXISTS `sys_phone_register_task_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `created_at` datetime(3) DEFAULT NULL,
+  `updated_at` datetime(3) DEFAULT NULL,
+  `deleted_at` datetime(3) DEFAULT NULL,
+  `task_id` bigint unsigned NOT NULL DEFAULT 0,
+  `device_id` varchar(128) NOT NULL DEFAULT '',
+  `client_time` datetime(3) DEFAULT NULL,
+  `message` longtext,
+  PRIMARY KEY (`id`),
+  KEY `idx_sys_phone_register_task_logs_deleted_at` (`deleted_at`),
+  KEY `idx_sys_phone_register_task_logs_task_id` (`task_id`),
+  KEY `idx_sys_phone_register_task_logs_device_id` (`device_id`),
+  KEY `idx_sys_phone_register_task_logs_client_time` (`client_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = @db_name
+        AND TABLE_NAME = 'sys_phone_register_task_logs'
+        AND COLUMN_NAME = 'client_time'
+    ),
+    'SELECT 1',
+    'ALTER TABLE `sys_phone_register_task_logs` ADD COLUMN `client_time` datetime(3) DEFAULT NULL AFTER `device_id`'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    EXISTS (
+      SELECT 1
+      FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = @db_name
+        AND TABLE_NAME = 'sys_phone_register_task_logs'
+        AND INDEX_NAME = 'idx_sys_phone_register_task_logs_client_time'
+    ),
+    'SELECT 1',
+    'ALTER TABLE `sys_phone_register_task_logs` ADD INDEX `idx_sys_phone_register_task_logs_client_time` (`client_time`)'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 SET @db_name = DATABASE();
 
 SET @sql = (
@@ -169,6 +219,12 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO `sys_apis` (`created_at`,`updated_at`,`api_group`,`method`,`path`,`description`)
+SELECT NOW(), NOW(), '手机号注册任务', 'POST', '/phoneRegisterTask/logs', '查询手机号注册任务日志'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path`='/phoneRegisterTask/logs' AND `method`='POST' AND `deleted_at` IS NULL
+);
+
+INSERT INTO `sys_apis` (`created_at`,`updated_at`,`api_group`,`method`,`path`,`description`)
 SELECT NOW(), NOW(), '手机号注册任务', 'POST', '/phoneRegisterTask/device/poll', '设备拉取手机号注册任务'
 WHERE NOT EXISTS (
   SELECT 1 FROM `sys_apis` WHERE `path`='/phoneRegisterTask/device/poll' AND `method`='POST' AND `deleted_at` IS NULL
@@ -196,6 +252,12 @@ INSERT INTO `sys_apis` (`created_at`,`updated_at`,`api_group`,`method`,`path`,`d
 SELECT NOW(), NOW(), '手机号注册任务', 'POST', '/phoneRegisterTask/device/report', '设备上报手机号注册任务进度'
 WHERE NOT EXISTS (
   SELECT 1 FROM `sys_apis` WHERE `path`='/phoneRegisterTask/device/report' AND `method`='POST' AND `deleted_at` IS NULL
+);
+
+INSERT INTO `sys_apis` (`created_at`,`updated_at`,`api_group`,`method`,`path`,`description`)
+SELECT NOW(), NOW(), '手机号注册任务', 'POST', '/phoneRegisterTask/device/log', '设备上报手机号注册任务日志'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path`='/phoneRegisterTask/device/log' AND `method`='POST' AND `deleted_at` IS NULL
 );
 
 INSERT INTO `sys_apis` (`created_at`,`updated_at`,`api_group`,`method`,`path`,`description`)
@@ -242,6 +304,12 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)
+SELECT 'p','888','/phoneRegisterTask/logs','POST','','',''
+WHERE NOT EXISTS (
+  SELECT 1 FROM `casbin_rule` WHERE `ptype`='p' AND `v0`='888' AND `v1`='/phoneRegisterTask/logs' AND `v2`='POST'
+);
+
+INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)
 SELECT 'p','100','/phoneRegisterTask/list','POST','','',''
 WHERE NOT EXISTS (
   SELECT 1 FROM `casbin_rule` WHERE `ptype`='p' AND `v0`='100' AND `v1`='/phoneRegisterTask/list' AND `v2`='POST'
@@ -254,6 +322,12 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)
+SELECT 'p','100','/phoneRegisterTask/logs','POST','','',''
+WHERE NOT EXISTS (
+  SELECT 1 FROM `casbin_rule` WHERE `ptype`='p' AND `v0`='100' AND `v1`='/phoneRegisterTask/logs' AND `v2`='POST'
+);
+
+INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)
 SELECT 'p','200','/phoneRegisterTask/list','POST','','',''
 WHERE NOT EXISTS (
   SELECT 1 FROM `casbin_rule` WHERE `ptype`='p' AND `v0`='200' AND `v1`='/phoneRegisterTask/list' AND `v2`='POST'
@@ -263,6 +337,12 @@ INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)
 SELECT 'p','200','/phoneRegisterTask/summary','GET','','',''
 WHERE NOT EXISTS (
   SELECT 1 FROM `casbin_rule` WHERE `ptype`='p' AND `v0`='200' AND `v1`='/phoneRegisterTask/summary' AND `v2`='GET'
+);
+
+INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)
+SELECT 'p','200','/phoneRegisterTask/logs','POST','','',''
+WHERE NOT EXISTS (
+  SELECT 1 FROM `casbin_rule` WHERE `ptype`='p' AND `v0`='200' AND `v1`='/phoneRegisterTask/logs' AND `v2`='POST'
 );
 
 INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`,`v3`,`v4`,`v5`)

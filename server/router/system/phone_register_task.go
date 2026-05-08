@@ -19,6 +19,7 @@ func (r *PhoneRegisterTaskRouter) InitPhoneRegisterTaskRouter(PrivateGroup *gin.
 		phoneRegisterTaskRouterWithoutRecord.GET("active", phoneRegisterTaskApi.GetActivePhoneRegisterTask)
 		phoneRegisterTaskRouterWithoutRecord.GET("actives", phoneRegisterTaskApi.GetActivePhoneRegisterTasks)
 		phoneRegisterTaskRouterWithoutRecord.POST("list", phoneRegisterTaskApi.GetPhoneRegisterTaskList)
+		phoneRegisterTaskRouterWithoutRecord.POST("logs", phoneRegisterTaskApi.GetPhoneRegisterTaskLogs)
 		phoneRegisterTaskRouterWithoutRecord.GET("summary", phoneRegisterTaskApi.GetPhoneRegisterTaskSummary)
 	}
 	{
@@ -27,6 +28,7 @@ func (r *PhoneRegisterTaskRouter) InitPhoneRegisterTaskRouter(PrivateGroup *gin.
 		publicPhoneRegisterTaskRouter.POST("device/task", phoneRegisterTaskApi.DeviceGetPhoneRegisterTask)
 		publicPhoneRegisterTaskRouter.POST("device/heartbeat", phoneRegisterTaskApi.DeviceHeartbeatPhoneRegisterTask)
 		publicPhoneRegisterTaskRouter.POST("device/report", phoneRegisterTaskApi.DeviceReportPhoneRegisterTask)
+		publicPhoneRegisterTaskRouter.POST("device/log", phoneRegisterTaskApi.DeviceLogPhoneRegisterTask)
 		publicPhoneRegisterTaskRouter.GET("device/config", phoneRegisterTaskApi.DeviceGetPhoneRegisterConfig)
 	}
 }

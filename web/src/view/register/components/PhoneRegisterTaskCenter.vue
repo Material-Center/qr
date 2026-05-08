@@ -348,7 +348,7 @@ const isPlatformSend = computed({
 
 const statusText = (status) => {
   const map = {
-    pending: '待领取',
+    pending: '待执行',
     running: '执行中',
     waiting_promoter_code: '待地推验证码',
     registered_wait_upload: '待上传缓存',

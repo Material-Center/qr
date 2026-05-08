@@ -164,7 +164,15 @@ function RegisterContext(config) {
 
 RegisterContext.prototype.log = function (message) {
   const prefix = "[regqq][" + this.deviceId + "]";
-  log(prefix + " " + message);
+  const text = String(message || "");
+  log(prefix + " " + text);
+  try {
+    if (this.apiClient && typeof this.apiClient.log === "function") {
+      this.apiClient.log(this.deviceId, this.getTaskId() || 0, text);
+    }
+  } catch (_error) {
+    // 日志上报失败不能影响客户端主流程。
+  }
 };
 
 RegisterContext.prototype.bindTask = function (task) {
@@ -281,13 +289,12 @@ RegisterContext.prototype.heartbeat = function () {
 };
 
 RegisterContext.prototype.report = function (action, message, statusCode) {
-  this.log("上报任务状态 action=" + action + " message=" + message);
   if (!REMOTE_REPORT_ACTIONS[action]) {
-    this.log("当前 action 不走服务端状态流转，跳过远端上报 action=" + action);
     return {
       skipped: true,
     };
   }
+  this.log("上报任务状态 action=" + action + " message=" + message);
   return this.apiClient.report(this.deviceId, action, message, statusCode);
 };
 

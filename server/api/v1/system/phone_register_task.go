@@ -176,6 +176,34 @@ func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskSummary(c *gin.Context) {
 	response.OkWithDetailed(data, "获取成功", c)
 }
 
+// GetPhoneRegisterTaskLogs
+// @Tags      PhoneRegisterTask
+// @Summary   查询手机号注册任务日志
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.PhoneRegisterTaskLogList  true  "查询参数"
+// @Success   200   {object}  response.Response{data=systemRes.PhoneRegisterTaskLogListResponse,msg=string}
+// @Router    /phoneRegisterTask/logs [post]
+func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskLogs(c *gin.Context) {
+	var req systemReq.PhoneRegisterTaskLogList
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	logs, total, page, pageSize, err := phoneRegisterTaskService.GetTaskLogs(utils.GetUserAuthorityId(c), utils.GetUserID(c), req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(systemRes.PhoneRegisterTaskLogListResponse{
+		List:     logs,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, "获取成功", c)
+}
+
 // DevicePollPhoneRegisterTask
 // @Tags      PhoneRegisterTask
 // @Summary   设备拉取手机号注册任务
@@ -266,6 +294,27 @@ func (a *PhoneRegisterTaskApi) DeviceReportPhoneRegisterTask(c *gin.Context) {
 		return
 	}
 	response.OkWithDetailed(systemRes.PhoneRegisterDeviceHeartbeatResponse{OK: true}, "上报成功", c)
+}
+
+// DeviceLogPhoneRegisterTask
+// @Tags      PhoneRegisterTask
+// @Summary   设备上报手机号注册任务日志
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.PhoneRegisterDeviceLog  true  "日志参数"
+// @Success   200   {object}  response.Response{data=systemRes.PhoneRegisterDeviceHeartbeatResponse,msg=string}
+// @Router    /phoneRegisterTask/device/log [post]
+func (a *PhoneRegisterTaskApi) DeviceLogPhoneRegisterTask(c *gin.Context) {
+	var req systemReq.PhoneRegisterDeviceLog
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	if err := phoneRegisterTaskService.DeviceLog(req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(systemRes.PhoneRegisterDeviceHeartbeatResponse{OK: true}, "日志上报成功", c)
 }
 
 // DeviceGetPhoneRegisterConfig

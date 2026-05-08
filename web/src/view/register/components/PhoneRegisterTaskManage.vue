@@ -149,6 +149,18 @@
             {{ safeFormatDate(scope.row.finishedAt) }}
           </template>
         </el-table-column>
+        <el-table-column label="操作" fixed="right" width="90">
+          <template #default="scope">
+            <el-button
+              link
+              type="primary"
+              size="small"
+              @click="openLogDialog(scope.row)"
+            >
+              日志
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
       <div class="gva-pagination">
@@ -193,14 +205,54 @@
         </el-row>
       </template>
     </div>
+
+    <el-dialog
+      v-model="logDialogVisible"
+      :title="logDialogTitle"
+      width="920px"
+      destroy-on-close
+      @closed="stopLogRefresh"
+    >
+      <div v-loading="logLoading" class="task-log-panel">
+        <el-empty v-if="!taskLogs.length" description="暂无日志" />
+        <div v-else class="task-log-list">
+          <div class="task-log-line task-log-head">
+            <span>时间</span>
+            <span>设备</span>
+            <span>内容</span>
+          </div>
+          <div
+            v-for="item in taskLogs"
+            :key="item.ID"
+            class="task-log-line"
+          >
+            <span class="task-log-time">{{ safeFormatDate(item.clientTime) }}</span>
+            <span class="task-log-device">{{ item.deviceId || '-' }}</span>
+            <span class="task-log-message">{{ item.message }}</span>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-pagination
+          v-model:current-page="logPage"
+          v-model:page-size="logPageSize"
+          :page-sizes="[50, 100, 200]"
+          :total="logTotal"
+          small
+          layout="total, sizes, prev, pager, next"
+          @current-change="fetchTaskLogs"
+          @size-change="handleLogSizeChange"
+        />
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getUserList } from '@/api/user'
-import { getPhoneRegisterTaskList, getPhoneRegisterTaskSummary } from '@/api/phoneRegisterTask'
+import { getPhoneRegisterTaskList, getPhoneRegisterTaskLogs, getPhoneRegisterTaskSummary } from '@/api/phoneRegisterTask'
 import { formatDate } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
 
@@ -217,6 +269,14 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
+const logDialogVisible = ref(false)
+const logLoading = ref(false)
+const logTask = ref(null)
+const taskLogs = ref([])
+const logPage = ref(1)
+const logPageSize = ref(100)
+const logTotal = ref(0)
+const logRefreshTimer = ref(null)
 const leaderOptions = ref([])
 const promoterOptions = ref([])
 const counters = ref({
@@ -233,6 +293,13 @@ const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const currentUserId = computed(() => userStore.userInfo?.ID)
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showSummary = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].includes(currentRoleId.value))
+const logDialogTitle = computed(() => {
+  if (!logTask.value) return '任务日志'
+  return `任务日志 #${logTask.value.ID}`
+})
+const shouldRefreshTaskLogs = computed(() => {
+  return logDialogVisible.value && logTask.value?.status === 'running'
+})
 
 const searchInfo = ref({
   promoterId: undefined,
@@ -245,7 +312,7 @@ const searchInfo = ref({
 })
 
 const statusOptions = [
-  { label: '待领取', value: 'pending' },
+  { label: '待执行', value: 'pending' },
   { label: '执行中', value: 'running' },
   { label: '待地推验证码', value: 'waiting_promoter_code' },
   { label: '待上传缓存', value: 'registered_wait_upload' },
@@ -326,7 +393,7 @@ const smsModeText = (mode) => {
 
 const statusText = (status) => {
   const map = {
-    pending: '待领取',
+    pending: '待执行',
     running: '执行中',
     waiting_promoter_code: '待地推验证码',
     registered_wait_upload: '待上传缓存',
@@ -410,6 +477,59 @@ const fetchSummary = async () => {
   summary.value = data || { leaders: [], promoters: [] }
 }
 
+const fetchTaskLogs = async () => {
+  if (!logTask.value?.ID) return
+  logLoading.value = true
+  try {
+    const { data } = await getPhoneRegisterTaskLogs({
+      taskId: logTask.value.ID,
+      page: logPage.value,
+      pageSize: logPageSize.value
+    })
+    taskLogs.value = data?.list || []
+    logTotal.value = data?.total || 0
+  } catch (e) {
+    ElMessage.error(e?.message || '日志加载失败')
+  } finally {
+    logLoading.value = false
+  }
+}
+
+const stopLogRefresh = () => {
+  if (logRefreshTimer.value) {
+    clearInterval(logRefreshTimer.value)
+    logRefreshTimer.value = null
+  }
+}
+
+const syncLogRefresh = () => {
+  stopLogRefresh()
+  if (!shouldRefreshTaskLogs.value) return
+  logRefreshTimer.value = window.setInterval(async () => {
+    if (!shouldRefreshTaskLogs.value) {
+      stopLogRefresh()
+      return
+    }
+    await fetchTaskLogs()
+  }, 3000)
+}
+
+const openLogDialog = async (row) => {
+  stopLogRefresh()
+  logTask.value = row
+  logPage.value = 1
+  taskLogs.value = []
+  logTotal.value = 0
+  logDialogVisible.value = true
+  await fetchTaskLogs()
+  syncLogRefresh()
+}
+
+const handleLogSizeChange = async () => {
+  logPage.value = 1
+  await fetchTaskLogs()
+}
+
 const fetchAll = async () => {
   try {
     await Promise.all([fetchList(), fetchSummary()])
@@ -451,4 +571,61 @@ onMounted(async () => {
   await Promise.all([loadLeaderOptions(), loadPromoterOptions()])
   await fetchAll()
 })
+
+onBeforeUnmount(() => {
+  stopLogRefresh()
+})
 </script>
+
+<style scoped>
+.task-log-panel {
+  min-height: 420px;
+}
+
+.task-log-list {
+  max-height: 680px;
+  overflow: auto;
+  padding: 0;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.task-log-line {
+  display: grid;
+  grid-template-columns: 150px 76px minmax(0, 1fr);
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.task-log-line:last-child {
+  border-bottom: none;
+}
+
+.task-log-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #111827;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.task-log-time {
+  color: #93c5fd;
+}
+
+.task-log-device {
+  color: #fbbf24;
+}
+
+.task-log-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>

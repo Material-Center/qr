@@ -29,6 +29,13 @@ type PhoneRegisterTaskListResponse struct {
 	ProcessingCount int64       `json:"processingCount"`
 }
 
+type PhoneRegisterTaskLogListResponse struct {
+	List     interface{} `json:"list"`
+	Total    int64       `json:"total"`
+	Page     int         `json:"page"`
+	PageSize int         `json:"pageSize"`
+}
+
 type PhoneRegisterTaskSummaryItem struct {
 	LeaderID        uint   `json:"leaderId"`
 	LeaderName      string `json:"leaderName"`

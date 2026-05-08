@@ -57,3 +57,13 @@ type SysPhoneRegisterTask struct {
 	Leader        SysUser          `json:"leader" gorm:"foreignKey:LeaderID"`
 	QQCacheRecord SysQQCacheRecord `json:"qqCacheRecord" gorm:"foreignKey:QQCacheRecordID"`
 }
+
+type SysPhoneRegisterTaskLog struct {
+	global.GVA_MODEL
+	TaskID     uint       `json:"taskId" gorm:"index;comment:手机号注册任务ID"`
+	DeviceID   string     `json:"deviceId" gorm:"index;size:128;comment:设备ID"`
+	ClientTime *time.Time `json:"clientTime" gorm:"index;comment:客户端上报时间"`
+	Message    string     `json:"message" gorm:"type:text;comment:日志内容"`
+
+	Task SysPhoneRegisterTask `json:"task" gorm:"foreignKey:TaskID"`
+}
