@@ -3,7 +3,7 @@ const RegQQConfig = {
   cacheToolBaseURL: "http://127.0.0.1:9091",
   cacheToolPackageName: "com.extracache.cachetool",
   cacheToolAppName: "CacheTool",
-  cacheToolLaunchTimeoutMs: 15000,
+  cacheToolLaunchTimeoutMs: 45000,
   cacheToolStatusRetryIntervalMs: 1000,
   qqPackageName: "com.tencent.mobileqq",
   qqAppName: "QQ",

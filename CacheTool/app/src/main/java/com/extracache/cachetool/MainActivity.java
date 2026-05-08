@@ -100,16 +100,15 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // 启动HTTP服务器
+        startHttpServer();
+
         restoreLoginSession();
         if (!hasValidLogin()) {
             navigateToLogin();
             return;
         }
         refreshRoleUI();
-        
-        
-        // 启动HTTP服务器
-        startHttpServer();
     }
     
     /**

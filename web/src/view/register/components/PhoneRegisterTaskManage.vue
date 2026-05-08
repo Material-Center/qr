@@ -213,7 +213,7 @@
       destroy-on-close
       @closed="stopLogRefresh"
     >
-      <div v-loading="logLoading" class="task-log-panel">
+      <div v-loading="logPanelLoading" class="task-log-panel">
         <el-empty v-if="!taskLogs.length" description="暂无日志" />
         <div v-else class="task-log-list">
           <div class="task-log-line task-log-head">
@@ -300,6 +300,7 @@ const logDialogTitle = computed(() => {
 const shouldRefreshTaskLogs = computed(() => {
   return logDialogVisible.value && logTask.value?.status === 'running'
 })
+const logPanelLoading = computed(() => logLoading.value && taskLogs.value.length === 0)
 
 const searchInfo = ref({
   promoterId: undefined,
