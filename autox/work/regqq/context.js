@@ -14,7 +14,6 @@ const REMOTE_REPORT_ACTIONS = {
 
 const PROFILE_ALPHA_CHARS = "abcdefghijklmnopqrstuvwxyz";
 const PROFILE_DIGIT_CHARS = "0123456789";
-const PROFILE_SYMBOL_CHARS = "!@#$%^&*()_+-=[]{}|;:,.<>?";
 const DEFAULT_HARD_MODIFY_HOST_IP_FILE = "/sdcard/ip.txt";
 const DEFAULT_HARD_MODIFY_BACKUP_IP_FILE = "/sdcard/ip.txt.bak";
 const HARD_MODIFY_DEBUG_WIFI_BY_DEVICE_ID = {
@@ -74,19 +73,12 @@ function shuffleString(text) {
 
 function generateQQPassword() {
   const totalLength = 10;
-  const charsets = [
-    PROFILE_ALPHA_CHARS,
-    PROFILE_DIGIT_CHARS,
-    PROFILE_SYMBOL_CHARS,
-  ];
-  const requiredCharsets = pickRandomItems(charsets, 2);
   let password = "";
 
-  for (let i = 0; i < requiredCharsets.length; i++) {
-    password += randomFromCharset(1, requiredCharsets[i]);
-  }
+  password += randomFromCharset(1, PROFILE_ALPHA_CHARS);
+  password += randomFromCharset(1, PROFILE_DIGIT_CHARS);
 
-  const mergedCharset = charsets.join("");
+  const mergedCharset = PROFILE_ALPHA_CHARS + PROFILE_DIGIT_CHARS;
   password += randomFromCharset(totalLength - password.length, mergedCharset);
   return shuffleString(password);
 }
