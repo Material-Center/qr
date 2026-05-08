@@ -43,6 +43,7 @@ function clickMatchedButton(selector, timeoutMs, failureMessage, clickLabel) {
   if (clickLabel) {
     log(clickLabel);
   }
+  return true;
 }
 
 function clickTextButton(pattern, timeoutMs, failureMessage, clickLabel) {
@@ -51,6 +52,44 @@ function clickTextButton(pattern, timeoutMs, failureMessage, clickLabel) {
 
 function clickTextContainsButton(pattern, timeoutMs, failureMessage, clickLabel) {
   clickMatchedButton(textContains(pattern), timeoutMs, failureMessage, clickLabel);
+}
+
+function clickRegisterAndLogin(ctx) {
+  const maxClickCount = 3;
+  let hasButton = false;
+
+  for (let i = 0; i < maxClickCount; i++) {
+    try {
+      clickTextContainsButton(
+        "注册并登录",
+        2000,
+        "未找到注册并登录按钮",
+      );
+      hasButton = true;
+    } catch (e) {
+      sleep(500);
+      continue;
+    }
+
+    sleep(CLICK_AFTER_DELAY_MS);
+
+    if (isLoginSuccessPage(3000)) {
+      ctx.log("已点击注册并登录");
+      return;
+    }
+  }
+
+  if (!hasButton) {
+    throw createStageFailure(
+      "未找到注册并登录按钮",
+      PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
+    );
+  }
+
+  throw createStageFailure(
+    "未跳转到登录成功页面",
+    PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
+  );
 }
 
 function readVerifyCodeStageState(ctx) {
@@ -480,7 +519,7 @@ const RegisterUIActions = {
     const editTexts = className("android.widget.EditText").find();
     if (editTexts && editTexts.size() < 2) {
       throw createStageFailure(
-        "未找到昵称、用户名输入框",
+        "未找到昵称、密码输入框",
         PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
       );
     }
@@ -491,32 +530,17 @@ const RegisterUIActions = {
     }
     NodeUtils.inputText(ctx.getTaskNickname());
 
-    const usernameEdit = editTexts.get(1);
-    if (!NodeUtils.clickUiObject(usernameEdit, false)) {
-      NodeUtils.clickByElement(usernameEdit);
+    const passwordEdit = editTexts.get(1);
+    if (!NodeUtils.clickUiObject(passwordEdit, false)) {
+      NodeUtils.clickByElement(passwordEdit);
     }
-    NodeUtils.inputText(ctx.getTaskUsername());
+    NodeUtils.inputText(ctx.getQQPassword());
     sleep(500);
 
-    const registerButton = text("注册并登录").findOne(1000);
-    if (!registerButton) {
-      throw createStageFailure(
-        "未找到注册并登录按钮",
-        PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
-      );
-    }
-    if (!NodeUtils.clickUiObject(registerButton, false)) {
-      NodeUtils.clickByElement(registerButton);
-    }
-    sleep(500);
+    // 点一下键盘失焦
+    click(device.width / 2, 100);
 
-    if (!isLoginSuccessPage()) {
-      throw createStageFailure(
-        "未跳转到登录成功页面",
-        PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
-      );
-    }
-    ctx.log("已点击注册并登录");
+    clickRegisterAndLogin(ctx);
   },
 
   waitLoginSuccess(ctx) {
