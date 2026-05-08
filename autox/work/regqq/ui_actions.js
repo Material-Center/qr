@@ -73,8 +73,13 @@ function clickRegisterAndLogin(ctx) {
 
     sleep(CLICK_AFTER_DELAY_MS);
 
-    if (isLoginSuccessPage(3000)) {
+    if (isLoginSuccessPage(5000)) {
       ctx.log("已点击注册并登录");
+      return;
+    }
+
+    if (!textContains("注册并登录").exists()) {
+      ctx.log("已提交注册资料");
       return;
     }
   }
@@ -87,7 +92,7 @@ function clickRegisterAndLogin(ctx) {
   }
 
   throw createStageFailure(
-    "未跳转到登录成功页面",
+    "注册失败",
     PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
   );
 }
@@ -529,13 +534,14 @@ const RegisterUIActions = {
       NodeUtils.clickByElement(nicknameEdit);
     }
     NodeUtils.inputText(ctx.getTaskNickname());
+    sleep(1000);
 
     const passwordEdit = editTexts.get(1);
     if (!NodeUtils.clickUiObject(passwordEdit, false)) {
       NodeUtils.clickByElement(passwordEdit);
     }
     NodeUtils.inputText(ctx.getQQPassword());
-    sleep(500);
+    sleep(1000);
 
     // 点一下键盘失焦
     click(device.width / 2, 100);
@@ -544,7 +550,7 @@ const RegisterUIActions = {
   },
 
   waitLoginSuccess(ctx) {
-    if (!isLoginSuccessPage()) {
+    if (!isLoginSuccessPage(15000)) {
       throw createStageFailure(
         "未跳转到登录成功页面",
         PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL,
