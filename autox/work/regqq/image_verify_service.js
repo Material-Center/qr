@@ -384,10 +384,23 @@ function createImageVerifyService(config) {
         system: String(imageVerifyConfig.system || ""),
       };
     }
-    const response = http.postJson(endpoint, req);
+    const startedAt = Date.now();
+    let response = null;
+    try {
+      response = http.postJson(endpoint, req);
+    } catch (e) {
+      console.log("图片验证请求异常: costMs=" + (Date.now() - startedAt) + " error=" + e.message);
+      throw e;
+    }
     const bodyText = response.body ? response.body.string() : "";
+    const costMs = Date.now() - startedAt;
     console.log(
-      "图片验证请求响应: status=" + response.statusCode + " body=" + bodyText,
+      "图片验证请求响应: costMs=" +
+        costMs +
+        " status=" +
+        response.statusCode +
+        " body=" +
+        bodyText,
     );
     if (response.statusCode !== 200) {
       throw new Error(
