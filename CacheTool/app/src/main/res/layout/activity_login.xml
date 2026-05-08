@@ -6,15 +6,45 @@
     android:padding="24dp"
     android:background="#f5f5f5">
 
-    <TextView
-        android:layout_width="wrap_content"
+    <FrameLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="请登录"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:textColor="#333333"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="24dp" />
+        android:layout_marginBottom="24dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <View
+                android:id="@+id/view_server_status_dot"
+                android:layout_width="10dp"
+                android:layout_height="10dp"
+                android:background="@drawable/bg_status_dot" />
+
+            <TextView
+                android:id="@+id/text_server_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="服务启动中"
+                android:textColor="#666666"
+                android:textSize="12sp" />
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="请登录"
+            android:textColor="#333333"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+    </FrameLayout>
 
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"

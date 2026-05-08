@@ -2,16 +2,24 @@ package com.extracache.cachetool;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.util.Log;
+import android.view.View;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
+import com.extracache.cachetool.base.Result;
+import com.extracache.cachetool.http.QQSessionHttpServer;
 import com.extracache.cachetool.network.ServerApi;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 
 public class LoginActivity extends AppCompatActivity {
+    private static final String TAG = "CacheToolLogin";
     private static final String PREFS_NAME = "login_tool_prefs";
     private static final String PREF_TOKEN = "server_token";
     private static final String PREF_ROLE_ID = "role_id";
@@ -22,6 +30,8 @@ public class LoginActivity extends AppCompatActivity {
     private TextInputEditText editUsername;
     private TextInputEditText editPassword;
     private MaterialButton btnLogin;
+    private TextView textServerStatus;
+    private View viewServerStatusDot;
     private SharedPreferences preferences;
 
     @Override
@@ -30,14 +40,49 @@ public class LoginActivity extends AppCompatActivity {
         setContentView(R.layout.activity_login);
         preferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         initViews();
+        startHttpServer();
         restoreIfLoggedIn();
         btnLogin.setOnClickListener(v -> submitLogin());
+    }
+
+    private void startHttpServer() {
+        new Thread(() -> {
+            Result<Boolean> result = QQSessionHttpServer.getInstance(this).start();
+            if (result.isSuccess()) {
+                Log.i(TAG, "HTTP服务器已启动或正在运行");
+                runOnUiThread(() -> updateServerStatusIndicator(true, "服务运行中"));
+            } else {
+                Log.e(TAG, "HTTP服务器启动失败: " + result.getMessage());
+                runOnUiThread(() -> updateServerStatusIndicator(false, "服务未运行"));
+            }
+        }).start();
     }
 
     private void initViews() {
         editUsername = findViewById(R.id.edit_username);
         editPassword = findViewById(R.id.edit_password);
         btnLogin = findViewById(R.id.btn_login);
+        textServerStatus = findViewById(R.id.text_server_status);
+        viewServerStatusDot = findViewById(R.id.view_server_status_dot);
+    }
+
+    private void updateServerStatusIndicator(boolean isRunning, String statusText) {
+        if (textServerStatus != null) {
+            textServerStatus.setText(statusText);
+        }
+        if (viewServerStatusDot == null) {
+            return;
+        }
+        Drawable background = viewServerStatusDot.getBackground();
+        if (background == null) {
+            return;
+        }
+        Drawable tinted = background.mutate();
+        tinted.setTint(ContextCompat.getColor(
+                this,
+                isRunning ? android.R.color.holo_green_light : android.R.color.holo_red_light
+        ));
+        viewServerStatusDot.setBackground(tinted);
     }
 
     private void restoreIfLoggedIn() {
