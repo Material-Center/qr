@@ -274,6 +274,32 @@ const taskColumnWidth = computed(() => {
   }
 })
 
+const dayStart = (base = new Date()) => {
+  const d = new Date(base)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+const dayEnd = (base = new Date()) => {
+  const d = new Date(base)
+  d.setHours(23, 59, 59, 999)
+  return d
+}
+
+const formatQueryDateTime = (date) => {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+const todayRangeParams = () => {
+  const now = new Date()
+  return {
+    finishedAtStart: formatQueryDateTime(dayStart(now)),
+    finishedAtEnd: formatQueryDateTime(dayEnd(now)),
+    dayScoped: true
+  }
+}
+
 const normalizeSmsReceiveMode = (value) => {
   if (value === 'PLATFORM_SEND' || value === 'USER_SENT_TO_TX') {
     return value
@@ -397,7 +423,8 @@ const loadMyTasks = async () => {
   const { data } = await getPhoneRegisterTaskList({
     page: taskPage.value,
     pageSize: taskPageSize.value,
-    status: taskListStatus.value
+    status: taskListStatus.value,
+    ...todayRangeParams()
   })
   myTasks.value = data?.list || []
   taskTotal.value = data?.total || 0

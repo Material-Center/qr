@@ -239,7 +239,7 @@ func (a *RegisterTaskApi) GetRegisterTaskSummary(c *gin.Context) {
 
 	var req systemReq.RegisterTaskSummaryFilter
 	_ = c.ShouldBindQuery(&req)
-	data, err := registerTaskService.GetSummary(role, utils.GetUserID(c), req.LeaderID)
+	data, err := registerTaskService.GetSummary(role, utils.GetUserID(c), req)
 	if err != nil {
 		global.GVA_LOG.Error("获取注册任务统计失败", zap.Error(err))
 		response.FailWithMessage(err.Error(), c)

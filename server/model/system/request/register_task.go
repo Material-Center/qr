@@ -25,10 +25,14 @@ type RegisterTaskList struct {
 	Phone           string `json:"phone" form:"phone"`
 	FinishedAtStart string `json:"finishedAtStart" form:"finishedAtStart"`
 	FinishedAtEnd   string `json:"finishedAtEnd" form:"finishedAtEnd"`
+	DayScoped       bool   `json:"dayScoped" form:"dayScoped"`
 }
 
 type RegisterTaskSummaryFilter struct {
-	LeaderID uint `json:"leaderId" form:"leaderId"`
+	LeaderID        uint   `json:"leaderId" form:"leaderId"`
+	FinishedAtStart string `json:"finishedAtStart" form:"finishedAtStart"`
+	FinishedAtEnd   string `json:"finishedAtEnd" form:"finishedAtEnd"`
+	DayScoped       bool   `json:"dayScoped" form:"dayScoped"`
 }
 
 type RegisterTaskDebugLoginStart struct {

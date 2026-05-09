@@ -26,3 +26,14 @@ export const exportQQCacheIniZip = (ids, config = {}) => {
     ...config
   })
 }
+
+export const exportPendingQQCacheIniZip = (count, config = {}) => {
+  return service({
+    url: '/qqCache/exportPendingIniZip',
+    method: 'post',
+    data: { count },
+    responseType: 'blob',
+    donNotShowLoading: true,
+    ...config
+  })
+}

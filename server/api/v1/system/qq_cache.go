@@ -128,6 +128,11 @@ func (a *QQCacheApi) List(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	pending, extracted, statsTotal, err := qqCacheService.CountExtractStats()
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
 	page := req.Page
 	if page <= 0 {
 		page = 1
@@ -141,6 +146,11 @@ func (a *QQCacheApi) List(c *gin.Context) {
 		Total:    total,
 		Page:     page,
 		PageSize: pageSize,
+		Stats: systemRes.QQCacheExtractStats{
+			Pending:   pending,
+			Extracted: extracted,
+			Total:     statsTotal,
+		},
 	}, "获取成功", c)
 }
 
@@ -191,12 +201,44 @@ func (a *QQCacheApi) ExportIniZip(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	zipBytes, err := qqCacheService.ExportIniZipByIDs(req.IDs)
+	zipBytes, count, err := qqCacheService.ExportIniZipByIDs(req.IDs)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	filename := fmt.Sprintf("qq_cache_ini_%s.zip", time.Now().Format("20060102_150405"))
+	filename := fmt.Sprintf("qq_cache_ini_%d_%s.zip", count, time.Now().Format("20060102_150405"))
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(200, "application/zip", zipBytes)
+}
+
+// ExportPendingIniZip
+// @Tags      QQCache
+// @Summary   管理端按数量提取未提取缓存 INI（zip）
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/zip
+// @Param     data  body      systemReq.QQCacheExportPendingIniZip  true  "提取数量"
+// @Success   200   file      zip
+// @Router    /qqCache/exportPendingIniZip [post]
+func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可提取缓存", c)
+		return
+	}
+	var req systemReq.QQCacheExportPendingIniZip
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	zipBytes, count, err := qqCacheService.ExportPendingIniZipByCount(req.Count, utils.GetUserID(c))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	filename := fmt.Sprintf("qq_cache_ini_%d_%s.zip", count, time.Now().Format("20060102_150405"))
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
 	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))

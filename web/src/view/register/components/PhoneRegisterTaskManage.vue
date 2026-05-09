@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="gva-search-box">
+    <div v-if="showTaskList" class="gva-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="完成时间">
           <el-date-picker
@@ -95,7 +95,7 @@
     </div>
 
     <div class="gva-table-box">
-      <el-row :gutter="12" class="mb-3">
+      <el-row v-if="showCounters" :gutter="12" class="mb-3">
         <el-col :span="8">
           <el-card shadow="never">成功任务：{{ counters.success }}</el-card>
         </el-col>
@@ -107,76 +107,78 @@
         </el-col>
       </el-row>
 
-      <el-table :data="tableData" row-key="ID">
-        <el-table-column label="任务ID" min-width="90" prop="ID" />
-        <el-table-column label="创建时间" min-width="170">
-          <template #default="scope">
-            {{ safeFormatDate(scope.row.CreatedAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="手机号" min-width="140" prop="phone" />
-        <el-table-column label="收码方式" min-width="130">
-          <template #default="scope">
-            {{ smsModeText(scope.row.smsReceiveMode) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" min-width="140">
-          <template #default="scope">
-            <el-tag :type="statusTagType(scope.row.status)">
-              {{ statusText(scope.row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="当前设备" min-width="140">
-          <template #default="scope">
-            {{ scope.row.holderDeviceId || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="QQ号" min-width="120" prop="qqNum" />
-        <el-table-column label="地推" min-width="120">
-          <template #default="scope">
-            {{ scope.row.promoter?.nickName || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="团长" min-width="120">
-          <template #default="scope">
-            {{ scope.row.leader?.nickName || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="失败原因" min-width="200" prop="lastError" show-overflow-tooltip />
-        <el-table-column label="完成时间" min-width="170">
-          <template #default="scope">
-            {{ safeFormatDate(scope.row.finishedAt) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" fixed="right" width="90">
-          <template #default="scope">
-            <el-button
-              link
-              type="primary"
-              size="small"
-              @click="openLogDialog(scope.row)"
-            >
-              日志
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <template v-if="showTaskList">
+        <el-table :data="tableData" row-key="ID">
+          <el-table-column label="任务ID" min-width="90" prop="ID" />
+          <el-table-column label="创建时间" min-width="170">
+            <template #default="scope">
+              {{ safeFormatDate(scope.row.CreatedAt) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="手机号" min-width="140" prop="phone" />
+          <el-table-column label="收码方式" min-width="130">
+            <template #default="scope">
+              {{ smsModeText(scope.row.smsReceiveMode) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" min-width="140">
+            <template #default="scope">
+              <el-tag :type="statusTagType(scope.row.status)">
+                {{ statusText(scope.row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="当前设备" min-width="140">
+            <template #default="scope">
+              {{ scope.row.holderDeviceId || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="QQ号" min-width="120" prop="qqNum" />
+          <el-table-column label="地推" min-width="120">
+            <template #default="scope">
+              {{ scope.row.promoter?.nickName || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="团长" min-width="120">
+            <template #default="scope">
+              {{ scope.row.leader?.nickName || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="失败原因" min-width="200" prop="lastError" show-overflow-tooltip />
+          <el-table-column label="完成时间" min-width="170">
+            <template #default="scope">
+              {{ safeFormatDate(scope.row.finishedAt) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" fixed="right" width="90">
+            <template #default="scope">
+              <el-button
+                link
+                type="primary"
+                size="small"
+                @click="openLogDialog(scope.row)"
+              >
+                日志
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
 
-      <div class="gva-pagination">
-        <el-pagination
-          :current-page="page"
-          :page-size="pageSize"
-          :page-sizes="[10, 30, 50, 100]"
-          :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handleCurrentChange"
-          @size-change="handleSizeChange"
-        />
-      </div>
+        <div class="gva-pagination">
+          <el-pagination
+            :current-page="page"
+            :page-size="pageSize"
+            :page-sizes="[10, 30, 50, 100]"
+            :total="total"
+            layout="total, sizes, prev, pager, next, jumper"
+            @current-change="handleCurrentChange"
+            @size-change="handleSizeChange"
+          />
+        </div>
+      </template>
 
       <template v-if="showSummary">
-        <el-divider />
+        <el-divider v-if="showTaskList" />
         <el-row :gutter="12">
           <el-col :span="12">
             <el-card shadow="never">
@@ -294,6 +296,8 @@ const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const currentUserId = computed(() => userStore.userInfo?.ID)
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showSummary = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].includes(currentRoleId.value))
+const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
+const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const logDialogTitle = computed(() => {
   if (!logTask.value) return '任务日志'
   return `任务日志 #${logTask.value.ID}`
@@ -332,6 +336,30 @@ const dayEnd = (base = new Date()) => {
   const d = new Date(base)
   d.setHours(23, 59, 59, 999)
   return d
+}
+
+const formatQueryDateTime = (date) => {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+const todayRangeParams = () => {
+  const now = new Date()
+  return {
+    finishedAtStart: formatQueryDateTime(dayStart(now)),
+    finishedAtEnd: formatQueryDateTime(dayEnd(now)),
+    dayScoped: true
+  }
+}
+
+const summaryQueryParams = () => {
+  const params = {
+    leaderId: searchInfo.value.leaderId || undefined
+  }
+  if (currentRoleId.value === ROLE_LEADER) {
+    Object.assign(params, todayRangeParams())
+  }
+  return params
 }
 
 const shiftDay = (base, days) => {
@@ -473,9 +501,7 @@ const fetchSummary = async () => {
     summary.value = { leaders: [], promoters: [] }
     return
   }
-  const { data } = await getPhoneRegisterTaskSummary({
-    leaderId: searchInfo.value.leaderId || undefined
-  })
+  const { data } = await getPhoneRegisterTaskSummary(summaryQueryParams())
   summary.value = data || { leaders: [], promoters: [] }
 }
 

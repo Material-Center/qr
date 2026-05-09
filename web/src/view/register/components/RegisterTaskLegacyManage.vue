@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="gva-search-box">
+    <div v-if="showTaskList" class="gva-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="完成时间">
           <el-date-picker
@@ -75,7 +75,7 @@
     </div>
 
     <div class="gva-table-box">
-      <el-row :gutter="12" class="mb-3">
+      <el-row v-if="showCounters" :gutter="12" class="mb-3">
         <el-col :span="8">
           <el-card shadow="never">成功登录QQ：{{ counters.success }}</el-card>
         </el-col>
@@ -87,74 +87,76 @@
         </el-col>
       </el-row>
 
-      <div v-if="canDownloadCache" class="gva-btn-list">
-        <el-button
-          type="primary"
-          :disabled="multipleSelection.length === 0"
-          @click="openBatchDownloadDialog"
-        >
-          批量下载压缩包
-        </el-button>
-      </div>
+      <template v-if="showTaskList">
+        <div v-if="canDownloadCache" class="gva-btn-list">
+          <el-button
+            type="primary"
+            :disabled="multipleSelection.length === 0"
+            @click="openBatchDownloadDialog"
+          >
+            批量下载压缩包
+          </el-button>
+        </div>
 
-      <el-table :data="tableData" row-key="ID" @selection-change="handleSelectionChange">
-        <el-table-column v-if="canDownloadCache" type="selection" width="55" />
-        <el-table-column label="任务ID" min-width="90" prop="ID" />
-        <el-table-column label="手机号" min-width="140" prop="phone" />
-        <el-table-column label="当前步骤" min-width="120">
-          <template #default="scope">
-            {{ stepText(scope.row.currentStep) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" min-width="100">
-          <template #default="scope">
-            <el-tag :type="statusTagType(scope.row)">
-              {{ statusText(scope.row) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="地推" min-width="120">
-          <template #default="scope">
-            {{ scope.row.promoter?.nickName || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="团长" min-width="120">
-          <template #default="scope">
-            {{ scope.row.leader?.nickName || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="登录成功数" min-width="110" prop="loginSuccessCount" />
-        <el-table-column label="失败原因" min-width="160" prop="lastError" show-overflow-tooltip />
-        <el-table-column label="完成时间" min-width="170">
-          <template #default="scope">
-            {{ scope.row.finishedAt ? formatDate(scope.row.finishedAt) : '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column v-if="canDownloadCache" label="操作" width="130" fixed="right">
-          <template #default="scope">
-            <el-button
-              type="primary"
-              link
-              :disabled="!scope.row.loginCacheIni"
-              @click="openSingleDownloadDialog(scope.row)"
-            >
-              下载压缩包
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+        <el-table :data="tableData" row-key="ID" @selection-change="handleSelectionChange">
+          <el-table-column v-if="canDownloadCache" type="selection" width="55" />
+          <el-table-column label="任务ID" min-width="90" prop="ID" />
+          <el-table-column label="手机号" min-width="140" prop="phone" />
+          <el-table-column label="当前步骤" min-width="120">
+            <template #default="scope">
+              {{ stepText(scope.row.currentStep) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" min-width="100">
+            <template #default="scope">
+              <el-tag :type="statusTagType(scope.row)">
+                {{ statusText(scope.row) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="地推" min-width="120">
+            <template #default="scope">
+              {{ scope.row.promoter?.nickName || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="团长" min-width="120">
+            <template #default="scope">
+              {{ scope.row.leader?.nickName || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="登录成功数" min-width="110" prop="loginSuccessCount" />
+          <el-table-column label="失败原因" min-width="160" prop="lastError" show-overflow-tooltip />
+          <el-table-column label="完成时间" min-width="170">
+            <template #default="scope">
+              {{ scope.row.finishedAt ? formatDate(scope.row.finishedAt) : '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column v-if="canDownloadCache" label="操作" width="130" fixed="right">
+            <template #default="scope">
+              <el-button
+                type="primary"
+                link
+                :disabled="!scope.row.loginCacheIni"
+                @click="openSingleDownloadDialog(scope.row)"
+              >
+                下载压缩包
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
 
-      <div class="gva-pagination">
-        <el-pagination
-          :current-page="page"
-          :page-size="pageSize"
-          :page-sizes="[10, 30, 50, 100]"
-          :total="total"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="handleCurrentChange"
-          @size-change="handleSizeChange"
-        />
-      </div>
+        <div class="gva-pagination">
+          <el-pagination
+            :current-page="page"
+            :page-size="pageSize"
+            :page-sizes="[10, 30, 50, 100]"
+            :total="total"
+            layout="total, sizes, prev, pager, next, jumper"
+            @current-change="handleCurrentChange"
+            @size-change="handleSizeChange"
+          />
+        </div>
+      </template>
 
       <el-divider />
       <el-row :gutter="12">
@@ -228,6 +230,8 @@ const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const currentUserId = computed(() => userStore.userInfo?.ID)
 const canDownloadCache = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
+const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const searchInfo = ref({
   promoterId: undefined,
   leaderId: undefined,
@@ -261,6 +265,30 @@ const dayEnd = (base = new Date()) => {
   const d = new Date(base)
   d.setHours(23, 59, 59, 999)
   return d
+}
+
+const formatQueryDateTime = (date) => {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+const todayRangeParams = () => {
+  const now = new Date()
+  return {
+    finishedAtStart: formatQueryDateTime(dayStart(now)),
+    finishedAtEnd: formatQueryDateTime(dayEnd(now)),
+    dayScoped: true
+  }
+}
+
+const summaryQueryParams = () => {
+  const params = {
+    leaderId: searchInfo.value.leaderId || undefined
+  }
+  if (currentRoleId.value === ROLE_LEADER) {
+    Object.assign(params, todayRangeParams())
+  }
+  return params
 }
 
 const shiftDay = (base, days) => {
@@ -384,9 +412,7 @@ const fetchList = async () => {
 }
 
 const fetchSummary = async () => {
-  const { data } = await getRegisterTaskSummary({
-    leaderId: searchInfo.value.leaderId || undefined
-  })
+  const { data } = await getRegisterTaskSummary(summaryQueryParams())
   summary.value = data || { leaders: [], promoters: [] }
 }
 

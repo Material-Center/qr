@@ -168,7 +168,7 @@ func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskList(c *gin.Context) {
 func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskSummary(c *gin.Context) {
 	var req systemReq.PhoneRegisterTaskSummaryFilter
 	_ = c.ShouldBindQuery(&req)
-	data, err := phoneRegisterTaskService.GetSummary(utils.GetUserAuthorityId(c), utils.GetUserID(c), req.LeaderID)
+	data, err := phoneRegisterTaskService.GetSummary(utils.GetUserAuthorityId(c), utils.GetUserID(c), req)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return

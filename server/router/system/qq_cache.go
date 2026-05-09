@@ -17,6 +17,7 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 		publicQQCacheRouter.POST("uploadPhoneRegister", qqCacheApi.UploadPhoneRegister)
 		qqCacheRouterWithoutRecord.POST("extract", qqCacheApi.Extract)
 		qqCacheRouterWithoutRecord.POST("exportIniZip", qqCacheApi.ExportIniZip)
+		qqCacheRouterWithoutRecord.POST("exportPendingIniZip", qqCacheApi.ExportPendingIniZip)
 		qqCacheRouter.POST("list", qqCacheApi.List)
 		qqCacheRouter.POST("resetExtract", qqCacheApi.ResetExtract)
 	}

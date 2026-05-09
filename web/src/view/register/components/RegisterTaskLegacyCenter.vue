@@ -254,6 +254,32 @@ const qqDialogPhone = ref('')
 const qqDialogList = ref([])
 const qqDialogFailReason = ref('')
 
+const dayStart = (base = new Date()) => {
+  const d = new Date(base)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+const dayEnd = (base = new Date()) => {
+  const d = new Date(base)
+  d.setHours(23, 59, 59, 999)
+  return d
+}
+
+const formatQueryDateTime = (date) => {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+const todayRangeParams = () => {
+  const now = new Date()
+  return {
+    finishedAtStart: formatQueryDateTime(dayStart(now)),
+    finishedAtEnd: formatQueryDateTime(dayEnd(now)),
+    dayScoped: true
+  }
+}
+
 const stepText = (step) => {
   if (step === 'phone_bind') return '查绑'
   if (step === 'change_password') return '改密'
@@ -352,7 +378,8 @@ const loadActiveTask = async () => {
 const loadMyTasks = async () => {
   const { data } = await getRegisterTaskList({
     page: 1,
-    pageSize: 20
+    pageSize: 20,
+    ...todayRangeParams()
   })
   const rawList = data.list || []
   myTasks.value = rawList.map((item) => {

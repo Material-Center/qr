@@ -24,10 +24,14 @@ type PhoneRegisterTaskList struct {
 	SMSReceiveMode  string `json:"smsReceiveMode" form:"smsReceiveMode"`
 	FinishedAtStart string `json:"finishedAtStart" form:"finishedAtStart"`
 	FinishedAtEnd   string `json:"finishedAtEnd" form:"finishedAtEnd"`
+	DayScoped       bool   `json:"dayScoped" form:"dayScoped"`
 }
 
 type PhoneRegisterTaskSummaryFilter struct {
-	LeaderID uint `json:"leaderId" form:"leaderId"`
+	LeaderID        uint   `json:"leaderId" form:"leaderId"`
+	FinishedAtStart string `json:"finishedAtStart" form:"finishedAtStart"`
+	FinishedAtEnd   string `json:"finishedAtEnd" form:"finishedAtEnd"`
+	DayScoped       bool   `json:"dayScoped" form:"dayScoped"`
 }
 
 type PhoneRegisterDevicePoll struct {

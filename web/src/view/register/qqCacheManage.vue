@@ -19,10 +19,40 @@
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
           <el-button type="success" :disabled="!selectedRows.length" @click="onExportIniZip">下载INI(ZIP)</el-button>
         </el-form-item>
+        <el-form-item label="提取数量">
+          <el-input-number
+            v-model="extractCount"
+            :min="1"
+            :max="extractMax"
+            :disabled="extractMax <= 0"
+            controls-position="right"
+            style="width: 140px"
+          />
+          <el-button
+            class="extract-btn"
+            type="warning"
+            :disabled="extractMax <= 0"
+            @click="onExportPendingIniZip"
+          >
+            提取INI
+          </el-button>
+        </el-form-item>
       </el-form>
     </div>
 
     <div class="gva-table-box">
+      <el-row :gutter="12" class="mb-3">
+        <el-col :span="8">
+          <el-card shadow="never">待提取数量：{{ extractStats.pending }}</el-card>
+        </el-col>
+        <el-col :span="8">
+          <el-card shadow="never">已提取数量：{{ extractStats.extracted }}</el-card>
+        </el-col>
+        <el-col :span="8">
+          <el-card shadow="never">总数：{{ extractStats.total }}</el-card>
+        </el-col>
+      </el-row>
+
       <el-table :data="tableData" row-key="ID" @selection-change="onSelectionChange">
         <el-table-column type="selection" width="48" reserve-selection />
         <el-table-column label="ID" prop="ID" width="80" />
@@ -38,9 +68,14 @@
             {{ row.extractionAt ? formatDate(row.extractionAt) : '-' }}
           </template>
         </el-table-column>
+        <el-table-column label="创建时间" min-width="170">
+          <template #default="{ row }">
+            {{ getRowTime(row, 'createdAt') }}
+          </template>
+        </el-table-column>
         <el-table-column label="更新时间" min-width="170">
           <template #default="{ row }">
-            {{ row.updatedAt ? formatDate(row.updatedAt) : '-' }}
+            {{ getRowTime(row, 'updatedAt') }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right">
@@ -67,10 +102,10 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/format'
-import { exportQQCacheIniZip, getQQCacheList, resetQQCacheExtract } from '@/api/qqCache'
+import { exportPendingQQCacheIniZip, exportQQCacheIniZip, getQQCacheList, resetQQCacheExtract } from '@/api/qqCache'
 
 defineOptions({
   name: 'QQCacheManage'
@@ -81,6 +116,12 @@ const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
 const selectedRows = ref([])
+const extractCount = ref(1)
+const extractStats = ref({
+  pending: 0,
+  extracted: 0,
+  total: 0
+})
 const searchInfo = ref({
   qqNum: '',
   deviceId: '',
@@ -102,6 +143,43 @@ const pickZipFilename = (contentDisposition) => {
   }
 }
 
+const getRowTime = (row, key) => {
+  const value = row?.[key] || row?.[key.charAt(0).toUpperCase() + key.slice(1)]
+  return value ? formatDate(value) : '-'
+}
+
+const extractMax = computed(() => Math.max(Number(extractStats.value.pending) || 0, 0))
+
+const handleZipDownload = async (res, fallbackName) => {
+  const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
+  const blob = res?.data instanceof Blob ? res.data : null
+  if (!blob) {
+    ElMessage.error('导出失败')
+    return false
+  }
+  if (ct.includes('application/json')) {
+    const text = await blob.text()
+    let msg = '导出失败'
+    try {
+      const j = JSON.parse(text)
+      msg = j.msg || j.message || msg
+    } catch {
+      msg = text || msg
+    }
+    ElMessage.error(msg)
+    return false
+  }
+  const name = pickZipFilename(res.headers?.['content-disposition']) || fallbackName
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name.endsWith('.zip') ? name : `${name}.zip`
+  a.click()
+  window.URL.revokeObjectURL(url)
+  ElMessage.success('已开始下载')
+  return true
+}
+
 const onExportIniZip = async () => {
   const ids = (selectedRows.value || []).map((r) => r.ID).filter(Boolean)
   if (!ids.length) {
@@ -110,34 +188,36 @@ const onExportIniZip = async () => {
   }
   try {
     const res = await exportQQCacheIniZip(ids)
-    const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
-    const blob = res?.data instanceof Blob ? res.data : null
-    if (!blob) {
-      ElMessage.error('导出失败')
-      return
-    }
-    if (ct.includes('application/json')) {
-      const text = await blob.text()
-      let msg = '导出失败'
-      try {
-        const j = JSON.parse(text)
-        msg = j.msg || j.message || msg
-      } catch {
-        msg = text || msg
-      }
-      ElMessage.error(msg)
-      return
-    }
-    const name = pickZipFilename(res.headers?.['content-disposition']) || `qq_cache_ini_${Date.now()}.zip`
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name.endsWith('.zip') ? name : `${name}.zip`
-    a.click()
-    window.URL.revokeObjectURL(url)
-    ElMessage.success('已开始下载')
+    await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
   } catch (e) {
     ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+const onExportPendingIniZip = async () => {
+  const count = Number(extractCount.value) || 0
+  if (count <= 0) {
+    ElMessage.warning('请输入提取数量')
+    return
+  }
+  if (count > extractMax.value) {
+    ElMessage.warning('提取数量不能超过待提取数量')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(`确认提取 ${count} 个未提取缓存？`, '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const res = await exportPendingQQCacheIniZip(count)
+    const ok = await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+    if (ok) {
+      await fetchList()
+    }
+  } catch (e) {
+    if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || '提取失败')
   }
 }
 
@@ -152,6 +232,14 @@ const fetchList = async () => {
     })
     tableData.value = data?.list || []
     total.value = data?.total || 0
+    extractStats.value = {
+      pending: Number(data?.stats?.pending) || 0,
+      extracted: Number(data?.stats?.extracted) || 0,
+      total: Number(data?.stats?.total) || 0
+    }
+    if (extractMax.value > 0 && extractCount.value > extractMax.value) {
+      extractCount.value = extractMax.value
+    }
   } catch (e) {
     ElMessage.error(e?.message || '加载失败')
   }
@@ -194,3 +282,9 @@ onMounted(() => {
   fetchList()
 })
 </script>
+
+<style scoped>
+.extract-btn {
+  margin-left: 8px;
+}
+</style>

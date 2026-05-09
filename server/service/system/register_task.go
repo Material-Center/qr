@@ -884,6 +884,10 @@ func applyRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID uint
 	return db, nil
 }
 
+func shouldUseRegisterTaskDayScoped(operatorRole uint, dayScoped bool) bool {
+	return dayScoped && (operatorRole == roleLeader || operatorRole == rolePromoter)
+}
+
 func successLoggedQQCountSQL(column string) string {
 	c := strings.TrimSpace(column)
 	if c == "" {
@@ -943,11 +947,52 @@ func applyRegisterTaskQueryFilters(db *gorm.DB, req systemReq.RegisterTaskList) 
 		db = db.Where("phone LIKE ?", "%"+phone+"%")
 	}
 
-	if startAt, ok := parseTaskListTime(req.FinishedAtStart); ok {
-		db = db.Where("finished_at >= ?", startAt)
+	if req.DayScoped {
+		db = applyRegisterTaskDayRangeFilter(db, req.FinishedAtStart, req.FinishedAtEnd)
+	} else {
+		db = applyRegisterTaskFinishedAtRangeFilter(db, req.FinishedAtStart, req.FinishedAtEnd)
 	}
-	if endAt, ok := parseTaskListTime(req.FinishedAtEnd); ok {
-		db = db.Where("finished_at <= ?", endAt)
+	return db
+}
+
+func applyRegisterTaskFinishedAtRangeFilter(db *gorm.DB, startRaw string, endRaw string) *gorm.DB {
+	return applyRegisterTaskFinishedAtRangeFilterWithColumn(db, "finished_at", startRaw, endRaw)
+}
+
+func applyRegisterTaskFinishedAtRangeFilterWithColumn(db *gorm.DB, finishedColumn string, startRaw string, endRaw string) *gorm.DB {
+	if startAt, ok := parseTaskListTime(startRaw); ok {
+		db = db.Where(fmt.Sprintf("%s >= ?", finishedColumn), startAt)
+	}
+	if endAt, ok := parseTaskListTime(endRaw); ok {
+		db = db.Where(fmt.Sprintf("%s <= ?", finishedColumn), endAt)
+	}
+	return db
+}
+
+func applyRegisterTaskDayRangeFilter(db *gorm.DB, startRaw string, endRaw string) *gorm.DB {
+	return applyRegisterTaskDayRangeFilterWithColumns(db, "finished_at", "created_at", startRaw, endRaw)
+}
+
+func applyRegisterTaskDayRangeFilterWithColumns(db *gorm.DB, finishedColumn string, createdColumn string, startRaw string, endRaw string) *gorm.DB {
+	startAt, hasStart := parseTaskListTime(startRaw)
+	endAt, hasEnd := parseTaskListTime(endRaw)
+	if hasStart && hasEnd {
+		return db.Where(
+			fmt.Sprintf("((%s IS NOT NULL AND %s >= ? AND %s <= ?) OR (%s IS NULL AND %s >= ? AND %s <= ?))", finishedColumn, finishedColumn, finishedColumn, finishedColumn, createdColumn, createdColumn),
+			startAt, endAt, startAt, endAt,
+		)
+	}
+	if hasStart {
+		return db.Where(
+			fmt.Sprintf("((%s IS NOT NULL AND %s >= ?) OR (%s IS NULL AND %s >= ?))", finishedColumn, finishedColumn, finishedColumn, createdColumn),
+			startAt, startAt,
+		)
+	}
+	if hasEnd {
+		return db.Where(
+			fmt.Sprintf("((%s IS NOT NULL AND %s <= ?) OR (%s IS NULL AND %s <= ?))", finishedColumn, finishedColumn, finishedColumn, createdColumn),
+			endAt, endAt,
+		)
 	}
 	return db
 }
@@ -955,6 +1000,7 @@ func applyRegisterTaskQueryFilters(db *gorm.DB, req systemReq.RegisterTaskList) 
 func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, req systemReq.RegisterTaskList) (registerTaskListResult, error) {
 	_ = s.normalizeTimeoutClosedTasks()
 	_ = s.timeoutUnfinishedTasks()
+	req.DayScoped = shouldUseRegisterTaskDayScoped(operatorRole, req.DayScoped)
 	db := global.GVA_DB.Model(&system.SysRegisterTask{}).Preload("Promoter").Preload("Leader")
 	var roleErr error
 	db, roleErr = applyRegisterTaskRoleFilter(db, operatorRole, operatorID, req)
@@ -1019,7 +1065,7 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 	}, nil
 }
 
-func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, leaderID uint) (systemRes.RegisterTaskSummaryResponse, error) {
+func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req systemReq.RegisterTaskSummaryFilter) (systemRes.RegisterTaskSummaryResponse, error) {
 	if operatorRole != roleSuperAdmin && operatorRole != roleAdmin && operatorRole != roleLeader {
 		global.GVA_LOG.Warn("【注册任务】任务统计-无权限", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID))
 		return systemRes.RegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
@@ -1053,13 +1099,18 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, lea
 
 	if operatorRole == roleLeader {
 		db = db.Where("t.leader_id = ?", operatorID)
-	} else if leaderID != 0 {
-		db = db.Where("t.leader_id = ?", leaderID)
+	} else if req.LeaderID != 0 {
+		db = db.Where("t.leader_id = ?", req.LeaderID)
+	}
+	if shouldUseRegisterTaskDayScoped(operatorRole, req.DayScoped) {
+		db = applyRegisterTaskDayRangeFilterWithColumns(db, "t.finished_at", "t.created_at", req.FinishedAtStart, req.FinishedAtEnd)
+	} else {
+		db = applyRegisterTaskFinishedAtRangeFilterWithColumn(db, "t.finished_at", req.FinishedAtStart, req.FinishedAtEnd)
 	}
 
 	var promoterRows []summaryRow
 	if err := db.Group("t.leader_id, leader.nick_name, t.promoter_id, promoter.nick_name").Scan(&promoterRows).Error; err != nil {
-		global.GVA_LOG.Error("【注册任务】任务统计-查询失败", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID), zap.Uint("leaderId", leaderID), zap.Error(err))
+		global.GVA_LOG.Error("【注册任务】任务统计-查询失败", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID), zap.Uint("leaderId", req.LeaderID), zap.Error(err))
 		return systemRes.RegisterTaskSummaryResponse{}, err
 	}
 

@@ -2,6 +2,7 @@ package system
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -153,6 +154,7 @@ func (s *PhoneRegisterTaskService) GetActiveTasks(promoterID uint) ([]system.Sys
 
 func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskList) (phoneRegisterTaskListResult, error) {
 	_ = s.timeoutUnfinishedTasks()
+	req.DayScoped = shouldUsePhoneRegisterTaskDayScoped(operatorRole, req.DayScoped)
 
 	db := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).Preload("Promoter").Preload("Leader")
 	var err error
@@ -186,6 +188,11 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	if err != nil {
 		return phoneRegisterTaskListResult{}, err
 	}
+	if req.DayScoped {
+		statDB = applyPhoneRegisterTaskDayRangeFilter(statDB, req.FinishedAtStart, req.FinishedAtEnd)
+	} else {
+		statDB = applyPhoneRegisterTaskFinishedAtRangeFilter(statDB, req.FinishedAtStart, req.FinishedAtEnd)
+	}
 
 	type counter struct {
 		Success    int64 `gorm:"column:success"`
@@ -210,7 +217,7 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	}, nil
 }
 
-func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint, leaderID uint) (systemRes.PhoneRegisterTaskSummaryResponse, error) {
+func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskSummaryFilter) (systemRes.PhoneRegisterTaskSummaryResponse, error) {
 	if operatorRole != phoneRoleSuperAdmin && operatorRole != phoneRoleAdmin && operatorRole != phoneRoleLeader {
 		return systemRes.PhoneRegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
 	}
@@ -240,8 +247,13 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 
 	if operatorRole == phoneRoleLeader {
 		db = db.Where("t.leader_id = ?", operatorID)
-	} else if leaderID != 0 {
-		db = db.Where("t.leader_id = ?", leaderID)
+	} else if req.LeaderID != 0 {
+		db = db.Where("t.leader_id = ?", req.LeaderID)
+	}
+	if shouldUsePhoneRegisterTaskDayScoped(operatorRole, req.DayScoped) {
+		db = applyPhoneRegisterTaskDayRangeFilterWithColumns(db, "t.finished_at", "t.created_at", req.FinishedAtStart, req.FinishedAtEnd)
+	} else {
+		db = applyPhoneRegisterTaskFinishedAtRangeFilterWithColumn(db, "t.finished_at", req.FinishedAtStart, req.FinishedAtEnd)
 	}
 
 	var rows []row
@@ -687,6 +699,10 @@ func applyPhoneRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID
 	}
 }
 
+func shouldUsePhoneRegisterTaskDayScoped(operatorRole uint, dayScoped bool) bool {
+	return dayScoped && (operatorRole == phoneRoleLeader || operatorRole == phoneRolePromoter)
+}
+
 func applyPhoneRegisterTaskQueryFilters(db *gorm.DB, req systemReq.PhoneRegisterTaskList) *gorm.DB {
 	if status := strings.TrimSpace(req.Status); status != "" {
 		if status == "processing" {
@@ -713,11 +729,50 @@ func applyPhoneRegisterTaskQueryFilters(db *gorm.DB, req systemReq.PhoneRegister
 	if mode := normalizePhoneRegisterSMSMode(req.SMSReceiveMode); mode != "" {
 		db = db.Where("sms_receive_mode = ?", mode)
 	}
-	if req.FinishedAtStart != "" {
-		db = db.Where("finished_at >= ?", req.FinishedAtStart)
+	if req.DayScoped {
+		return applyPhoneRegisterTaskDayRangeFilter(db, req.FinishedAtStart, req.FinishedAtEnd)
 	}
-	if req.FinishedAtEnd != "" {
-		db = db.Where("finished_at <= ?", req.FinishedAtEnd)
+	return applyPhoneRegisterTaskFinishedAtRangeFilter(db, req.FinishedAtStart, req.FinishedAtEnd)
+}
+
+func applyPhoneRegisterTaskFinishedAtRangeFilter(db *gorm.DB, startRaw string, endRaw string) *gorm.DB {
+	return applyPhoneRegisterTaskFinishedAtRangeFilterWithColumn(db, "finished_at", startRaw, endRaw)
+}
+
+func applyPhoneRegisterTaskFinishedAtRangeFilterWithColumn(db *gorm.DB, finishedColumn string, startRaw string, endRaw string) *gorm.DB {
+	if startAt, ok := parseTaskListTime(startRaw); ok {
+		db = db.Where(fmt.Sprintf("%s >= ?", finishedColumn), startAt)
+	}
+	if endAt, ok := parseTaskListTime(endRaw); ok {
+		db = db.Where(fmt.Sprintf("%s <= ?", finishedColumn), endAt)
+	}
+	return db
+}
+
+func applyPhoneRegisterTaskDayRangeFilter(db *gorm.DB, startRaw string, endRaw string) *gorm.DB {
+	return applyPhoneRegisterTaskDayRangeFilterWithColumns(db, "finished_at", "created_at", startRaw, endRaw)
+}
+
+func applyPhoneRegisterTaskDayRangeFilterWithColumns(db *gorm.DB, finishedColumn string, createdColumn string, startRaw string, endRaw string) *gorm.DB {
+	startAt, hasStart := parseTaskListTime(startRaw)
+	endAt, hasEnd := parseTaskListTime(endRaw)
+	if hasStart && hasEnd {
+		return db.Where(
+			fmt.Sprintf("((%s IS NOT NULL AND %s >= ? AND %s <= ?) OR (%s IS NULL AND %s >= ? AND %s <= ?))", finishedColumn, finishedColumn, finishedColumn, finishedColumn, createdColumn, createdColumn),
+			startAt, endAt, startAt, endAt,
+		)
+	}
+	if hasStart {
+		return db.Where(
+			fmt.Sprintf("((%s IS NOT NULL AND %s >= ?) OR (%s IS NULL AND %s >= ?))", finishedColumn, finishedColumn, finishedColumn, createdColumn),
+			startAt, startAt,
+		)
+	}
+	if hasEnd {
+		return db.Where(
+			fmt.Sprintf("((%s IS NOT NULL AND %s <= ?) OR (%s IS NULL AND %s <= ?))", finishedColumn, finishedColumn, finishedColumn, createdColumn),
+			endAt, endAt,
+		)
 	}
 	return db
 }

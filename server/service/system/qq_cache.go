@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -185,6 +186,20 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 	return
 }
 
+func (s *QQCacheService) CountExtractStats() (pending int64, extracted int64, total int64, err error) {
+	db := global.GVA_DB.Model(&system.SysQQCacheRecord{})
+	if err = db.Count(&total).Error; err != nil {
+		return
+	}
+	if err = global.GVA_DB.Model(&system.SysQQCacheRecord{}).Where("extractor IS NULL").Count(&pending).Error; err != nil {
+		return
+	}
+	if err = global.GVA_DB.Model(&system.SysQQCacheRecord{}).Where("extractor IS NOT NULL").Count(&extracted).Error; err != nil {
+		return
+	}
+	return
+}
+
 func (s *QQCacheService) ResetExtractByID(id uint) error {
 	if id == 0 {
 		return errors.New("记录id不能为空")
@@ -199,8 +214,53 @@ func (s *QQCacheService) ResetExtractByID(id uint) error {
 		}).Error
 }
 
-// ExportIniZipByIDs 将所选记录的 ini 文本打成 zip（zip 内文件名：{id}_{qq}.ini）
-func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, error) {
+func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint) ([]byte, int, error) {
+	if count <= 0 {
+		return nil, 0, errors.New("提取数量必须大于0")
+	}
+	var records []system.SysQQCacheRecord
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("extractor IS NULL").
+			Where("ini IS NOT NULL AND TRIM(ini) <> ''").
+			Order("updated_at asc").
+			Limit(count).
+			Find(&records).Error; err != nil {
+			return err
+		}
+		if len(records) == 0 {
+			return errors.New("暂无待提取缓存")
+		}
+		now := time.Now()
+		ids := make([]uint, 0, len(records))
+		for _, rec := range records {
+			ids = append(ids, rec.ID)
+			if err := tx.Model(&system.SysQQCacheRecord{}).
+				Where("id = ?", rec.ID).
+				Where("extractor IS NULL").
+				Updates(map[string]any{
+					"extractor":         extractorID,
+					"extract_record_id": rec.ID,
+					"extraction_at":     now,
+					"updated_at":        now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Where("id IN ?", ids).Find(&records).Error
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	zipBytes, exportedCount, err := buildQQCacheIniZip(records)
+	if err != nil {
+		return nil, 0, err
+	}
+	return zipBytes, exportedCount, nil
+}
+
+// ExportIniZipByIDs 将所选记录的 ini 文本打成 zip（zip 内文件名：{qq}.ini）
+func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, int, error) {
 	uniq := make([]uint, 0, len(ids))
 	seen := map[uint]struct{}{}
 	for _, id := range ids {
@@ -214,21 +274,26 @@ func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, error) {
 		uniq = append(uniq, id)
 	}
 	if len(uniq) == 0 {
-		return nil, errors.New("请至少选择一条记录")
+		return nil, 0, errors.New("请至少选择一条记录")
 	}
 	if len(uniq) > qqCacheExportIniMaxIDs {
-		return nil, fmt.Errorf("单次最多导出%d条记录", qqCacheExportIniMaxIDs)
+		return nil, 0, fmt.Errorf("单次最多导出%d条记录", qqCacheExportIniMaxIDs)
 	}
 	var records []system.SysQQCacheRecord
 	if err := global.GVA_DB.Where("id IN ?", uniq).Find(&records).Error; err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if len(records) == 0 {
-		return nil, errors.New("未找到所选记录")
+		return nil, 0, errors.New("未找到所选记录")
 	}
+	return buildQQCacheIniZip(records)
+}
+
+func buildQQCacheIniZip(records []system.SysQQCacheRecord) ([]byte, int, error) {
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
 	added := 0
+	accountLines := make([]string, 0, len(records))
 	for _, rec := range records {
 		if rec.INI == nil || strings.TrimSpace(*rec.INI) == "" {
 			continue
@@ -237,22 +302,79 @@ func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, error) {
 		w, err := zw.Create(name)
 		if err != nil {
 			_ = zw.Close()
-			return nil, err
+			return nil, 0, err
 		}
 		normalizedINI := normalizeQQCacheExportINI(*rec.INI)
 		if _, err := w.Write([]byte(normalizedINI)); err != nil {
 			_ = zw.Close()
-			return nil, err
+			return nil, 0, err
 		}
+		accountLines = append(accountLines, buildQQCacheAccountLine(rec, normalizedINI))
 		added++
 	}
+	if added > 0 {
+		sort.Strings(accountLines)
+		w, err := zw.Create("账号.txt")
+		if err != nil {
+			_ = zw.Close()
+			return nil, 0, err
+		}
+		accountText := strings.Join(accountLines, "\r\n")
+		if accountText != "" {
+			accountText += "\r\n"
+		}
+		if _, err := w.Write([]byte(accountText)); err != nil {
+			_ = zw.Close()
+			return nil, 0, err
+		}
+	}
 	if err := zw.Close(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if added == 0 {
-		return nil, errors.New("所选记录均无缓存内容可导出")
+		return nil, 0, errors.New("所选记录均无缓存内容可导出")
 	}
-	return buf.Bytes(), nil
+	return buf.Bytes(), added, nil
+}
+
+func buildQQCacheAccountLine(rec system.SysQQCacheRecord, iniText string) string {
+	return fmt.Sprintf("%s----%s----%s----%s",
+		strings.TrimSpace(rec.QQNum),
+		strings.TrimSpace(rec.QQPwd),
+		extractQQCacheGUID(iniText),
+		formatQQCacheRegisterTime(rec.CreatedAt),
+	)
+}
+
+func extractQQCacheGUID(raw string) string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	for _, line := range strings.Split(raw, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, ";") || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		index := strings.IndexAny(line, "=:")
+		if index <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:index])
+		if !strings.EqualFold(key, "guid") {
+			continue
+		}
+		value := strings.TrimSpace(line[index+1:])
+		value = strings.Trim(value, `"'`)
+		if value != "" {
+			return value
+		}
+	}
+	return "-"
+}
+
+func formatQQCacheRegisterTime(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.Format("2006-01-02 15:04:05")
 }
 
 func normalizeQQCacheExportINI(raw string) string {
