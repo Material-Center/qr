@@ -577,6 +577,14 @@ const RegisterUIActions = {
   },
 
   handleCommonException(ctx, exceptionState) {
+    // 一个手机号只能绑定 5 个 QQ
+    if (NodeUtils.waitNodeMatchExists("text", "手机号绑定名额已满", 2000)) {
+      return createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+        message: "手机号绑定名额已满",
+        shouldReport: true,
+        shouldReset: true,
+      });
+    }
     // 在这里统一处理全局异常弹窗、风控页、网络异常页、崩溃重启等。
     // 可返回：
     // 1. createExceptionDecision(RegisterFailureAction.RETRY_STAGE, {...})

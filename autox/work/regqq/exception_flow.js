@@ -175,7 +175,7 @@ function safeDumpNodeTree(ctx, err) {
   try {
     ctx.log("检测到节点未找到错误，开始打印节点树");
     const nodeDebugger = new NodeDebugger();
-    nodeDebugger.dumpNodeTree();
+    nodeDebugger.dumpNodeTree(3, ctx.log);
   } catch (dumpErr) {
     ctx.log(
       "打印节点树失败: " +

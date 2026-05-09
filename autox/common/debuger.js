@@ -18,16 +18,17 @@ class NodeDebugger {
    * @param {number} [maxDepth=3] 最大递归深度，根为 0。
    * @returns {void} 无法取根或无权限时打日志后返回。
    */
-  dumpNodeTree(maxDepth = 3) {
+  dumpNodeTree(maxDepth = 3, logger) {
     if (!this.debugMode) return;
 
+    const output = typeof logger === "function" ? logger : log;
     let root = auto.root;
     if (!root) {
-      log("无法获取根节点");
+      output("无法获取根节点");
       return;
     }
 
-    this._dumpNode(root, 0, maxDepth);
+    this._dumpNode(root, 0, maxDepth, output);
   }
 
   /**
@@ -37,7 +38,7 @@ class NodeDebugger {
    * @returns {void}
    * @private
    */
-  _dumpNode(node, depth, maxDepth) {
+  _dumpNode(node, depth, maxDepth, logger) {
     if (depth > maxDepth) return;
 
     let indent = "  ".repeat(depth);
@@ -48,10 +49,10 @@ class NodeDebugger {
     if (node.desc()) info += ` desc:${node.desc().substring(0, 20)}`;
     if (node.bounds()) info += ` bounds:${node.bounds()}`;
 
-    log(info);
+    logger(info);
 
     for (let i = 0; i < node.childCount(); i++) {
-      this._dumpNode(node.child(i), depth + 1, maxDepth);
+      this._dumpNode(node.child(i), depth + 1, maxDepth, logger);
     }
   }
 
