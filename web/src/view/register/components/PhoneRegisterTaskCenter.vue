@@ -369,6 +369,7 @@ const statusTagType = (status, finishedAt) => {
 const promoterErrorText = (task) => {
   const raw = String(task?.lastError || '').trim()
   if (!raw) return ''
+  if (raw.includes('手机号绑定名额已满')) return '手机号绑定名额已满'
   if (task?.status === 'failed') return '注册失败'
   if (
     raw.includes('没有触发') ||
