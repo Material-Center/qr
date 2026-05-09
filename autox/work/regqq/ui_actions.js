@@ -546,9 +546,9 @@ const RegisterUIActions = {
       .find()
       .forEach((item) => {
         if (!NodeUtils.clickUiObject(item, false)) {
-          ctx.log("清空数据: " + item.text());
           NodeUtils.clickByElement(item);
         }
+        ctx.log("清空数据: " + item.text());
       });
 
     const editTexts = className("android.widget.EditText").find();
