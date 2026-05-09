@@ -1,5 +1,4 @@
 const { NodeUtils } = require("../../common/node_util");
-const { AppUtils } = require("../../common/app_util");
 const { RegisterFailureAction } = require("./constants");
 const {
   ensureAgreementChecked,
@@ -9,7 +8,7 @@ const {
   hasVerifyCodeNextStageFeature,
   isLoginSuccessPage,
 } = require("./page_util");
-const { createTodoError, createExceptionDecision } = require("./error");
+const { createExceptionDecision } = require("./error");
 const {
   getVerifyCodeStagePolicy,
   isVerifyCodeStagePassed,
@@ -247,10 +246,6 @@ function clearAndInputVerifyCode(verifyCode) {
   NodeUtils.inputNumber(String(verifyCode || ""));
 }
 
-function clickResendVerifyCode(ctx) {
-  clickTextButton("重新发送", 2000, "未找到重新发送按钮");
-}
-
 function handlePlatformSendVerifyCode(ctx, policy) {
   if (!isInputVerifyCodePage(2000)) {
     throw createStageFailure(
@@ -309,7 +304,7 @@ function handlePlatformSendVerifyCode(ctx, policy) {
     }
 
     if (roundIndex < policy.resendCount) {
-      clickResendVerifyCode(ctx);
+      clickTextButton("重新发送", 2000, "未找到重新发送按钮");
     }
   }
 
@@ -346,6 +341,18 @@ function handleUserSentToTXVerifyCode(ctx, policy) {
   }
 
   throw createStageFailure("未发", PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL);
+}
+
+function handleCheckPhoneBindLimit(ctx) {
+  // 一个手机号只能绑定 5 个 QQ
+  if (NodeUtils.waitNodeMatchExists("text", "手机号绑定名额已满", 2000)) {
+    ctx.log("手机号绑定名额已满");
+    return createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+      message: "手机号绑定名额已满",
+      shouldReport: true,
+      shouldReset: true,
+    });
+  }
 }
 
 const RegisterUIActions = {
@@ -496,6 +503,7 @@ const RegisterUIActions = {
   },
 
   waitOrSubmitVerifyCode(ctx) {
+    handleCheckPhoneBindLimit(ctx);
     const mode = ctx.getSmsReceiveMode();
     ctx.log("处理验证码 mode=" + mode);
     const policy = getVerifyCodeStagePolicy(mode);
@@ -577,14 +585,7 @@ const RegisterUIActions = {
   },
 
   handleCommonException(ctx, exceptionState) {
-    // 一个手机号只能绑定 5 个 QQ
-    if (NodeUtils.waitNodeMatchExists("text", "手机号绑定名额已满", 2000)) {
-      return createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
-        message: "手机号绑定名额已满",
-        shouldReport: true,
-        shouldReset: true,
-      });
-    }
+    handleCheckPhoneBindLimit(ctx);
     // 在这里统一处理全局异常弹窗、风控页、网络异常页、崩溃重启等。
     // 可返回：
     // 1. createExceptionDecision(RegisterFailureAction.RETRY_STAGE, {...})

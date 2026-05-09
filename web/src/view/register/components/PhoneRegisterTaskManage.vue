@@ -209,7 +209,8 @@
     <el-dialog
       v-model="logDialogVisible"
       :title="logDialogTitle"
-      width="920px"
+      width="80vw"
+      class="task-log-dialog"
       destroy-on-close
       @closed="stopLogRefresh"
     >
@@ -628,5 +629,11 @@ onBeforeUnmount(() => {
 .task-log-message {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  :deep(.task-log-dialog) {
+    width: 94vw;
+  }
 }
 </style>
