@@ -10,6 +10,10 @@
  *
  * 推荐在业务脚本中直接 `require("./node_util")` 等子模块，再使用 `NodeUtils.xxx()` 调用。
  */
+function getBuildTime() {
+  return "__AUTOX_BUILD_TIME__";
+}
+
 module.exports = {
   DeviceUtils: require("./device_util").DeviceUtils,
   NodeUtils: require("./node_util").NodeUtils,
@@ -17,4 +21,5 @@ module.exports = {
   AppUtils: require("./app_util").AppUtils,
   HttpUtils: require("./http_util").HttpUtils,
   PermissionUtils: require("./permission_util").PermissionUtils,
+  getBuildTime,
 };

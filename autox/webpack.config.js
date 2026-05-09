@@ -7,6 +7,7 @@ const CopyPlugin = require("copy-webpack-plugin");
 var scriptConfig = require("./scriptConfig.js");
 
 var dist = "./dist";
+var BUILD_TIME_PLACEHOLDER = "__AUTOX_BUILD_TIME__";
 var entry = {};
 var copyPatterns = [];
 var projectsMain = {};
@@ -56,8 +57,70 @@ scriptConfig.projects.forEach((project) => {
   // console.error(pattern);
   copyPatterns.push(pattern);
 });
+
+function pad(value) {
+  return String(value).padStart(2, "0");
+}
+
+function formatTimezoneOffset(date) {
+  var offsetMinutes = -date.getTimezoneOffset();
+  var sign = offsetMinutes >= 0 ? "+" : "-";
+  var absMinutes = Math.abs(offsetMinutes);
+  return sign + pad(Math.floor(absMinutes / 60)) + pad(absMinutes % 60);
+}
+
+function formatBuildTime(date) {
+  return (
+    date.getFullYear() +
+    "-" +
+    pad(date.getMonth() + 1) +
+    "-" +
+    pad(date.getDate()) +
+    " " +
+    pad(date.getHours()) +
+    ":" +
+    pad(date.getMinutes()) +
+    ":" +
+    pad(date.getSeconds()) +
+    " " +
+    formatTimezoneOffset(date)
+  );
+}
+
+class BuildTimeReplacePlugin {
+  constructor(options) {
+    this.placeholder = options.placeholder;
+    this.buildTime = options.buildTime;
+  }
+
+  apply(compiler) {
+    compiler.hooks.emit.tap("BuildTimeReplacePlugin", (compilation) => {
+      Object.keys(compilation.assets).forEach((assetName) => {
+        var asset = compilation.assets[assetName];
+        var source = asset.source();
+        if (typeof source !== "string") {
+          return;
+        }
+        if (source.indexOf(this.placeholder) < 0) {
+          return;
+        }
+        var replaced = source.split(this.placeholder).join(this.buildTime);
+        compilation.assets[assetName] = {
+          source: function () {
+            return replaced;
+          },
+          size: function () {
+            return Buffer.byteLength(replaced);
+          },
+        };
+      });
+    });
+  }
+}
+
 module.exports = function (env, argv) {
   var prod = argv.mode == "production";
+  var buildTime = formatBuildTime(new Date());
   return {
     entry: entry,
     output: {
@@ -103,7 +166,7 @@ module.exports = function (env, argv) {
         // // 禁用模糊处理和生成标识符
         reservedNames: ["main"],
         // // 禁用数组内字符串的转换
-        // reservedStrings: [],
+        reservedStrings: [BUILD_TIME_PLACEHOLDER],
         // // 通过固定和随机的位置移动数组，使解密的位置难以匹配，大文件应重点开启
         rotateStringArray: prod,
         seed: 0,
@@ -143,6 +206,10 @@ module.exports = function (env, argv) {
       }),
       new CopyPlugin({
         patterns: copyPatterns,
+      }),
+      new BuildTimeReplacePlugin({
+        placeholder: BUILD_TIME_PLACEHOLDER,
+        buildTime: buildTime,
       }),
     ],
     module: {

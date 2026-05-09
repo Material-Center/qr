@@ -111,5 +111,5 @@ function runCustomDevEntry(runner, devConfig) {
   // RegisterUIActions.openRegisterPage(runner.ctx);
   // RegisterUIActions.inputPhone(runner.ctx);
   // RegisterUIActions.securityVerify(runner.ctx);
-  RegisterUIActions.waitOrSubmitVerifyCode(runner.ctx);
+  RegisterUIActions.completeProfile(runner.ctx);
 }

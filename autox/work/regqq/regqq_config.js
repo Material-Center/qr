@@ -74,7 +74,7 @@ const RegQQConfig = {
     uploadCacheQQPwd: "",
     imageVerifyQuestion: "框出正确位置",
     mockTask: {
-      id: "local-dev-task",
+      id: 11111,
       phone: "18819351383",
       smsReceiveMode: "USER_SENT_TO_TX", // USER_SENT_TO_TX | PLATFORM_SEND
     },

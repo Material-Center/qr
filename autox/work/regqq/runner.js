@@ -1,6 +1,7 @@
 const { RegisterContext } = require("./context");
 const { executeRegisterFlow } = require("./flow");
 const { handleFlowFailure } = require("./exception_flow");
+const { getBuildTime } = require("../../common/common");
 
 function RegisterRunner(config) {
   this.config = config || {};
@@ -20,6 +21,7 @@ RegisterRunner.prototype.runOnce = function () {
     };
   }
 
+  ctx.log("脚本构建时间: " + getBuildTime());
   ctx.log(
     "领取到任务 id=" +
       taskId +

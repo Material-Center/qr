@@ -119,12 +119,14 @@ function waitForVerifyCodeStagePassed(ctx, timeoutMs) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < maxWaitMs) {
+    handleCheckPhoneBindLimit(ctx, 100);
     if (isVerifyCodeStagePassedNow(ctx)) {
       return true;
     }
-    sleep(Math.min(1000, Math.max(maxWaitMs - (Date.now() - startedAt), 50)));
+    sleep(Math.min(300, Math.max(maxWaitMs - (Date.now() - startedAt), 50)));
   }
 
+  handleCheckPhoneBindLimit(ctx, 100);
   return isVerifyCodeStagePassedNow(ctx);
 }
 
@@ -304,6 +306,9 @@ function handlePlatformSendVerifyCode(ctx, policy) {
     }
 
     if (roundIndex < policy.resendCount) {
+      if (roundIndex > 0) {
+        handleCheckPhoneBindLimit(ctx, 500);
+      }
       clickTextButton("重新发送", 2000, "未找到重新发送按钮");
     }
   }
@@ -343,11 +348,11 @@ function handleUserSentToTXVerifyCode(ctx, policy) {
   throw createStageFailure("未发", PHONE_REGISTER_STATUS_CODE_DEVICE_EXEC_FAIL);
 }
 
-function handleCheckPhoneBindLimit(ctx) {
+function handleCheckPhoneBindLimit(ctx, timeoutMs = 2000) {
   // 一个手机号只能绑定 5 个 QQ
-  if (NodeUtils.waitNodeMatchExists("text", "手机号绑定名额已满", 2000)) {
+  if (NodeUtils.waitNodeMatchExists("text", "手机号绑定名额已满", timeoutMs)) {
     ctx.log("手机号绑定名额已满");
-    return createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+    throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
       message: "手机号绑定名额已满",
       shouldReport: true,
       shouldReset: true,
@@ -541,6 +546,7 @@ const RegisterUIActions = {
       .find()
       .forEach((item) => {
         if (!NodeUtils.clickUiObject(item, false)) {
+          ctx.log("清空数据: " + item.text());
           NodeUtils.clickByElement(item);
         }
       });
@@ -553,19 +559,21 @@ const RegisterUIActions = {
       );
     }
 
+    ctx.log("username: " + ctx.getTaskUsername());
+
     const nicknameEdit = editTexts.get(0);
     if (!NodeUtils.clickUiObject(nicknameEdit, false)) {
       NodeUtils.clickByElement(nicknameEdit);
     }
-    NodeUtils.inputText(ctx.getTaskNickname());
-    sleep(1000);
+    nicknameEdit.setText(ctx.getTaskNickname());
+    sleep(500);
 
     const passwordEdit = editTexts.get(1);
     if (!NodeUtils.clickUiObject(passwordEdit, false)) {
       NodeUtils.clickByElement(passwordEdit);
     }
-    NodeUtils.inputText(ctx.getQQPassword());
-    sleep(1000);
+    passwordEdit.setText(ctx.getQQPassword());
+    sleep(500);
 
     // 点一下键盘失焦
     click(device.width / 2, 100);
