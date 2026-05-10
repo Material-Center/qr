@@ -179,12 +179,7 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 			db = db.Where("extractor IS NULL")
 		}
 	}
-	if startAt, ok := parseTaskListTime(req.CreatedAtStart); ok {
-		db = db.Where("created_at >= ?", startAt)
-	}
-	if endAt, ok := parseTaskListTime(req.CreatedAtEnd); ok {
-		db = db.Where("created_at <= ?", endAt)
-	}
+	db = applyQQCacheCreatedAtRangeFilter(db, req.CreatedAtStart, req.CreatedAtEnd)
 	if err = db.Count(&total).Error; err != nil {
 		return
 	}
@@ -193,17 +188,45 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 }
 
 func (s *QQCacheService) CountExtractStats() (pending int64, extracted int64, total int64, err error) {
-	db := global.GVA_DB.Model(&system.SysQQCacheRecord{})
+	return s.CountExtractStatsByCreatedRange("", "")
+}
+
+func (s *QQCacheService) CountExtractStatsByCreatedRange(createdAtStart string, createdAtEnd string) (pending int64, extracted int64, total int64, err error) {
+	db := applyQQCacheCreatedAtRangeFilter(
+		global.GVA_DB.Model(&system.SysQQCacheRecord{}),
+		createdAtStart,
+		createdAtEnd,
+	)
 	if err = db.Count(&total).Error; err != nil {
 		return
 	}
-	if err = global.GVA_DB.Model(&system.SysQQCacheRecord{}).Where("extractor IS NULL").Count(&pending).Error; err != nil {
+	pendingDB := applyQQCacheCreatedAtRangeFilter(
+		global.GVA_DB.Model(&system.SysQQCacheRecord{}),
+		createdAtStart,
+		createdAtEnd,
+	).Where("extractor IS NULL")
+	if err = pendingDB.Count(&pending).Error; err != nil {
 		return
 	}
-	if err = global.GVA_DB.Model(&system.SysQQCacheRecord{}).Where("extractor IS NOT NULL").Count(&extracted).Error; err != nil {
+	extractedDB := applyQQCacheCreatedAtRangeFilter(
+		global.GVA_DB.Model(&system.SysQQCacheRecord{}),
+		createdAtStart,
+		createdAtEnd,
+	).Where("extractor IS NOT NULL")
+	if err = extractedDB.Count(&extracted).Error; err != nil {
 		return
 	}
 	return
+}
+
+func applyQQCacheCreatedAtRangeFilter(db *gorm.DB, startRaw string, endRaw string) *gorm.DB {
+	if startAt, ok := parseTaskListTime(startRaw); ok {
+		db = db.Where("created_at >= ?", startAt)
+	}
+	if endAt, ok := parseTaskListTime(endRaw); ok {
+		db = db.Where("created_at <= ?", endAt)
+	}
+	return db
 }
 
 func (s *QQCacheService) ResetExtractByID(id uint) error {
@@ -220,15 +243,20 @@ func (s *QQCacheService) ResetExtractByID(id uint) error {
 		}).Error
 }
 
-func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint) ([]byte, int, error) {
+func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint, createdAtStart string, createdAtEnd string) ([]byte, int, error) {
 	if count <= 0 {
 		return nil, 0, errors.New("提取数量必须大于0")
 	}
 	var records []system.SysQQCacheRecord
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("extractor IS NULL").
-			Where("ini IS NOT NULL AND TRIM(ini) <> ''").
+		query := applyQQCacheCreatedAtRangeFilter(
+			tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("extractor IS NULL").
+				Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
+			createdAtStart,
+			createdAtEnd,
+		)
+		if err := query.
 			Order("updated_at asc").
 			Limit(count).
 			Find(&records).Error; err != nil {

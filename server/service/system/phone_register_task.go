@@ -31,7 +31,7 @@ const (
 type PhoneRegisterTaskService struct{}
 
 type phoneRegisterTaskListResult struct {
-	List       []system.SysPhoneRegisterTask
+	List       []systemRes.PhoneRegisterTaskListItem
 	Total      int64
 	Success    int64
 	Failed     int64
@@ -221,12 +221,53 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	}
 
 	return phoneRegisterTaskListResult{
-		List:       list,
+		List:       buildPhoneRegisterTaskListItems(list, operatorRole != phoneRolePromoter),
 		Total:      total,
 		Success:    stat.Success,
 		Failed:     stat.Failed,
 		Processing: stat.Processing,
 	}, nil
+}
+
+func buildPhoneRegisterTaskListItems(tasks []system.SysPhoneRegisterTask, includeQQNum bool) []systemRes.PhoneRegisterTaskListItem {
+	items := make([]systemRes.PhoneRegisterTaskListItem, 0, len(tasks))
+	for i := range tasks {
+		task := tasks[i]
+		item := systemRes.PhoneRegisterTaskListItem{
+			ID:              task.ID,
+			CreatedAt:       task.CreatedAt,
+			Phone:           task.Phone,
+			SMSReceiveMode:  task.SMSReceiveMode,
+			Status:          task.Status,
+			StatusCode:      task.StatusCode,
+			LastError:       task.LastError,
+			FinishedAt:      task.FinishedAt,
+			SettledAt:       task.SettledAt,
+			HolderDeviceID:  task.HolderDeviceID,
+			ClaimedAt:       task.ClaimedAt,
+			LastHeartbeatAt: task.LastHeartbeatAt,
+			ExpiresAt:       task.ExpiresAt,
+		}
+		if includeQQNum {
+			item.QQNum = task.QQNum
+		}
+		if task.Promoter.ID != 0 {
+			item.Promoter = &systemRes.PhoneRegisterTaskUserBrief{
+				ID:       task.Promoter.ID,
+				UserName: task.Promoter.Username,
+				NickName: task.Promoter.NickName,
+			}
+		}
+		if task.Leader.ID != 0 {
+			item.Leader = &systemRes.PhoneRegisterTaskUserBrief{
+				ID:       task.Leader.ID,
+				UserName: task.Leader.Username,
+				NickName: task.Leader.NickName,
+			}
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskSummaryFilter) (systemRes.PhoneRegisterTaskSummaryResponse, error) {

@@ -397,7 +397,6 @@ func buildPhoneRegisterActiveInfo(task system.SysPhoneRegisterTask) systemRes.Ph
 		Status:              task.Status,
 		StatusCode:          task.StatusCode,
 		LastError:           task.LastError,
-		QQNum:               task.QQNum,
 		NeedPromoterCode:    task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend && task.Status == system.PhoneRegisterStatusWaitingPromoterCode,
 		CodeSubmitExpiresAt: codeSubmitExpiresAt,
 		HolderDeviceID:      task.HolderDeviceID,

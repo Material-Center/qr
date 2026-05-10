@@ -281,7 +281,12 @@ const onExportPendingIniZip = async () => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    const res = await exportPendingQQCacheIniZip(count)
+    const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
+    const res = await exportPendingQQCacheIniZip({
+      count,
+      createdAtStart: createdAtStart || undefined,
+      createdAtEnd: createdAtEnd || undefined
+    })
     const ok = await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
     if (ok) {
       await fetchList()

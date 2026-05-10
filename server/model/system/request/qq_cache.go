@@ -35,5 +35,7 @@ type QQCacheExportIniZip struct {
 
 // QQCacheExportPendingIniZip 管理端按数量提取未提取缓存 INI（打包为 zip）
 type QQCacheExportPendingIniZip struct {
-	Count int `json:"count" form:"count"`
+	Count          int    `json:"count" form:"count"`
+	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
+	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
 }

@@ -10,7 +10,6 @@ type PhoneRegisterTaskActiveInfo struct {
 	Status              string     `json:"status"`
 	StatusCode          *int       `json:"statusCode"`
 	LastError           string     `json:"lastError"`
-	QQNum               string     `json:"qqNum"`
 	NeedPromoterCode    bool       `json:"needPromoterCode"`
 	CodeSubmitExpiresAt *time.Time `json:"codeSubmitExpiresAt,omitempty"`
 	HolderDeviceID      *string    `json:"holderDeviceId,omitempty"`
@@ -28,6 +27,31 @@ type PhoneRegisterTaskListResponse struct {
 	SuccessCount    int64       `json:"successCount"`
 	FailCount       int64       `json:"failCount"`
 	ProcessingCount int64       `json:"processingCount"`
+}
+
+type PhoneRegisterTaskUserBrief struct {
+	ID       uint   `json:"ID"`
+	UserName string `json:"userName"`
+	NickName string `json:"nickName"`
+}
+
+type PhoneRegisterTaskListItem struct {
+	ID              uint                        `json:"ID"`
+	CreatedAt       time.Time                   `json:"CreatedAt"`
+	Phone           string                      `json:"phone"`
+	SMSReceiveMode  string                      `json:"smsReceiveMode"`
+	QQNum           string                      `json:"qqNum,omitempty"`
+	Status          string                      `json:"status"`
+	StatusCode      *int                        `json:"statusCode"`
+	LastError       string                      `json:"lastError"`
+	FinishedAt      *time.Time                  `json:"finishedAt"`
+	SettledAt       *time.Time                  `json:"settledAt"`
+	HolderDeviceID  *string                     `json:"holderDeviceId,omitempty"`
+	ClaimedAt       *time.Time                  `json:"claimedAt,omitempty"`
+	LastHeartbeatAt *time.Time                  `json:"lastHeartbeatAt,omitempty"`
+	ExpiresAt       time.Time                   `json:"expiresAt"`
+	Promoter        *PhoneRegisterTaskUserBrief `json:"promoter,omitempty"`
+	Leader          *PhoneRegisterTaskUserBrief `json:"leader,omitempty"`
 }
 
 type PhoneRegisterTaskLogListResponse struct {

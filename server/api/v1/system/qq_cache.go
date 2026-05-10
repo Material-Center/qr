@@ -128,7 +128,7 @@ func (a *QQCacheApi) List(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	pending, extracted, statsTotal, err := qqCacheService.CountExtractStats()
+	pending, extracted, statsTotal, err := qqCacheService.CountExtractStatsByCreatedRange(req.CreatedAtStart, req.CreatedAtEnd)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -233,7 +233,7 @@ func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	zipBytes, count, err := qqCacheService.ExportPendingIniZipByCount(req.Count, utils.GetUserID(c))
+	zipBytes, count, err := qqCacheService.ExportPendingIniZipByCount(req.Count, utils.GetUserID(c), req.CreatedAtStart, req.CreatedAtEnd)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
