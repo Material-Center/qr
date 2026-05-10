@@ -43,6 +43,7 @@ type SysPhoneRegisterTask struct {
 	QQNum           string     `json:"qqNum" gorm:"index;size:32;comment:注册成功QQ号"`
 	QQCacheRecordID *uint      `json:"qqCacheRecordId" gorm:"index;comment:QQ缓存记录ID"`
 	PendingCode     string     `json:"-" gorm:"column:pending_code;size:32;comment:待设备消费验证码"`
+	CodeRequestedAt *time.Time `json:"codeRequestedAt" gorm:"index;comment:进入待地推验证码时间"`
 	Status          string     `json:"status" gorm:"index;size:32;comment:任务状态"`
 	StatusCode      *int       `json:"statusCode" gorm:"index;comment:任务状态码"`
 	LastError       string     `json:"lastError" gorm:"type:text;comment:最近错误摘要"`

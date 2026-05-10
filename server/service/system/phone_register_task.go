@@ -20,6 +20,7 @@ const (
 	phoneRegisterTaskTimeout      = 30 * time.Minute
 	phoneRegisterLeaseTimeout     = 5 * time.Minute
 	phoneRegisterTimeoutScanEvery = 1 * time.Minute
+	phoneRegisterCodeSubmitWindow = 4 * time.Minute
 
 	phoneRoleSuperAdmin = uint(888)
 	phoneRoleAdmin      = uint(100)
@@ -128,6 +129,12 @@ func (s *PhoneRegisterTaskService) SubmitCode(promoterID uint, req systemReq.Pho
 		}
 		if task.Status != system.PhoneRegisterStatusWaitingPromoterCode {
 			return errors.New("当前任务未处于待地推验证码状态")
+		}
+		if task.CodeRequestedAt != nil && time.Now().After(task.CodeRequestedAt.Add(phoneRegisterCodeSubmitWindow)) {
+			if err := s.failTaskTx(tx, &task, system.PhoneRegisterStatusCodeVerifyCodeTimeout, "验证码等待超时"); err != nil {
+				return err
+			}
+			return errors.New("验证码已超时")
 		}
 		task.PendingCode = verifyCode
 		task.LastError = "地推已提交验证码，等待设备消费"
@@ -518,19 +525,23 @@ func (s *PhoneRegisterTaskService) DeviceReport(req systemReq.PhoneRegisterDevic
 			if task.SMSReceiveMode != system.PhoneRegisterSMSModePlatformSend {
 				return errors.New("当前任务收码方式不支持进入待码状态")
 			}
+			if task.Status != system.PhoneRegisterStatusWaitingPromoterCode || task.CodeRequestedAt == nil {
+				task.CodeRequestedAt = &now
+			}
 			task.Status = system.PhoneRegisterStatusWaitingPromoterCode
 			task.LastError = message
 			task.LastHeartbeatAt = &now
 			return tx.Model(&task).
-				Select("status", "last_error", "last_heartbeat_at", "updated_at").
+				Select("status", "code_requested_at", "last_error", "last_heartbeat_at", "updated_at").
 				Updates(task).Error
 		case system.PhoneRegisterDeviceActionConsumeCodeOK:
 			task.Status = system.PhoneRegisterStatusRunning
 			task.PendingCode = ""
+			task.CodeRequestedAt = nil
 			task.LastError = message
 			task.LastHeartbeatAt = &now
 			return tx.Model(&task).
-				Select("status", "pending_code", "last_error", "last_heartbeat_at", "updated_at").
+				Select("status", "pending_code", "code_requested_at", "last_error", "last_heartbeat_at", "updated_at").
 				Updates(task).Error
 		case system.PhoneRegisterDeviceActionRegisterSuccess:
 			task.Status = system.PhoneRegisterStatusRegisteredWaitUpload
@@ -639,9 +650,10 @@ func (s *PhoneRegisterTaskService) CompleteTaskAfterQQCacheUploadTx(tx *gorm.DB,
 	task.FinishedAt = &now
 	task.HolderDeviceID = nil
 	task.PendingCode = ""
+	task.CodeRequestedAt = nil
 	task.LastError = ""
 	if err := tx.Model(&task).
-		Select("status", "status_code", "qq_num", "qq_cache_record_id", "finished_at", "holder_device_id", "pending_code", "last_error", "updated_at").
+		Select("status", "status_code", "qq_num", "qq_cache_record_id", "finished_at", "holder_device_id", "pending_code", "code_requested_at", "last_error", "updated_at").
 		Updates(task).Error; err != nil {
 		return system.SysPhoneRegisterTask{}, err
 	}
@@ -660,13 +672,14 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 		Where("status NOT IN ?", []string{system.PhoneRegisterStatusSucceeded, system.PhoneRegisterStatusFailed}).
 		Where("expires_at <= ?", now).
 		Updates(map[string]any{
-			"status":           system.PhoneRegisterStatusFailed,
-			"status_code":      system.PhoneRegisterStatusCodeTaskTimeout,
-			"last_error":       "任务总超时",
-			"finished_at":      now,
-			"holder_device_id": nil,
-			"pending_code":     "",
-			"updated_at":       now,
+			"status":            system.PhoneRegisterStatusFailed,
+			"status_code":       system.PhoneRegisterStatusCodeTaskTimeout,
+			"last_error":        "任务总超时",
+			"finished_at":       now,
+			"holder_device_id":  nil,
+			"pending_code":      "",
+			"code_requested_at": nil,
+			"updated_at":        now,
 		}).Error; err != nil {
 		return err
 	}
@@ -682,13 +695,14 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 		Where("last_heartbeat_at IS NOT NULL").
 		Where("last_heartbeat_at <= ?", heartbeatDeadline).
 		Updates(map[string]any{
-			"status":           system.PhoneRegisterStatusFailed,
-			"status_code":      system.PhoneRegisterStatusCodeHeartbeatTimeout,
-			"last_error":       "设备心跳超时",
-			"finished_at":      now,
-			"holder_device_id": nil,
-			"pending_code":     "",
-			"updated_at":       now,
+			"status":            system.PhoneRegisterStatusFailed,
+			"status_code":       system.PhoneRegisterStatusCodeHeartbeatTimeout,
+			"last_error":        "设备心跳超时",
+			"finished_at":       now,
+			"holder_device_id":  nil,
+			"pending_code":      "",
+			"code_requested_at": nil,
+			"updated_at":        now,
 		}).Error; err != nil {
 		return err
 	}
@@ -709,8 +723,9 @@ func (s *PhoneRegisterTaskService) failTaskTx(tx *gorm.DB, task *system.SysPhone
 	task.FinishedAt = &now
 	task.HolderDeviceID = nil
 	task.PendingCode = ""
+	task.CodeRequestedAt = nil
 	return tx.Model(task).
-		Select("status", "status_code", "last_error", "finished_at", "holder_device_id", "pending_code", "updated_at").
+		Select("status", "status_code", "last_error", "finished_at", "holder_device_id", "pending_code", "code_requested_at", "updated_at").
 		Updates(task).Error
 }
 

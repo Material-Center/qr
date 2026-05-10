@@ -63,6 +63,22 @@ function clickTextContainsButton(
   );
 }
 
+function refreshSecurityVerification(ctx) {
+  const match = NodeUtils.findClickableMatch(textMatches("刷新验证"), 1000);
+  if (!match) {
+    ctx.log("安全验证重试: 未找到刷新验证按钮");
+    return false;
+  }
+
+  const target = match.node || match.fallbackNode;
+  if (!NodeUtils.clickUiObject(target, false)) {
+    NodeUtils.clickByElement(match.fallbackNode || target);
+  }
+  ctx.log("安全验证重试: 已刷新验证");
+  sleep(1500);
+  return true;
+}
+
 function clickRegisterAndLogin(ctx) {
   const maxClickCount = 3;
   let hasButton = false;
@@ -486,6 +502,9 @@ const RegisterUIActions = {
       }
 
       tryCount++;
+      if (tryCount > 1) {
+        refreshSecurityVerification(ctx);
+      }
 
       const challenge = ctx.solveImageVerification("框出正确位置", {});
       challenge.click();

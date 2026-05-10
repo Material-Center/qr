@@ -4,7 +4,7 @@
       shadow="never"
       class="mb-3"
     >
-      <template #header>创建手机号注册任务</template>
+      <template #header>提交手机号注册</template>
 
       <el-form
         label-width="88px"
@@ -16,16 +16,18 @@
             placeholder="请输入手机号"
           />
         </el-form-item>
-        <el-form-item label="是否发码">
+        <el-form-item label="验证方式">
           <div class="sms-switch-row">
-            <el-switch
-              v-model="isPlatformSend"
-              inline-prompt
-              active-text="是"
-              inactive-text="否"
-            />
+            <el-radio-group
+              v-model="smsReceiveMode"
+              size="small"
+              @change="persistSmsReceiveMode"
+            >
+              <el-radio-button label="PLATFORM_SEND">收码</el-radio-button>
+              <el-radio-button label="USER_SENT_TO_TX">发码</el-radio-button>
+            </el-radio-group>
             <span class="sms-switch-hint">
-              {{ isPlatformSend ? '平台发码' : '我已发码' }}
+              {{ smsReceiveMode === 'PLATFORM_SEND' ? '填写6位验证码，等待120s后自动重发一次，再120s后结束任务' : '发短信 “注册QQ” 到号码 10690700511' }}
             </span>
           </div>
         </el-form-item>
@@ -34,7 +36,7 @@
             size="small"
             type="primary"
             @click="createTask"
-          >创建任务</el-button>
+          >提交</el-button>
           <el-button
             size="small"
             @click="refreshAll"
@@ -44,61 +46,87 @@
 
       <div v-if="activeTasks.length">
         <el-divider class="my-2">当前任务</el-divider>
-        <div class="active-task-grid">
-          <el-card
-            v-for="task in activeTasks"
-            :key="task.id"
-            shadow="never"
+        <div class="table-wrap">
+          <el-table
+            :data="activeTasks"
+            row-key="id"
+            size="small"
+            class="my-task-table"
+            :row-class-name="activeTaskRowClassName"
           >
-            <div class="task-title-row">
-              <div>
-                <div class="task-title-line">
-                  <span class="task-title">任务#{{ task.id }}</span>
-                  <el-tag
-                    size="small"
-                    :type="statusTagType(task.status, task.finishedAt)"
-                  >
-                    {{ statusText(task.status) }}
-                  </el-tag>
-                </div>
-                <div class="task-subtitle">
-                  创建于 {{ safeFormatDate(task.createdAt) }}，剩余 {{ remainText(task) }}
-                </div>
-              </div>
-            </div>
-
-            <div class="task-brief">
-              <span>手机号：{{ task.phone || '-' }}，收码方式：{{ smsModeText(task.smsReceiveMode) }}</span>
-            </div>
-            <div
-              v-if="promoterErrorText(task)"
-              class="task-error"
+            <el-table-column
+              label="任务ID"
+              prop="id"
+              :width="taskColumnWidth.id"
+            />
+            <el-table-column
+              label="创建时间"
+              :min-width="taskColumnWidth.createdAt"
             >
-              最近错误：{{ promoterErrorText(task) }}
-            </div>
-
-            <el-form
-              v-if="task.needPromoterCode"
-              label-width="88px"
-              class="compact-form mt-3"
+              <template #default="scope">
+                <span class="task-time-cell">{{ safeFormatDate(scope.row.createdAt) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="手机号"
+              prop="phone"
+              :min-width="taskColumnWidth.phone"
+            />
+            <el-table-column
+              label="验证码"
+              :min-width="taskColumnWidth.verifyCode"
             >
-              <el-form-item label="验证码">
-                <el-input
-                  v-model="verifyCodeMap[task.id]"
-                  placeholder="请输入验证码"
-                />
-              </el-form-item>
-              <el-form-item>
-                <el-button
-                  size="small"
-                  type="primary"
-                  @click="submitCode(task)"
+              <template #default="scope">
+                <div
+                  v-if="scope.row.needPromoterCode"
+                  class="verify-inline"
                 >
-                  提交验证码
-                </el-button>
-              </el-form-item>
-            </el-form>
-          </el-card>
+                  <el-input
+                    v-model="verifyCodeMap[scope.row.id]"
+                    size="small"
+                    :disabled="isVerifyCodeInputDisabled(scope.row)"
+                    :placeholder="verifyCodeInputPlaceholder(scope.row)"
+                  />
+                  <el-button
+                    size="small"
+                    type="primary"
+                    :disabled="isVerifyCodeInputDisabled(scope.row)"
+                    @click="submitCode(scope.row)"
+                  >
+                    提交
+                  </el-button>
+                </div>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="收码方式"
+              :min-width="taskColumnWidth.smsMode"
+            >
+              <template #default="scope">
+                {{ smsModeText(scope.row.smsReceiveMode) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="状态"
+              :min-width="taskColumnWidth.status"
+            >
+              <template #default="scope">
+                <el-tag :type="statusTagType(scope.row.status, scope.row.finishedAt)">
+                  {{ statusText(scope.row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column
+              label="号码反馈"
+              :min-width="taskColumnWidth.error"
+              show-overflow-tooltip
+            >
+              <template #default="scope">
+                {{ promoterErrorText(scope.row) }}
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
       </div>
     </el-card>
@@ -114,19 +142,13 @@
           @change="handleStatusChange"
         >
           <el-option label="全部" value="" />
-          <el-option label="执行中" value="processing" />
           <el-option label="成功" value="succeeded" />
           <el-option label="失败" value="failed" />
         </el-select>
       </div>
-      <el-row
-        :gutter="12"
-        class="mb-3"
-        style="font-size: 12px;"
-      >
-        <el-col :span="8">成功：{{ counters.success }}</el-col>
-        <el-col :span="8">失败：{{ counters.fail }}</el-col>
-        <el-col :span="8">处理中：{{ counters.processing }}</el-col>
+      <el-row :gutter="12" class="mb-3" style="font-size: 12px;">
+        <el-col :span="12">成功：{{ counters.success }}</el-col>
+        <el-col :span="12">失败：{{ counters.fail }}</el-col>
       </el-row>
       <div class="table-wrap">
         <el-table
@@ -172,12 +194,7 @@
             </template>
           </el-table-column>
           <el-table-column
-            label="QQ号"
-            prop="qqNum"
-            :min-width="taskColumnWidth.qqNum"
-          />
-          <el-table-column
-            label="错误"
+            label="号码反馈"
             :min-width="taskColumnWidth.error"
             show-overflow-tooltip
           >
@@ -232,7 +249,7 @@ const phoneInput = ref('')
 const smsReceiveMode = ref(DEFAULT_SMS_RECEIVE_MODE)
 const activeTasks = ref([])
 const myTasks = ref([])
-const taskListStatus = ref('processing')
+const taskListStatus = ref('')
 const taskPage = ref(1)
 const taskPageSize = ref(10)
 const taskTotal = ref(0)
@@ -253,11 +270,12 @@ const taskColumnWidth = computed(() => {
   if (isMobile.value) {
     return {
       id: 64,
-      createdAt: 120,
-      phone: 105,
+      createdAt: 104,
+      phone: 96,
       smsMode: 76,
       status: 88,
       qqNum: 92,
+      verifyCode: 154,
       error: 100,
       finishedAt: 120
     }
@@ -269,6 +287,7 @@ const taskColumnWidth = computed(() => {
     smsMode: 120,
     status: 130,
     qqNum: 120,
+    verifyCode: 200,
     error: 160,
     finishedAt: 170
   }
@@ -340,20 +359,26 @@ const safeFormatDate = (value) => {
   return formatDate(value)
 }
 
-const remainSeconds = computed(() => {
-  return (expiresAt, finishedAt) => {
-    if (!expiresAt || finishedAt) return null
-    const diff = Math.floor((new Date(expiresAt).getTime() - nowTs.value) / 1000)
-    return diff > 0 ? diff : 0
-  }
-})
+const codeSubmitRemainSeconds = (task) => {
+  if (!task?.codeSubmitExpiresAt || task?.finishedAt) return null
+  const diff = Math.floor((new Date(task.codeSubmitExpiresAt).getTime() - nowTs.value) / 1000)
+  return diff > 0 ? diff : 0
+}
 
-const remainText = (task) => {
-  const seconds = remainSeconds.value(task?.expiresAt, task?.finishedAt)
-  if (seconds === null) return '--:--'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+const isVerifyCodeInputDisabled = (task) => {
+  if (!task?.needPromoterCode) return true
+  if (task.status !== 'waiting_promoter_code') return true
+  if (task.finishedAt) return true
+  const seconds = codeSubmitRemainSeconds(task)
+  return seconds !== null && seconds <= 0
+}
+
+const verifyCodeInputPlaceholder = (task) => {
+  return isVerifyCodeInputDisabled(task) ? '验证码已超时' : '请输入验证码'
+}
+
+const activeTaskRowClassName = ({ row }) => {
+  return row?.needPromoterCode && !isVerifyCodeInputDisabled(row) ? 'verify-code-row' : ''
 }
 
 const smsModeText = (mode) => {
@@ -361,16 +386,6 @@ const smsModeText = (mode) => {
   if (mode === 'USER_SENT_TO_TX') return '我已发码'
   return mode || '-'
 }
-
-const isPlatformSend = computed({
-  get() {
-    return smsReceiveMode.value === 'PLATFORM_SEND'
-  },
-  set(value) {
-    smsReceiveMode.value = value ? 'PLATFORM_SEND' : 'USER_SENT_TO_TX'
-    persistSmsReceiveMode(smsReceiveMode.value)
-  }
-})
 
 const statusText = (status) => {
   const map = {
@@ -467,12 +482,16 @@ const createTask = async () => {
     smsReceiveMode: smsReceiveMode.value
   })
   persistSmsReceiveMode(smsReceiveMode.value)
-  ElMessage.success('手机号注册任务创建成功')
+  ElMessage.success('手机号已提交')
   phoneInput.value = ''
   await refreshAll()
 }
 
 const submitCode = async (task) => {
+  if (isVerifyCodeInputDisabled(task)) {
+    ElMessage.warning('验证码已超时，请等待任务重试或失败')
+    return
+  }
   const verifyCode = String(verifyCodeMap.value?.[task.id] || '').trim()
   if (!verifyCode) {
     ElMessage.warning('验证码不能为空')
@@ -576,51 +595,6 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.task-title-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.active-task-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.task-title-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.task-title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.task-subtitle {
-  margin-top: 4px;
-  color: var(--el-text-color-secondary);
-  font-size: 12px;
-}
-
-.task-brief {
-  margin-top: 8px;
-  color: var(--el-text-color-regular);
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.task-error {
-  margin-top: 6px;
-  color: var(--el-color-danger);
-  font-size: 12px;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
 .task-list-toolbar {
   display: flex;
   justify-content: flex-end;
@@ -647,6 +621,25 @@ onBeforeUnmount(() => {
   display: block;
 }
 
+.verify-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 176px;
+}
+
+.verify-inline :deep(.el-input) {
+  width: 112px;
+}
+
+.my-task-table :deep(.verify-code-row) {
+  --el-table-tr-bg-color: var(--el-color-warning-light-9);
+}
+
+.my-task-table :deep(.verify-code-row:hover > td.el-table__cell) {
+  background-color: var(--el-color-warning-light-8);
+}
+
 @media (max-width: 768px) {
   .compact-page :deep(.el-card__header) {
     padding: 8px 10px;
@@ -656,13 +649,17 @@ onBeforeUnmount(() => {
     padding: 8px;
   }
 
-  .task-title-row {
-    flex-direction: column;
-    align-items: stretch;
+  .sms-switch-row {
+    align-items: flex-start;
+    gap: 6px;
   }
 
-  .active-task-grid {
-    grid-template-columns: 1fr;
+  .sms-switch-hint {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.25;
+    word-break: break-word;
   }
 
   .task-list-toolbar,
@@ -691,6 +688,15 @@ onBeforeUnmount(() => {
     height: 20px;
     padding: 0 5px;
     font-size: 11px;
+  }
+
+  .verify-inline {
+    gap: 4px;
+    min-width: 148px;
+  }
+
+  .verify-inline :deep(.el-input) {
+    width: 88px;
   }
 }
 </style>

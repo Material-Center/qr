@@ -3,20 +3,21 @@ package response
 import "time"
 
 type PhoneRegisterTaskActiveInfo struct {
-	ID               uint       `json:"id"`
-	CreatedAt        time.Time  `json:"createdAt"`
-	Phone            string     `json:"phone"`
-	SMSReceiveMode   string     `json:"smsReceiveMode"`
-	Status           string     `json:"status"`
-	StatusCode       *int       `json:"statusCode"`
-	LastError        string     `json:"lastError"`
-	QQNum            string     `json:"qqNum"`
-	NeedPromoterCode bool       `json:"needPromoterCode"`
-	HolderDeviceID   *string    `json:"holderDeviceId,omitempty"`
-	ClaimedAt        *time.Time `json:"claimedAt,omitempty"`
-	LastHeartbeatAt  *time.Time `json:"lastHeartbeatAt,omitempty"`
-	ExpiresAt        time.Time  `json:"expiresAt"`
-	FinishedAt       *time.Time `json:"finishedAt"`
+	ID                  uint       `json:"id"`
+	CreatedAt           time.Time  `json:"createdAt"`
+	Phone               string     `json:"phone"`
+	SMSReceiveMode      string     `json:"smsReceiveMode"`
+	Status              string     `json:"status"`
+	StatusCode          *int       `json:"statusCode"`
+	LastError           string     `json:"lastError"`
+	QQNum               string     `json:"qqNum"`
+	NeedPromoterCode    bool       `json:"needPromoterCode"`
+	CodeSubmitExpiresAt *time.Time `json:"codeSubmitExpiresAt,omitempty"`
+	HolderDeviceID      *string    `json:"holderDeviceId,omitempty"`
+	ClaimedAt           *time.Time `json:"claimedAt,omitempty"`
+	LastHeartbeatAt     *time.Time `json:"lastHeartbeatAt,omitempty"`
+	ExpiresAt           time.Time  `json:"expiresAt"`
+	FinishedAt          *time.Time `json:"finishedAt"`
 }
 
 type PhoneRegisterTaskListResponse struct {

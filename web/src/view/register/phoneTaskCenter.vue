@@ -2,7 +2,7 @@
   <div class="task-center">
     <el-card
       shadow="never"
-      class="mb-3"
+      class="user-card mb-3"
     >
       <div class="user-bar">
         <span>当前登录：{{ currentUser.nickName || '-' }}</span>
@@ -58,8 +58,24 @@ const currentUser = computed(() => userStore.userInfo || {})
     padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
   }
 
+  .user-card {
+    margin-bottom: 6px;
+  }
+
+  .user-card :deep(.el-card__body) {
+    padding: 5px 8px;
+  }
+
   .user-bar {
-    font-size: 13px;
+    min-height: 24px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .user-bar :deep(.el-button) {
+    height: 22px;
+    padding: 0;
+    font-size: 12px;
   }
 }
 </style>

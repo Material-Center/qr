@@ -105,6 +105,7 @@ class BuildTimeReplacePlugin {
           return;
         }
         var replaced = source.split(this.placeholder).join(this.buildTime);
+        console.log(this.placeholder, this.buildTime, replaced);
         compilation.assets[assetName] = {
           source: function () {
             return replaced;

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
@@ -381,21 +382,29 @@ func (a *PhoneRegisterTaskApi) DeviceGetPhoneRegisterConfig(c *gin.Context) {
 }
 
 func buildPhoneRegisterActiveInfo(task system.SysPhoneRegisterTask) systemRes.PhoneRegisterTaskActiveInfo {
+	var codeSubmitExpiresAt *time.Time
+	if task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend &&
+		task.Status == system.PhoneRegisterStatusWaitingPromoterCode &&
+		task.CodeRequestedAt != nil {
+		expiresAt := task.CodeRequestedAt.Add(4 * time.Minute)
+		codeSubmitExpiresAt = &expiresAt
+	}
 	return systemRes.PhoneRegisterTaskActiveInfo{
-		ID:               task.ID,
-		CreatedAt:        task.CreatedAt,
-		Phone:            task.Phone,
-		SMSReceiveMode:   task.SMSReceiveMode,
-		Status:           task.Status,
-		StatusCode:       task.StatusCode,
-		LastError:        task.LastError,
-		QQNum:            task.QQNum,
-		NeedPromoterCode: task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend && task.Status == system.PhoneRegisterStatusWaitingPromoterCode,
-		HolderDeviceID:   task.HolderDeviceID,
-		ClaimedAt:        task.ClaimedAt,
-		LastHeartbeatAt:  task.LastHeartbeatAt,
-		ExpiresAt:        task.ExpiresAt,
-		FinishedAt:       task.FinishedAt,
+		ID:                  task.ID,
+		CreatedAt:           task.CreatedAt,
+		Phone:               task.Phone,
+		SMSReceiveMode:      task.SMSReceiveMode,
+		Status:              task.Status,
+		StatusCode:          task.StatusCode,
+		LastError:           task.LastError,
+		QQNum:               task.QQNum,
+		NeedPromoterCode:    task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend && task.Status == system.PhoneRegisterStatusWaitingPromoterCode,
+		CodeSubmitExpiresAt: codeSubmitExpiresAt,
+		HolderDeviceID:      task.HolderDeviceID,
+		ClaimedAt:           task.ClaimedAt,
+		LastHeartbeatAt:     task.LastHeartbeatAt,
+		ExpiresAt:           task.ExpiresAt,
+		FinishedAt:          task.FinishedAt,
 	}
 }
 
