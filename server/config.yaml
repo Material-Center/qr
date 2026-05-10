@@ -77,6 +77,8 @@ email:
     is-loginauth: false
 excel:
     dir: ./resource/excel/
+extra:
+    extract-url: http://127.0.0.1:19091/extract
 hua-wei-obs:
     path: you-path
     bucket: you-bucket

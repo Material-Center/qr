@@ -95,6 +95,29 @@ type PhoneRegisterDeviceTaskInfo struct {
 	VerifyCode       string     `json:"verifyCode,omitempty"`
 }
 
+type PhoneRegisterOpenAPITaskInfo struct {
+	TaskID     uint       `json:"taskId"`
+	Phone      string     `json:"phone,omitempty"`
+	VerifyMode string     `json:"verifyMode,omitempty"`
+	Status     string     `json:"status,omitempty"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+	NeedCode   bool       `json:"needCode"`
+	HasTask    bool       `json:"hasTask"`
+}
+
+type PhoneRegisterOpenAPIVerifyCodeResponse struct {
+	TaskID     uint   `json:"taskId"`
+	VerifyCode string `json:"verifyCode"`
+	HasCode    bool   `json:"hasCode"`
+}
+
+type PhoneRegisterOpenAPIReportResponse struct {
+	OK              bool   `json:"ok"`
+	TaskID          uint   `json:"taskId,omitempty"`
+	QQCacheRecordID uint   `json:"qqCacheRecordId,omitempty"`
+	QQNum           string `json:"qqNum,omitempty"`
+}
+
 type PhoneRegisterDeviceHeartbeatResponse struct {
 	OK bool `json:"ok"`
 }

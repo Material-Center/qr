@@ -6,6 +6,7 @@ set -euo pipefail
 #   ./deploy.sh server
 #   ./deploy.sh web
 #   ./deploy.sh autox
+#   ./deploy.sh extra
 #   ./deploy.sh all
 #   ./deploy.sh service
 
@@ -36,6 +37,14 @@ REMOTE_SERVER_POST_CMD=""
 # autox：对应服务端 local.script-static-dir（与 script-static-url-prefix 配合访问）
 REMOTE_AUTOX_DIR="/opt/qr-server/static/scripts"
 REMOTE_AUTOX_POST_CMD=""
+# extra
+REMOTE_QQ_CACHE_EXTRACTOR_DIR="/opt/extra"
+REMOTE_QQ_CACHE_EXTRACTOR_POST_CMD=""
+QQ_CACHE_EXTRACTOR_SERVICE_NAME="extra"
+QQ_CACHE_EXTRACTOR_PORT="19091"
+QQ_CACHE_EXTRACTOR_RUN_USER="root"
+QQ_CACHE_EXTRACTOR_RUN_GROUP="root"
+QQ_CACHE_EXTRACTOR_INSTALL_JAVA="1"
 BINARY_NAME="server"
 SERVICE_RUN_USER="root"
 SERVICE_RUN_GROUP="root"
@@ -50,7 +59,7 @@ INCLUDE_CONFIG="0"
 ACTION="${1:-}"
 
 if [[ -z "${ACTION}" ]]; then
-  echo "Usage: ./deploy.sh [server|web|autox|all|service]"
+  echo "Usage: ./deploy.sh [server|web|autox|extra|all|service]"
   exit 1
 fi
 
@@ -74,6 +83,9 @@ export REMOTE_WEB_DIR REMOTE_WEB_POST_CMD
 export REMOTE_AUTOX_DIR REMOTE_AUTOX_POST_CMD
 export REMOTE_SERVER_DIR REMOTE_SERVER_POST_CMD
 export REMOTE_UPDATE_SCRIPT SERVICE_NAME USE_SUDO
+export REMOTE_QQ_CACHE_EXTRACTOR_DIR REMOTE_QQ_CACHE_EXTRACTOR_POST_CMD
+export QQ_CACHE_EXTRACTOR_SERVICE_NAME QQ_CACHE_EXTRACTOR_PORT
+export QQ_CACHE_EXTRACTOR_RUN_USER QQ_CACHE_EXTRACTOR_RUN_GROUP QQ_CACHE_EXTRACTOR_INSTALL_JAVA
 export BINARY_NAME GOOS_TARGET GOARCH_TARGET CGO_ENABLED_TARGET INCLUDE_CONFIG
 export SERVICE_RUN_USER SERVICE_RUN_GROUP SERVICE_DESCRIPTION RESTART_AFTER_INSTALL
 
@@ -93,6 +105,10 @@ run_autox() {
   "${SCRIPT_DIR}/deploy/scripts/deploy-autox.sh"
 }
 
+run_qq_cache_extractor() {
+  "${SCRIPT_DIR}/deploy/scripts/deploy-extra.sh"
+}
+
 case "${ACTION}" in
   web)
     run_web
@@ -103,11 +119,15 @@ case "${ACTION}" in
   autox)
     run_autox
     ;;
+  extra)
+    run_qq_cache_extractor
+    ;;
   service)
     run_service
     ;;
   all)
     run_server
+    run_qq_cache_extractor
     run_web
     if [[ -n "${REMOTE_AUTOX_DIR}" ]]; then
       run_autox
@@ -117,8 +137,7 @@ case "${ACTION}" in
     ;;
   *)
     echo "Unknown action: ${ACTION}"
-    echo "Usage: ./deploy.sh [server|web|autox|all|service]"
+    echo "Usage: ./deploy.sh [server|web|autox|extra|all|service]"
     exit 1
     ;;
 esac
-

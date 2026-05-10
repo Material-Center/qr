@@ -70,6 +70,21 @@ type PhoneRegisterDeviceLog struct {
 	Message    string `json:"message" form:"message"`
 }
 
+type PhoneRegisterOpenAPITask struct {
+	DeviceID string `json:"deviceId" form:"deviceId"`
+	TaskID   uint   `json:"taskId" form:"taskId"`
+}
+
+type PhoneRegisterOpenAPIReport struct {
+	DeviceID   string `json:"deviceId" form:"deviceId"`
+	TaskID     uint   `json:"taskId" form:"taskId"`
+	Status     string `json:"status" form:"status"`
+	Reason     string `json:"reason" form:"reason"`
+	QQPwd      string `json:"qqPwd" form:"qqPwd"`
+	ClientID   string `json:"clientId" form:"clientId"`
+	DeviceInfo string `json:"deviceInfo" form:"deviceInfo"`
+}
+
 type PhoneRegisterTaskLogList struct {
 	request.PageInfo
 	TaskID uint `json:"taskId" form:"taskId"`

@@ -497,6 +497,59 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 	return task, found, err
 }
 
+func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAPITask, verifyMode string) (system.SysPhoneRegisterTask, bool, error) {
+	deviceID := strings.TrimSpace(req.DeviceID)
+	if deviceID == "" {
+		return system.SysPhoneRegisterTask{}, false, errors.New("deviceId不能为空")
+	}
+	smsReceiveMode, err := phoneRegisterSMSModeFromOpenAPIVerifyMode(verifyMode)
+	if err != nil {
+		return system.SysPhoneRegisterTask{}, false, err
+	}
+	_ = s.timeoutUnfinishedTasks()
+
+	var task system.SysPhoneRegisterTask
+	found := false
+	err = global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		existing, ok, err := s.findUniqueOpenTaskByDeviceTx(tx, deviceID, true)
+		if err != nil {
+			return err
+		}
+		if ok {
+			task = existing
+			found = true
+			return nil
+		}
+
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending)
+		if smsReceiveMode != "" {
+			query = query.Where("sms_receive_mode = ?", smsReceiveMode)
+		}
+		if err := query.Order("id asc").First(&task).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				task = system.SysPhoneRegisterTask{}
+				return nil
+			}
+			return err
+		}
+		now := time.Now()
+		task.Status = system.PhoneRegisterStatusRunning
+		task.HolderDeviceID = stringPtr(deviceID)
+		task.ClaimedAt = &now
+		task.LastHeartbeatAt = &now
+		task.LastError = ""
+		if err := tx.Model(&task).
+			Select("status", "holder_device_id", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
+			Updates(task).Error; err != nil {
+			return err
+		}
+		found = true
+		return nil
+	})
+	return task, found, err
+}
+
 func (s *PhoneRegisterTaskService) DeviceTask(req systemReq.PhoneRegisterDeviceTask) (system.SysPhoneRegisterTask, bool, error) {
 	deviceID := strings.TrimSpace(req.DeviceID)
 	if deviceID == "" {
@@ -504,6 +557,19 @@ func (s *PhoneRegisterTaskService) DeviceTask(req systemReq.PhoneRegisterDeviceT
 	}
 	_ = s.timeoutUnfinishedTasks()
 	return s.findUniqueOpenTaskByDeviceTx(global.GVA_DB, deviceID, false)
+}
+
+func phoneRegisterSMSModeFromOpenAPIVerifyMode(verifyMode string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(verifyMode)) {
+	case "":
+		return "", nil
+	case "receive", "platform_send", strings.ToLower(system.PhoneRegisterSMSModePlatformSend):
+		return system.PhoneRegisterSMSModePlatformSend, nil
+	case "send", "user_sent_to_tx", strings.ToLower(system.PhoneRegisterSMSModeUserSentToTX):
+		return system.PhoneRegisterSMSModeUserSentToTX, nil
+	default:
+		return "", errors.New("verifyMode仅支持receive/send")
+	}
 }
 
 func (s *PhoneRegisterTaskService) DeviceHeartbeat(req systemReq.PhoneRegisterDeviceHeartbeat) error {
@@ -735,7 +801,6 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 		Where("status IN ?", []string{
 			system.PhoneRegisterStatusRunning,
 			system.PhoneRegisterStatusWaitingPromoterCode,
-			system.PhoneRegisterStatusRegisteredWaitUpload,
 		}).
 		Where("holder_device_id IS NOT NULL").
 		Where("last_heartbeat_at IS NOT NULL").
