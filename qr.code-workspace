@@ -21,6 +21,10 @@
       "name": "autox"
     },
     {
+      "path": "qq-cache-extractor-service",
+      "name": "cache-extractor-service"
+    },
+    {
       "path": "test",
       "name": "test"
     },
