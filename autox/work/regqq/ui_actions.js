@@ -63,6 +63,32 @@ function clickTextContainsButton(
   );
 }
 
+function getNodeText(node) {
+  if (!node || typeof node.text !== "function") {
+    return "";
+  }
+  return String(node.text() || "");
+}
+
+function clickResendVerifyCode(ctx) {
+  const countdownNode = textMatches(/^重新发送\s*[\(（](\d+)[\)）]$/).findOne(1000);
+  const countdownText = getNodeText(countdownNode);
+  const countdownMatch = countdownText.match(/重新发送\s*[\(（](\d+)[\)）]/);
+  if (countdownMatch) {
+    const waitSeconds = Number(countdownMatch[1] || 0) || 0;
+    if (waitSeconds > 0) {
+      ctx.log("验证码阶段: 重新发送倒计时" + waitSeconds + "秒，等待后重发");
+      sleep((waitSeconds + 1) * 1000);
+    }
+  }
+
+  clickMatchedButton(
+    textMatches(/^重新发送(?:\s*[\(（]0[\)）])?$/),
+    3000,
+    "未找到重新发送按钮",
+  );
+}
+
 function refreshSecurityVerification(ctx) {
   const match = NodeUtils.findClickableMatch(textMatches("刷新验证"), 1000);
   if (!match) {
@@ -325,7 +351,7 @@ function handlePlatformSendVerifyCode(ctx, policy) {
       if (roundIndex > 0) {
         handleCheckPhoneBindLimit(ctx, 500);
       }
-      clickTextButton("重新发送", 2000, "未找到重新发送按钮");
+      clickResendVerifyCode(ctx);
     }
   }
 
@@ -490,12 +516,17 @@ const RegisterUIActions = {
     }
     ctx.log("处理安全验证");
 
+    const maxTryCount = 4;
     let tryCount = 0;
+    let lastImageVerifyError = "";
 
     while (!isInputVerifyCodePage() && !isSendVerifyCodeManualPage()) {
-      if (tryCount > 3) {
+      if (tryCount >= maxTryCount) {
+        const message = lastImageVerifyError
+          ? "安全验证处理失败: " + lastImageVerifyError
+          : "安全验证处理失败";
         throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
-          message: "安全验证处理失败",
+          message: message,
           shouldReport: true,
           shouldReset: true,
         });
@@ -506,7 +537,15 @@ const RegisterUIActions = {
         refreshSecurityVerification(ctx);
       }
 
-      const challenge = ctx.solveImageVerification("框出正确位置", {});
+      let challenge = null;
+      try {
+        challenge = ctx.solveImageVerification("框出正确位置", {});
+      } catch (e) {
+        lastImageVerifyError = e && e.message ? e.message : String(e);
+        ctx.log("安全验证本次识别失败，准备重试: " + lastImageVerifyError);
+        sleep(1000);
+        continue;
+      }
       challenge.click();
 
       const confirmNode = textMatches("确定").findOne(1000);

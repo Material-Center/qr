@@ -71,6 +71,18 @@ function tryParseJson(text) {
   return JSON.parse(text);
 }
 
+function validatePredictResult(provider, result) {
+  if (provider !== "tuling") {
+    return;
+  }
+  if (!result || Number(result.code) !== 1) {
+    const message = String(
+      (result && result.message) || "图灵图片验证识别失败",
+    );
+    throw new Error(message);
+  }
+}
+
 function normalizeProvider(config) {
   return String((config && config.provider) || "")
     .trim()
@@ -255,9 +267,23 @@ function toPoint(item) {
   return null;
 }
 
-function createImageVerifyService(config) {
+function createImageVerifyService(config, options) {
   const imageVerifyConfig = config || {};
+  const serviceOptions = options || {};
   let screenCaptureReady = false;
+
+  function logImageVerify(message) {
+    const text = String(message || "");
+    try {
+      if (typeof serviceOptions.logger === "function") {
+        serviceOptions.logger(text);
+        return;
+      }
+    } catch (_error) {
+      // 图片验证日志上报失败不能影响识别主流程。
+    }
+    console.log(text);
+  }
 
   function startCapturePermissionWatcher() {
     const timeoutMs =
@@ -389,12 +415,17 @@ function createImageVerifyService(config) {
     try {
       response = http.postJson(endpoint, req);
     } catch (e) {
-      console.log("图片验证请求异常: costMs=" + (Date.now() - startedAt) + " error=" + e.message);
+      logImageVerify(
+        "图片验证请求异常: costMs=" +
+          (Date.now() - startedAt) +
+          " error=" +
+          e.message,
+      );
       throw e;
     }
     const bodyText = response.body ? response.body.string() : "";
     const costMs = Date.now() - startedAt;
-    console.log(
+    logImageVerify(
       "图片验证请求响应: costMs=" +
         costMs +
         " status=" +
@@ -407,7 +438,9 @@ function createImageVerifyService(config) {
         "图片验证请求失败: status=" + response.statusCode + " body=" + bodyText,
       );
     }
-    return tryParseJson(bodyText);
+    const result = tryParseJson(bodyText);
+    validatePredictResult(provider, result);
+    return result;
   }
 
   function parsePoints(result, region) {
@@ -448,12 +481,21 @@ function createImageVerifyService(config) {
   }
 
   function capturePredictAndClick(question, options) {
+    const startedAt = Date.now();
     const capture = captureImage(options);
     try {
       const debugPath = saveImageForDebug(capture.image, imageVerifyConfig);
       const base64Image = imageToBase64(capture.image);
       const result = predictImage(base64Image, question, options);
       const points = parsePoints(result, capture.region);
+      logImageVerify(
+        "图片验证识别完成: totalCostMs=" +
+          (Date.now() - startedAt) +
+          " points=" +
+          points.length +
+          " debugPath=" +
+          debugPath,
+      );
       return {
         debugPath: debugPath,
         base64Image: base64Image,

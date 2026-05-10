@@ -143,7 +143,9 @@ function RegisterContext(config) {
     baseURL: config.cacheToolBaseURL,
   });
   this.imageVerifyConfig = config.imageVerify || {};
-  this.imageVerifyService = createImageVerifyService(this.imageVerifyConfig);
+  this.imageVerifyService = createImageVerifyService(this.imageVerifyConfig, {
+    logger: this.log.bind(this),
+  });
   this.deviceConfig = null;
   this.currentTask = null;
   this.profileDraft = null;
