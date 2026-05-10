@@ -267,7 +267,9 @@ RegisterContext.prototype.resolveImageVerifyConfig = function (forceRefresh) {
   }
 
   this.imageVerifyConfig = resolved;
-  this.imageVerifyService = createImageVerifyService(this.imageVerifyConfig);
+  this.imageVerifyService = createImageVerifyService(this.imageVerifyConfig, {
+    logger: this.log.bind(this),
+  });
   return this.imageVerifyConfig;
 };
 

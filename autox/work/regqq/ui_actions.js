@@ -345,6 +345,11 @@ function handlePlatformSendVerifyCode(ctx, policy) {
         ctx.report("consume_code_success", "验证码已消费并进入下一阶段");
         return;
       }
+
+      ctx.report(
+        "enter_waiting_code",
+        "验证码错误，重新填写",
+      );
     }
 
     if (roundIndex < policy.resendCount) {
