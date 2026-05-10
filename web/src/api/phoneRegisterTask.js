@@ -46,6 +46,14 @@ export const getPhoneRegisterTaskSummary = (params) => {
   })
 }
 
+export const settlePhoneRegisterTaskLeader = (data) => {
+  return service({
+    url: '/phoneRegisterTask/settle',
+    method: 'post',
+    data
+  })
+}
+
 export const getPhoneRegisterTaskLogs = (data) => {
   return service({
     url: '/phoneRegisterTask/logs',

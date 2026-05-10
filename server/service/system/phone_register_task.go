@@ -37,6 +37,11 @@ type phoneRegisterTaskListResult struct {
 	Processing int64
 }
 
+type phoneRegisterTaskSettleResult struct {
+	SettledAt    time.Time
+	SettledCount int64
+}
+
 var phoneRegisterTaskDaemonOnce sync.Once
 
 func init() {
@@ -231,6 +236,8 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 		SuccessCount    int64  `gorm:"column:success_count"`
 		FailCount       int64  `gorm:"column:fail_count"`
 		ProcessingCount int64  `gorm:"column:processing_count"`
+		SettledCount    int64  `gorm:"column:settled_count"`
+		UnsettledCount  int64  `gorm:"column:unsettled_count"`
 	}
 
 	db := global.GVA_DB.Table("sys_phone_register_tasks t").
@@ -241,7 +248,9 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			promoter.nick_name AS promoter_name,
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' THEN 1 ELSE 0 END), 0) AS success_count,
 			COALESCE(SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END), 0) AS fail_count,
-			COALESCE(SUM(CASE WHEN t.status NOT IN ('succeeded', 'failed') THEN 1 ELSE 0 END), 0) AS processing_count`).
+			COALESCE(SUM(CASE WHEN t.status NOT IN ('succeeded', 'failed') THEN 1 ELSE 0 END), 0) AS processing_count,
+			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS settled_count,
+			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NULL THEN 1 ELSE 0 END), 0) AS unsettled_count`).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
 		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id")
 
@@ -271,6 +280,8 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			SuccessCount:    row.SuccessCount,
 			FailCount:       row.FailCount,
 			ProcessingCount: row.ProcessingCount,
+			SettledCount:    row.SettledCount,
+			UnsettledCount:  row.UnsettledCount,
 		}
 		if row.LeaderID != nil {
 			item.LeaderID = *row.LeaderID
@@ -283,6 +294,8 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			leader.SuccessCount += item.SuccessCount
 			leader.FailCount += item.FailCount
 			leader.ProcessingCount += item.ProcessingCount
+			leader.SettledCount += item.SettledCount
+			leader.UnsettledCount += item.UnsettledCount
 			leaderMap[item.LeaderID] = leader
 		}
 	}
@@ -295,6 +308,35 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 		Leaders:   leaders,
 		Promoters: promoters,
 	}, nil
+}
+
+func (s *PhoneRegisterTaskService) SettleLeader(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskSettle) (phoneRegisterTaskSettleResult, error) {
+	if operatorRole != phoneRoleSuperAdmin && operatorRole != phoneRoleAdmin {
+		return phoneRegisterTaskSettleResult{}, errors.New("仅管理员可结算")
+	}
+	if req.LeaderID == 0 {
+		return phoneRegisterTaskSettleResult{}, errors.New("团长ID不能为空")
+	}
+
+	settledAt := time.Now()
+	result := phoneRegisterTaskSettleResult{SettledAt: settledAt}
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		base := tx.Model(&system.SysPhoneRegisterTask{}).
+			Where("leader_id = ? AND finished_at IS NOT NULL AND finished_at <= ? AND status = ? AND settled_at IS NULL", req.LeaderID, settledAt, system.PhoneRegisterStatusSucceeded)
+		if err := base.Count(&result.SettledCount).Error; err != nil {
+			return err
+		}
+		if result.SettledCount <= 0 {
+			return nil
+		}
+		return tx.Model(&system.SysPhoneRegisterTask{}).
+			Where("leader_id = ? AND finished_at IS NOT NULL AND finished_at <= ? AND status = ? AND settled_at IS NULL", req.LeaderID, settledAt, system.PhoneRegisterStatusSucceeded).
+			Updates(map[string]interface{}{
+				"settled_at": settledAt,
+				"settled_by": operatorID,
+			}).Error
+	})
+	return result, err
 }
 
 func (s *PhoneRegisterTaskService) GetTaskLogs(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskLogList) ([]system.SysPhoneRegisterTaskLog, int64, int, int, error) {

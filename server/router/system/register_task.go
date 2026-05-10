@@ -15,6 +15,7 @@ func (r *RegisterTaskRouter) InitRegisterTaskRouter(Router *gin.RouterGroup) {
 		registerTaskRouter.POST("step", registerTaskApi.SubmitRegisterTaskStep)
 		registerTaskRouter.POST("debug/login/start", registerTaskApi.StartRegisterTaskDebugLogin)
 		registerTaskRouter.POST("debug/login/submit", registerTaskApi.SubmitRegisterTaskDebugLoginCode)
+		registerTaskRouter.POST("settle", registerTaskApi.SettleRegisterTaskLeader)
 	}
 	{
 		registerTaskRouterWithoutRecord.GET("active", registerTaskApi.GetActiveRegisterTask)

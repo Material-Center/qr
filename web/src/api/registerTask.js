@@ -46,6 +46,14 @@ export const getRegisterTaskSummary = (params) => {
   })
 }
 
+export const settleRegisterTaskLeader = (data) => {
+  return service({
+    url: '/registerTask/settle',
+    method: 'post',
+    data
+  })
+}
+
 export const startRegisterTaskDebugLogin = (data) => {
   return service({
     url: '/registerTask/debug/login/start',

@@ -44,6 +44,8 @@ type PhoneRegisterTaskSummaryItem struct {
 	SuccessCount    int64  `json:"successCount"`
 	FailCount       int64  `json:"failCount"`
 	ProcessingCount int64  `json:"processingCount"`
+	SettledCount    int64  `json:"settledCount"`
+	UnsettledCount  int64  `json:"unsettledCount"`
 }
 
 type PhoneRegisterTaskSummaryResponse struct {

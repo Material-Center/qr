@@ -47,6 +47,8 @@ type SysPhoneRegisterTask struct {
 	StatusCode      *int       `json:"statusCode" gorm:"index;comment:任务状态码"`
 	LastError       string     `json:"lastError" gorm:"type:text;comment:最近错误摘要"`
 	FinishedAt      *time.Time `json:"finishedAt" gorm:"index;comment:完成时间"`
+	SettledAt       *time.Time `json:"settledAt" gorm:"index;comment:结算时间"`
+	SettledBy       *uint      `json:"settledBy" gorm:"index;comment:结算管理员ID"`
 	HolderDeviceID  *string    `json:"holderDeviceId" gorm:"index;size:128;comment:当前持有设备ID"`
 	ClaimedAt       *time.Time `json:"claimedAt" gorm:"comment:领取时间"`
 	LastHeartbeatAt *time.Time `json:"lastHeartbeatAt" gorm:"index;comment:最后心跳时间"`

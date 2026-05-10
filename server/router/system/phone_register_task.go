@@ -14,6 +14,7 @@ func (r *PhoneRegisterTaskRouter) InitPhoneRegisterTaskRouter(PrivateGroup *gin.
 	{
 		phoneRegisterTaskRouter.POST("create", phoneRegisterTaskApi.CreatePhoneRegisterTask)
 		phoneRegisterTaskRouter.POST("submitCode", phoneRegisterTaskApi.SubmitPhoneRegisterTaskCode)
+		phoneRegisterTaskRouter.POST("settle", phoneRegisterTaskApi.SettlePhoneRegisterTaskLeader)
 	}
 	{
 		phoneRegisterTaskRouterWithoutRecord.GET("active", phoneRegisterTaskApi.GetActivePhoneRegisterTask)

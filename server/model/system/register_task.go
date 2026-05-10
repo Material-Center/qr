@@ -34,6 +34,8 @@ type SysRegisterTask struct {
 	RetryCount       int        `json:"retryCount" gorm:"default:0;comment:重试次数"`
 	ExportedAt       *time.Time `json:"exportedAt" gorm:"index;comment:导出时间"`
 	ExportedBy       *uint      `json:"exportedBy" gorm:"index;comment:导出人ID"`
+	SettledAt        *time.Time `json:"settledAt" gorm:"index;comment:结算时间"`
+	SettledBy        *uint      `json:"settledBy" gorm:"index;comment:结算管理员ID"`
 	PromoterID       uint       `json:"promoterId" gorm:"index;comment:地推账号ID"`
 	LeaderID         *uint      `json:"leaderId" gorm:"index;comment:团长账号ID"`
 	ChangePasswordAt *time.Time `json:"changePasswordAt" gorm:"comment:改密时间"`

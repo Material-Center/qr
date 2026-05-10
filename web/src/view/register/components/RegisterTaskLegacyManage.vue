@@ -169,6 +169,21 @@
               <el-table-column label="成功QQ" prop="successCount" width="80" />
               <el-table-column label="失败" prop="failCount" width="80" />
               <el-table-column label="处理中" prop="processingCount" width="90" />
+              <el-table-column v-if="canSettle" label="已结算" prop="settledCount" width="90" />
+              <el-table-column v-if="canSettle" label="待结算" prop="unsettledCount" width="90" />
+              <el-table-column v-if="canSettle" label="操作" width="90" fixed="right">
+                <template #default="scope">
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    :disabled="!scope.row.unsettledCount"
+                    @click="confirmSettleLeader(scope.row)"
+                  >
+                    结算
+                  </el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </el-card>
         </el-col>
@@ -181,6 +196,8 @@
               <el-table-column label="成功QQ" prop="successCount" width="80" />
               <el-table-column label="失败" prop="failCount" width="80" />
               <el-table-column label="处理中" prop="processingCount" width="90" />
+              <el-table-column v-if="canSettle" label="已结算" prop="settledCount" width="90" />
+              <el-table-column v-if="canSettle" label="待结算" prop="unsettledCount" width="90" />
             </el-table>
           </el-card>
         </el-col>
@@ -206,8 +223,8 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { downloadRegisterTaskCache, getRegisterTaskList, getRegisterTaskSummary } from '@/api/registerTask'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { downloadRegisterTaskCache, getRegisterTaskList, getRegisterTaskSummary, settleRegisterTaskLeader } from '@/api/registerTask'
 import { getUserList } from '@/api/user'
 import { formatDate } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
@@ -229,6 +246,7 @@ const userStore = useUserStore()
 const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const currentUserId = computed(() => userStore.userInfo?.ID)
 const canDownloadCache = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
@@ -414,6 +432,24 @@ const fetchList = async () => {
 const fetchSummary = async () => {
   const { data } = await getRegisterTaskSummary(summaryQueryParams())
   summary.value = data || { leaders: [], promoters: [] }
+}
+
+const confirmSettleLeader = async (row) => {
+  if (!row?.leaderId || !row.unsettledCount) return
+  try {
+    await ElMessageBox.confirm(
+      `确认结算团长 ${row.leaderName || row.leaderId} 的 ${row.unsettledCount} 个待结算QQ？`,
+      '确认结算',
+      { type: 'warning' }
+    )
+    const { data } = await settleRegisterTaskLeader({ leaderId: row.leaderId })
+    ElMessage.success(`已结算 ${data?.settledCount || 0} 个QQ`)
+    await fetchAll()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error(e?.message || '结算失败')
+    }
+  }
 }
 
 const fetchAll = async () => {

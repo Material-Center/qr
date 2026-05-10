@@ -251,6 +251,33 @@ func (a *RegisterTaskApi) GetRegisterTaskSummary(c *gin.Context) {
 	}, "获取成功", c)
 }
 
+// SettleRegisterTaskLeader
+// @Tags      RegisterTask
+// @Summary   管理员结算团长注册任务
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.RegisterTaskSettle  true  "结算参数"
+// @Success   200   {object}  response.Response{msg=string}
+// @Router    /registerTask/settle [post]
+func (a *RegisterTaskApi) SettleRegisterTaskLeader(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	var req systemReq.RegisterTaskSettle
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	result, err := registerTaskService.SettleLeader(role, utils.GetUserID(c), req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{
+		"settledAt":    result.SettledAt,
+		"settledCount": result.SettledCount,
+	}, "结算成功", c)
+}
+
 // StartRegisterTaskDebugLogin
 // @Tags      RegisterTask
 // @Summary   管理员启动登录调试

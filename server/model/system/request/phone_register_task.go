@@ -34,6 +34,10 @@ type PhoneRegisterTaskSummaryFilter struct {
 	DayScoped       bool   `json:"dayScoped" form:"dayScoped"`
 }
 
+type PhoneRegisterTaskSettle struct {
+	LeaderID uint `json:"leaderId" form:"leaderId"`
+}
+
 type PhoneRegisterDevicePoll struct {
 	DeviceID string `json:"deviceId" form:"deviceId"`
 }

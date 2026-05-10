@@ -48,6 +48,11 @@ type registerTaskListResult struct {
 	Processing int64
 }
 
+type registerTaskSettleResult struct {
+	SettledAt    time.Time
+	SettledCount int64
+}
+
 type taskSession struct {
 	PhoneBindClient *qpi.LoginClient
 	ChangePwdClient *qpi.Client
@@ -1082,6 +1087,8 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 		SuccessCount    int64  `gorm:"column:success_count"`
 		FailCount       int64  `gorm:"column:fail_count"`
 		ProcessingCount int64  `gorm:"column:processing_count"`
+		SettledCount    int64  `gorm:"column:settled_count"`
+		UnsettledCount  int64  `gorm:"column:unsettled_count"`
 	}
 
 	successQQCountExpr := successLoggedQQCountSQL("t.qq_logged_list")
@@ -1093,7 +1100,9 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 			promoter.nick_name AS promoter_name,
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 THEN %s ELSE 0 END) AS success_count,
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND (t.status_code <> 0 OR t.status_code IS NULL) THEN 1 ELSE 0 END) AS fail_count,
-			SUM(CASE WHEN t.finished_at IS NULL THEN 1 ELSE 0 END) AS processing_count`, successQQCountExpr)).
+			SUM(CASE WHEN t.finished_at IS NULL THEN 1 ELSE 0 END) AS processing_count,
+			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 AND t.settled_at IS NOT NULL THEN %s ELSE 0 END) AS settled_count,
+			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 AND t.settled_at IS NULL THEN %s ELSE 0 END) AS unsettled_count`, successQQCountExpr, successQQCountExpr, successQQCountExpr)).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
 		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id")
 
@@ -1124,6 +1133,8 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 			SuccessCount:    row.SuccessCount,
 			FailCount:       row.FailCount,
 			ProcessingCount: row.ProcessingCount,
+			SettledCount:    row.SettledCount,
+			UnsettledCount:  row.UnsettledCount,
 		}
 		if row.LeaderID != nil {
 			item.LeaderID = *row.LeaderID
@@ -1137,6 +1148,8 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 			leaderAgg.SuccessCount += item.SuccessCount
 			leaderAgg.FailCount += item.FailCount
 			leaderAgg.ProcessingCount += item.ProcessingCount
+			leaderAgg.SettledCount += item.SettledCount
+			leaderAgg.UnsettledCount += item.UnsettledCount
 			leaderMap[item.LeaderID] = leaderAgg
 		}
 	}
@@ -1149,6 +1162,43 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 		Leaders:   leaders,
 		Promoters: promoters,
 	}, nil
+}
+
+func (s *RegisterTaskService) SettleLeader(operatorRole uint, operatorID uint, req systemReq.RegisterTaskSettle) (registerTaskSettleResult, error) {
+	if operatorRole != roleSuperAdmin && operatorRole != roleAdmin {
+		return registerTaskSettleResult{}, errors.New("仅管理员可结算")
+	}
+	if req.LeaderID == 0 {
+		return registerTaskSettleResult{}, errors.New("团长ID不能为空")
+	}
+
+	settledAt := time.Now()
+	result := registerTaskSettleResult{SettledAt: settledAt}
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		successQQCountExpr := successLoggedQQCountSQL("qq_logged_list")
+		var counter struct {
+			Count int64 `gorm:"column:count"`
+		}
+		base := tx.Model(&system.SysRegisterTask{}).
+			Where("leader_id = ? AND finished_at IS NOT NULL AND finished_at <= ? AND status_code = 0 AND settled_at IS NULL", req.LeaderID, settledAt)
+		if err := base.Select(fmt.Sprintf("COALESCE(SUM(%s), 0) AS count", successQQCountExpr)).Scan(&counter).Error; err != nil {
+			return err
+		}
+		if counter.Count <= 0 {
+			return nil
+		}
+		if err := tx.Model(&system.SysRegisterTask{}).
+			Where("leader_id = ? AND finished_at IS NOT NULL AND finished_at <= ? AND status_code = 0 AND settled_at IS NULL", req.LeaderID, settledAt).
+			Updates(map[string]interface{}{
+				"settled_at": settledAt,
+				"settled_by": operatorID,
+			}).Error; err != nil {
+			return err
+		}
+		result.SettledCount = counter.Count
+		return nil
+	})
+	return result, err
 }
 
 func (s *RegisterTaskService) timeoutUnfinishedTasks() error {

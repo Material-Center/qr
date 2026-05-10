@@ -35,6 +35,10 @@ type RegisterTaskSummaryFilter struct {
 	DayScoped       bool   `json:"dayScoped" form:"dayScoped"`
 }
 
+type RegisterTaskSettle struct {
+	LeaderID uint `json:"leaderId" form:"leaderId"`
+}
+
 type RegisterTaskDebugLoginStart struct {
 	Phone    string `json:"phone" form:"phone"`
 	UIN      string `json:"uin" form:"uin"`

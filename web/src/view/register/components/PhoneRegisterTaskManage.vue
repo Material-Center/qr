@@ -189,6 +189,21 @@
                 <el-table-column label="成功" prop="successCount" width="80" />
                 <el-table-column label="失败" prop="failCount" width="80" />
                 <el-table-column label="处理中" prop="processingCount" width="90" />
+                <el-table-column v-if="canSettle" label="已结算" prop="settledCount" width="90" />
+                <el-table-column v-if="canSettle" label="待结算" prop="unsettledCount" width="90" />
+                <el-table-column v-if="canSettle" label="操作" width="90" fixed="right">
+                  <template #default="scope">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      :disabled="!scope.row.unsettledCount"
+                      @click="confirmSettleLeader(scope.row)"
+                    >
+                      结算
+                    </el-button>
+                  </template>
+                </el-table-column>
               </el-table>
             </el-card>
           </el-col>
@@ -201,6 +216,8 @@
                 <el-table-column label="成功" prop="successCount" width="80" />
                 <el-table-column label="失败" prop="failCount" width="80" />
                 <el-table-column label="处理中" prop="processingCount" width="90" />
+                <el-table-column v-if="canSettle" label="已结算" prop="settledCount" width="90" />
+                <el-table-column v-if="canSettle" label="待结算" prop="unsettledCount" width="90" />
               </el-table>
             </el-card>
           </el-col>
@@ -253,9 +270,9 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getUserList } from '@/api/user'
-import { getPhoneRegisterTaskList, getPhoneRegisterTaskLogs, getPhoneRegisterTaskSummary } from '@/api/phoneRegisterTask'
+import { getPhoneRegisterTaskList, getPhoneRegisterTaskLogs, getPhoneRegisterTaskSummary, settlePhoneRegisterTaskLeader } from '@/api/phoneRegisterTask'
 import { formatDate } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
 
@@ -298,6 +315,7 @@ const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(curren
 const showSummary = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].includes(currentRoleId.value))
 const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const logDialogTitle = computed(() => {
   if (!logTask.value) return '任务日志'
   return `任务日志 #${logTask.value.ID}`
@@ -503,6 +521,24 @@ const fetchSummary = async () => {
   }
   const { data } = await getPhoneRegisterTaskSummary(summaryQueryParams())
   summary.value = data || { leaders: [], promoters: [] }
+}
+
+const confirmSettleLeader = async (row) => {
+  if (!row?.leaderId || !row.unsettledCount) return
+  try {
+    await ElMessageBox.confirm(
+      `确认结算团长 ${row.leaderName || row.leaderId} 的 ${row.unsettledCount} 个待结算任务？`,
+      '确认结算',
+      { type: 'warning' }
+    )
+    const { data } = await settlePhoneRegisterTaskLeader({ leaderId: row.leaderId })
+    ElMessage.success(`已结算 ${data?.settledCount || 0} 个任务`)
+    await fetchAll()
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') {
+      ElMessage.error(e?.message || '结算失败')
+    }
+  }
 }
 
 const fetchTaskLogs = async () => {

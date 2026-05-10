@@ -176,6 +176,32 @@ func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskSummary(c *gin.Context) {
 	response.OkWithDetailed(data, "获取成功", c)
 }
 
+// SettlePhoneRegisterTaskLeader
+// @Tags      PhoneRegisterTask
+// @Summary   管理员结算团长手机号注册任务
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.PhoneRegisterTaskSettle  true  "结算参数"
+// @Success   200   {object}  response.Response{msg=string}
+// @Router    /phoneRegisterTask/settle [post]
+func (a *PhoneRegisterTaskApi) SettlePhoneRegisterTaskLeader(c *gin.Context) {
+	var req systemReq.PhoneRegisterTaskSettle
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	result, err := phoneRegisterTaskService.SettleLeader(utils.GetUserAuthorityId(c), utils.GetUserID(c), req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{
+		"settledAt":    result.SettledAt,
+		"settledCount": result.SettledCount,
+	}, "结算成功", c)
+}
+
 // GetPhoneRegisterTaskLogs
 // @Tags      PhoneRegisterTask
 // @Summary   查询手机号注册任务日志
