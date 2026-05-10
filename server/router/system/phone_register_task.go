@@ -22,6 +22,7 @@ func (r *PhoneRegisterTaskRouter) InitPhoneRegisterTaskRouter(PrivateGroup *gin.
 		phoneRegisterTaskRouterWithoutRecord.POST("list", phoneRegisterTaskApi.GetPhoneRegisterTaskList)
 		phoneRegisterTaskRouterWithoutRecord.POST("logs", phoneRegisterTaskApi.GetPhoneRegisterTaskLogs)
 		phoneRegisterTaskRouterWithoutRecord.GET("summary", phoneRegisterTaskApi.GetPhoneRegisterTaskSummary)
+		phoneRegisterTaskRouterWithoutRecord.GET("settlement/history", phoneRegisterTaskApi.GetPhoneRegisterTaskSettlementHistory)
 	}
 	{
 		publicPhoneRegisterTaskRouter.POST("device/poll", phoneRegisterTaskApi.DevicePollPhoneRegisterTask)

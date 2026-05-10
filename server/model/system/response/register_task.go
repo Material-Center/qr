@@ -21,6 +21,11 @@ type RegisterTaskSummaryResponse struct {
 	Promoters []RegisterTaskSummaryItem `json:"promoters"`
 }
 
+type RegisterTaskSettlementHistoryItem struct {
+	SettledAt    time.Time `json:"settledAt"`
+	SettledCount int64     `json:"settledCount"`
+}
+
 type RegisterTaskActiveInfo struct {
 	ID          uint       `json:"id"`
 	Phone       string     `json:"phone"`

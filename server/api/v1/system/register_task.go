@@ -278,6 +278,28 @@ func (a *RegisterTaskApi) SettleRegisterTaskLeader(c *gin.Context) {
 	}, "结算成功", c)
 }
 
+// GetRegisterTaskSettlementHistory
+// @Tags      RegisterTask
+// @Summary   管理员查询团长注册任务结算历史
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Param     leaderId  query     int  true  "团长ID"
+// @Success   200       {object}  response.Response{data=[]systemRes.RegisterTaskSettlementHistoryItem,msg=string}
+// @Router    /registerTask/settlement/history [get]
+func (a *RegisterTaskApi) GetRegisterTaskSettlementHistory(c *gin.Context) {
+	var req systemReq.RegisterTaskSettlementHistory
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	data, err := registerTaskService.GetSettlementHistory(utils.GetUserAuthorityId(c), req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(data, "获取成功", c)
+}
+
 // StartRegisterTaskDebugLogin
 // @Tags      RegisterTask
 // @Summary   管理员启动登录调试

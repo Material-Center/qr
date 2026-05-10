@@ -339,6 +339,24 @@ func (s *PhoneRegisterTaskService) SettleLeader(operatorRole uint, operatorID ui
 	return result, err
 }
 
+func (s *PhoneRegisterTaskService) GetSettlementHistory(operatorRole uint, req systemReq.PhoneRegisterTaskSettlementHistory) ([]systemRes.PhoneRegisterTaskSettlementHistoryItem, error) {
+	if operatorRole != phoneRoleSuperAdmin && operatorRole != phoneRoleAdmin {
+		return nil, errors.New("仅管理员可查看结算历史")
+	}
+	if req.LeaderID == 0 {
+		return nil, errors.New("团长ID不能为空")
+	}
+
+	var rows []systemRes.PhoneRegisterTaskSettlementHistoryItem
+	err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Select("settled_at, COUNT(1) AS settled_count").
+		Where("leader_id = ? AND settled_at IS NOT NULL AND finished_at IS NOT NULL AND status = ?", req.LeaderID, system.PhoneRegisterStatusSucceeded).
+		Group("settled_at").
+		Order("settled_at DESC").
+		Scan(&rows).Error
+	return rows, err
+}
+
 func (s *PhoneRegisterTaskService) GetTaskLogs(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskLogList) ([]system.SysPhoneRegisterTaskLog, int64, int, int, error) {
 	if req.TaskID == 0 {
 		return nil, 0, 0, 0, errors.New("taskId不能为空")

@@ -39,6 +39,10 @@ type RegisterTaskSettle struct {
 	LeaderID uint `json:"leaderId" form:"leaderId"`
 }
 
+type RegisterTaskSettlementHistory struct {
+	LeaderID uint `json:"leaderId" form:"leaderId"`
+}
+
 type RegisterTaskDebugLoginStart struct {
 	Phone    string `json:"phone" form:"phone"`
 	UIN      string `json:"uin" form:"uin"`

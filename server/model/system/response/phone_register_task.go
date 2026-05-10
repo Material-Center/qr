@@ -53,6 +53,11 @@ type PhoneRegisterTaskSummaryResponse struct {
 	Promoters []PhoneRegisterTaskSummaryItem `json:"promoters"`
 }
 
+type PhoneRegisterTaskSettlementHistoryItem struct {
+	SettledAt    time.Time `json:"settledAt"`
+	SettledCount int64     `json:"settledCount"`
+}
+
 type PhoneRegisterDeviceTaskInfo struct {
 	TaskID           uint       `json:"taskId"`
 	Phone            string     `json:"phone,omitempty"`

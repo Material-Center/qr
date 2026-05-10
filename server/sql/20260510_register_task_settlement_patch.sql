@@ -22,6 +22,18 @@ WHERE NOT EXISTS (
   SELECT 1 FROM `sys_apis` WHERE `path` = '/phoneRegisterTask/settle' AND `method` = 'POST' AND `deleted_at` IS NULL
 );
 
+INSERT INTO `sys_apis` (`created_at`, `updated_at`, `api_group`, `method`, `path`, `description`)
+SELECT NOW(), NOW(), '注册任务', 'GET', '/registerTask/settlement/history', '管理员查询团长反扫结算历史'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path` = '/registerTask/settlement/history' AND `method` = 'GET' AND `deleted_at` IS NULL
+);
+
+INSERT INTO `sys_apis` (`created_at`, `updated_at`, `api_group`, `method`, `path`, `description`)
+SELECT NOW(), NOW(), '手机号注册任务', 'GET', '/phoneRegisterTask/settlement/history', '管理员查询团长手机号注册结算历史'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path` = '/phoneRegisterTask/settlement/history' AND `method` = 'GET' AND `deleted_at` IS NULL
+);
+
 INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
 SELECT 'p', '888', '/registerTask/settle', 'POST', '', '', ''
 WHERE NOT EXISTS (
@@ -35,6 +47,18 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
+SELECT 'p', '888', '/registerTask/settlement/history', 'GET', '', '', ''
+WHERE NOT EXISTS (
+  SELECT 1 FROM `casbin_rule` WHERE `ptype` = 'p' AND `v0` = '888' AND `v1` = '/registerTask/settlement/history' AND `v2` = 'GET'
+);
+
+INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
+SELECT 'p', '100', '/registerTask/settlement/history', 'GET', '', '', ''
+WHERE NOT EXISTS (
+  SELECT 1 FROM `casbin_rule` WHERE `ptype` = 'p' AND `v0` = '100' AND `v1` = '/registerTask/settlement/history' AND `v2` = 'GET'
+);
+
+INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
 SELECT 'p', '888', '/phoneRegisterTask/settle', 'POST', '', '', ''
 WHERE NOT EXISTS (
   SELECT 1 FROM `casbin_rule` WHERE `ptype` = 'p' AND `v0` = '888' AND `v1` = '/phoneRegisterTask/settle' AND `v2` = 'POST'
@@ -44,4 +68,16 @@ INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
 SELECT 'p', '100', '/phoneRegisterTask/settle', 'POST', '', '', ''
 WHERE NOT EXISTS (
   SELECT 1 FROM `casbin_rule` WHERE `ptype` = 'p' AND `v0` = '100' AND `v1` = '/phoneRegisterTask/settle' AND `v2` = 'POST'
+);
+
+INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
+SELECT 'p', '888', '/phoneRegisterTask/settlement/history', 'GET', '', '', ''
+WHERE NOT EXISTS (
+  SELECT 1 FROM `casbin_rule` WHERE `ptype` = 'p' AND `v0` = '888' AND `v1` = '/phoneRegisterTask/settlement/history' AND `v2` = 'GET'
+);
+
+INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
+SELECT 'p', '100', '/phoneRegisterTask/settlement/history', 'GET', '', '', ''
+WHERE NOT EXISTS (
+  SELECT 1 FROM `casbin_rule` WHERE `ptype` = 'p' AND `v0` = '100' AND `v1` = '/phoneRegisterTask/settlement/history' AND `v2` = 'GET'
 );

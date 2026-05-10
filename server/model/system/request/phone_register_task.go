@@ -38,6 +38,10 @@ type PhoneRegisterTaskSettle struct {
 	LeaderID uint `json:"leaderId" form:"leaderId"`
 }
 
+type PhoneRegisterTaskSettlementHistory struct {
+	LeaderID uint `json:"leaderId" form:"leaderId"`
+}
+
 type PhoneRegisterDevicePoll struct {
 	DeviceID string `json:"deviceId" form:"deviceId"`
 }

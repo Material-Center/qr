@@ -1201,6 +1201,25 @@ func (s *RegisterTaskService) SettleLeader(operatorRole uint, operatorID uint, r
 	return result, err
 }
 
+func (s *RegisterTaskService) GetSettlementHistory(operatorRole uint, req systemReq.RegisterTaskSettlementHistory) ([]systemRes.RegisterTaskSettlementHistoryItem, error) {
+	if operatorRole != roleSuperAdmin && operatorRole != roleAdmin {
+		return nil, errors.New("仅管理员可查看结算历史")
+	}
+	if req.LeaderID == 0 {
+		return nil, errors.New("团长ID不能为空")
+	}
+
+	successQQCountExpr := successLoggedQQCountSQL("qq_logged_list")
+	var rows []systemRes.RegisterTaskSettlementHistoryItem
+	err := global.GVA_DB.Model(&system.SysRegisterTask{}).
+		Select(fmt.Sprintf("settled_at, COALESCE(SUM(%s), 0) AS settled_count", successQQCountExpr)).
+		Where("leader_id = ? AND settled_at IS NOT NULL AND finished_at IS NOT NULL AND status_code = 0", req.LeaderID).
+		Group("settled_at").
+		Order("settled_at DESC").
+		Scan(&rows).Error
+	return rows, err
+}
+
 func (s *RegisterTaskService) timeoutUnfinishedTasks() error {
 	now := time.Now()
 	failCode := system.RegisterTaskFailCodeTimeout

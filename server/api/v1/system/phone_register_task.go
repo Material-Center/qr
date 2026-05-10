@@ -202,6 +202,28 @@ func (a *PhoneRegisterTaskApi) SettlePhoneRegisterTaskLeader(c *gin.Context) {
 	}, "结算成功", c)
 }
 
+// GetPhoneRegisterTaskSettlementHistory
+// @Tags      PhoneRegisterTask
+// @Summary   管理员查询团长手机号注册任务结算历史
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Param     leaderId  query     int  true  "团长ID"
+// @Success   200       {object}  response.Response{data=[]systemRes.PhoneRegisterTaskSettlementHistoryItem,msg=string}
+// @Router    /phoneRegisterTask/settlement/history [get]
+func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskSettlementHistory(c *gin.Context) {
+	var req systemReq.PhoneRegisterTaskSettlementHistory
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	data, err := phoneRegisterTaskService.GetSettlementHistory(utils.GetUserAuthorityId(c), req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(data, "获取成功", c)
+}
+
 // GetPhoneRegisterTaskLogs
 // @Tags      PhoneRegisterTask
 // @Summary   查询手机号注册任务日志

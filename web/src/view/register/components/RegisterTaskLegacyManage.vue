@@ -171,7 +171,7 @@
               <el-table-column label="处理中" prop="processingCount" width="90" />
               <el-table-column v-if="canSettle" label="已结算" prop="settledCount" width="90" />
               <el-table-column v-if="canSettle" label="待结算" prop="unsettledCount" width="90" />
-              <el-table-column v-if="canSettle" label="操作" width="90" fixed="right">
+              <el-table-column v-if="canSettle" label="操作" width="140" fixed="right">
                 <template #default="scope">
                   <el-button
                     link
@@ -181,6 +181,14 @@
                     @click="confirmSettleLeader(scope.row)"
                   >
                     结算
+                  </el-button>
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    @click="openSettlementHistory(scope.row)"
+                  >
+                    历史
                   </el-button>
                 </template>
               </el-table-column>
@@ -218,13 +226,24 @@
         <el-button type="primary" @click="confirmDownloadZip">开始下载</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="settlementHistoryVisible" :title="settlementHistoryTitle" width="520px">
+      <el-table v-loading="settlementHistoryLoading" :data="settlementHistory" size="small">
+        <el-table-column label="结算时间" min-width="180">
+          <template #default="scope">
+            {{ formatDate(scope.row.settledAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="数量" prop="settledCount" width="120" />
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { downloadRegisterTaskCache, getRegisterTaskList, getRegisterTaskSummary, settleRegisterTaskLeader } from '@/api/registerTask'
+import { downloadRegisterTaskCache, getRegisterTaskList, getRegisterTaskSettlementHistory, getRegisterTaskSummary, settleRegisterTaskLeader } from '@/api/registerTask'
 import { getUserList } from '@/api/user'
 import { formatDate } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
@@ -272,6 +291,10 @@ const summary = ref({
 const downloadDialogVisible = ref(false)
 const downloadOnlyCache = ref(false)
 const downloadTaskIds = ref([])
+const settlementHistoryVisible = ref(false)
+const settlementHistoryLoading = ref(false)
+const settlementHistoryTitle = ref('结算历史')
+const settlementHistory = ref([])
 
 const dayStart = (base = new Date()) => {
   const d = new Date(base)
@@ -449,6 +472,22 @@ const confirmSettleLeader = async (row) => {
     if (e !== 'cancel' && e !== 'close') {
       ElMessage.error(e?.message || '结算失败')
     }
+  }
+}
+
+const openSettlementHistory = async (row) => {
+  if (!row?.leaderId) return
+  settlementHistoryTitle.value = `结算历史 - ${row.leaderName || row.leaderId}`
+  settlementHistory.value = []
+  settlementHistoryVisible.value = true
+  settlementHistoryLoading.value = true
+  try {
+    const { data } = await getRegisterTaskSettlementHistory({ leaderId: row.leaderId })
+    settlementHistory.value = data || []
+  } catch (e) {
+    ElMessage.error(e?.message || '结算历史加载失败')
+  } finally {
+    settlementHistoryLoading.value = false
   }
 }
 
