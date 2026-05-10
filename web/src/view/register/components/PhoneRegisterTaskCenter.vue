@@ -411,6 +411,16 @@ const promoterErrorText = (task) => {
   const raw = String(task?.lastError || '').trim()
   if (!raw) return ''
   if (raw.includes('手机号绑定名额已满')) return '手机号绑定名额已满'
+  if (
+    raw.includes('验证码输入后未通过') ||
+    raw.includes('验证码不正确') ||
+    raw.includes('验证码等待超时') ||
+    raw.includes('验证码已超时') ||
+    raw.includes('地推已提交验证码') ||
+    raw === '未发'
+  ) {
+    return raw
+  }
   if (task?.status === 'failed') return '注册失败'
   if (
     raw.includes('没有触发') ||
