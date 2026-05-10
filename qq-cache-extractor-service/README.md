@@ -1,0 +1,67 @@
+# QQ Cache Extractor Service
+
+独立的 QQ 缓存提取服务，用于在服务端复刻 CacheTool 的缓存读取能力。
+
+## 构建
+
+```bash
+cd qq-cache-extractor-service
+./gradlew fatJar
+```
+
+输出：
+
+```text
+qq-cache-extractor-service/build/libs/qq-cache-extractor-service-1.0.0.jar
+```
+
+## 启动服务
+
+```bash
+java -jar build/libs/qq-cache-extractor-service-1.0.0.jar --port=19091
+```
+
+## 接口
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:19091/health
+```
+
+按服务端本地路径提取：
+
+```bash
+curl -X POST 'http://127.0.0.1:19091/extract' \
+  -H 'Content-Type: application/json' \
+  -d '{"inputPath":"/tmp/qq_cache.zip","clientId":"android-id","deviceInfo":"device"}'
+```
+
+直接上传 zip：
+
+```bash
+curl -X POST 'http://127.0.0.1:19091/extract?clientId=android-id' \
+  -H 'Content-Type: application/zip' \
+  --data-binary '@/tmp/qq_cache.zip'
+```
+
+CLI 模式：
+
+```bash
+java -jar build/libs/qq-cache-extractor-service-1.0.0.jar \
+  --input=/tmp/qq_cache.zip \
+  --output=/tmp/qq_cache_result.json
+```
+
+## 输入文件
+
+zip 或目录内需要包含：
+
+- `wlogin_device.dat`
+- `tk_file`
+- `mobileQQ.xml` 或 `Properties`
+- `uid` 目录，建议包含
+- `uifa.xml`，可选
+- `mmkv/qq_uin_uid_map`，可选兜底
+
+服务会递归查找这些文件。

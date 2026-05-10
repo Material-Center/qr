@@ -1,0 +1,73 @@
+package oicq.wlogin_sdk.sharemem;
+
+import java.io.Serializable;
+
+public class WloginSigInfo implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    public long _A1_version;
+    public long _A2_create_time;
+    public long _A2_expire_time;
+    public byte[] _D2;
+    public byte[] _D2Key;
+    public long _D2_create_time;
+    public long _D2_expire_time;
+    public byte[] _DA2;
+    public byte[] _G;
+    public byte[] _TGT;
+    public byte[] _TGTKey;
+    public byte[] _access_token;
+    public long _access_token_create_time;
+    public long _app_pri;
+    public byte[] _aqSig;
+    public long _aqSig_create_time;
+    public long _create_time;
+    public byte[] _device_token;
+    public byte[] _dpwd;
+    public byte[] _en_A1;
+    public int _login_bitmap;
+    public byte[] _lsKey;
+    public long _lsKey_create_time;
+    public long _lsKey_expire_time;
+    public byte[] _noPicSig;
+    public byte[] _openid;
+    public byte[] _openkey;
+    public long _openkey_create_time;
+    public byte[] _pay_token;
+    public byte[] _pf;
+    public byte[] _pfKey;
+    public byte[] _psKey;
+    public long _psKey_create_time;
+    public byte[] _pt4Token;
+    public byte[] _randseed;
+    public byte[] _sKey;
+    public long _sKey_create_time;
+    public long _sKey_expire_time;
+    public byte[] _sid;
+    public long _sid_create_time;
+    public long _sid_expire_time;
+    public byte[] _superKey;
+    public byte[] _userA5;
+    public long _userA5_create_time;
+    public byte[] _userA8;
+    public long _userA8_create_time;
+    public long _userA8_expire_time;
+    public byte[] _userSig64;
+    public long _userSig64_create_time;
+    public byte[] _userStSig;
+    public long _userStSig_create_time;
+    public byte[] _userStWebSig;
+    public long _userStWebSig_create_time;
+    public long _userStWebSig_expire_time;
+    public byte[] _userSt_Key;
+    public long _vKey_expire_time;
+    public byte[] _vkey;
+    public long _vkey_create_time;
+    public int mainSigMap;
+    public byte[] wtSessionTicket;
+    public long wtSessionTicketCreatTime;
+    public byte[] wtSessionTicketKey;
+
+    public static byte[] _LHSig = new byte[0];
+    public static byte[] _QRPUSHSig = new byte[0];
+}

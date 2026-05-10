@@ -1,0 +1,40 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.extracache'
+version = '1.0.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+application {
+    mainClass = 'com.extracache.extractor.ExtractorServiceApplication'
+}
+
+dependencies {
+    implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
+    implementation 'org.slf4j:slf4j-simple:2.0.12'
+}
+
+tasks.register('fatJar', Jar) {
+    archiveBaseName = 'qq-cache-extractor-service'
+    archiveClassifier = ''
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': application.mainClass.get()
+    }
+    from sourceSets.main.output
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+}
+
+build.dependsOn fatJar
