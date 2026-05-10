@@ -371,14 +371,19 @@ func (s *PhoneRegisterTaskService) SettleLeader(operatorRole uint, operatorID ui
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		base := tx.Model(&system.SysPhoneRegisterTask{}).
 			Where("leader_id = ? AND finished_at IS NOT NULL AND finished_at <= ? AND status = ? AND settled_at IS NULL", req.LeaderID, settledAt, system.PhoneRegisterStatusSucceeded)
+		base = applyPhoneRegisterTaskFinishedAtRangeFilter(base, req.FinishedAtStart, req.FinishedAtEnd)
 		if err := base.Count(&result.SettledCount).Error; err != nil {
 			return err
 		}
 		if result.SettledCount <= 0 {
 			return nil
 		}
-		return tx.Model(&system.SysPhoneRegisterTask{}).
+		updateDB := tx.Model(&system.SysPhoneRegisterTask{}).
 			Where("leader_id = ? AND finished_at IS NOT NULL AND finished_at <= ? AND status = ? AND settled_at IS NULL", req.LeaderID, settledAt, system.PhoneRegisterStatusSucceeded).
+			Scopes(func(db *gorm.DB) *gorm.DB {
+				return applyPhoneRegisterTaskFinishedAtRangeFilter(db, req.FinishedAtStart, req.FinishedAtEnd)
+			})
+		return updateDB.
 			Updates(map[string]interface{}{
 				"settled_at": settledAt,
 				"settled_by": operatorID,

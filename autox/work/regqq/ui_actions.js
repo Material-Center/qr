@@ -498,6 +498,14 @@ const RegisterUIActions = {
       });
     }
 
+    if (NodeUtils.waitNodeMatchExists("text", "系统繁忙", 500)) {
+      throw createExceptionDecision(RegisterFailureAction.FAIL_FLOW, {
+        message: "系统繁忙，请稍后再试",
+        shouldReport: true,
+        shouldReset: true,
+      });
+    }
+
     // 有些手机号是注册失败的，需要处理
     if (NodeUtils.waitNodeMatchExists("text", "注册失败", 1000)) {
       if (NodeUtils.waitNodeMatchExists("text", "更换手机号码后重试", 1000)) {

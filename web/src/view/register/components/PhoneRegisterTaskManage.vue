@@ -394,11 +394,14 @@ const todayRangeParams = () => {
 }
 
 const summaryQueryParams = () => {
+  const [finishedAtStart, finishedAtEnd] = searchInfo.value.finishedAtRange || []
   const params = {
-    leaderId: searchInfo.value.leaderId || undefined
+    leaderId: searchInfo.value.leaderId || undefined,
+    finishedAtStart: finishedAtStart || undefined,
+    finishedAtEnd: finishedAtEnd || undefined
   }
   if (currentRoleId.value === ROLE_LEADER) {
-    Object.assign(params, todayRangeParams())
+    Object.assign(params, finishedAtStart || finishedAtEnd ? { dayScoped: true } : todayRangeParams())
   }
   return params
 }
@@ -554,7 +557,12 @@ const confirmSettleLeader = async (row) => {
       '确认结算',
       { type: 'warning' }
     )
-    const { data } = await settlePhoneRegisterTaskLeader({ leaderId: row.leaderId })
+    const [finishedAtStart, finishedAtEnd] = searchInfo.value.finishedAtRange || []
+    const { data } = await settlePhoneRegisterTaskLeader({
+      leaderId: row.leaderId,
+      finishedAtStart: finishedAtStart || undefined,
+      finishedAtEnd: finishedAtEnd || undefined
+    })
     ElMessage.success(`已结算 ${data?.settledCount || 0} 个任务`)
     await fetchAll()
   } catch (e) {

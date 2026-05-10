@@ -35,7 +35,9 @@ type PhoneRegisterTaskSummaryFilter struct {
 }
 
 type PhoneRegisterTaskSettle struct {
-	LeaderID uint `json:"leaderId" form:"leaderId"`
+	LeaderID        uint   `json:"leaderId" form:"leaderId"`
+	FinishedAtStart string `json:"finishedAtStart" form:"finishedAtStart"`
+	FinishedAtEnd   string `json:"finishedAtEnd" form:"finishedAtEnd"`
 }
 
 type PhoneRegisterTaskSettlementHistory struct {
