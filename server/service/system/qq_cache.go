@@ -179,6 +179,12 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 			db = db.Where("extractor IS NULL")
 		}
 	}
+	if startAt, ok := parseTaskListTime(req.CreatedAtStart); ok {
+		db = db.Where("created_at >= ?", startAt)
+	}
+	if endAt, ok := parseTaskListTime(req.CreatedAtEnd); ok {
+		db = db.Where("created_at <= ?", endAt)
+	}
 	if err = db.Count(&total).Error; err != nil {
 		return
 	}

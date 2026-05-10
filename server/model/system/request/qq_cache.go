@@ -16,10 +16,12 @@ type QQCacheExtract struct {
 
 type QQCacheList struct {
 	request.PageInfo
-	QQNum       string `json:"qqNum" form:"qqNum"`
-	DeviceID    string `json:"deviceId" form:"deviceId"`
-	ExtractorID uint   `json:"extractorId" form:"extractorId"`
-	Extracted   *bool  `json:"extracted" form:"extracted"`
+	QQNum          string `json:"qqNum" form:"qqNum"`
+	DeviceID       string `json:"deviceId" form:"deviceId"`
+	ExtractorID    uint   `json:"extractorId" form:"extractorId"`
+	Extracted      *bool  `json:"extracted" form:"extracted"`
+	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
+	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
 }
 
 type QQCacheResetExtract struct {

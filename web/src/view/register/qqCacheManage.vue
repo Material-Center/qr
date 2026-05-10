@@ -2,6 +2,18 @@
   <div>
     <div class="gva-search-box">
       <el-form :inline="true" :model="searchInfo">
+        <el-form-item label="创建时间">
+          <el-date-picker
+            v-model="searchInfo.createdAtRange"
+            type="datetimerange"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            :shortcuts="createdAtShortcuts"
+            range-separator="至"
+            start-placeholder="开始时间"
+            end-placeholder="结束时间"
+            style="width: 360px"
+          />
+        </el-form-item>
         <el-form-item label="QQ账号">
           <el-input v-model="searchInfo.qqNum" clearable placeholder="请输入QQ账号" />
         </el-form-item>
@@ -123,6 +135,7 @@ const extractStats = ref({
   total: 0
 })
 const searchInfo = ref({
+  createdAtRange: [],
   qqNum: '',
   deviceId: '',
   extracted: undefined
@@ -149,6 +162,64 @@ const getRowTime = (row, key) => {
 }
 
 const extractMax = computed(() => Math.max(Number(extractStats.value.pending) || 0, 0))
+
+const dayStart = (base = new Date()) => {
+  const d = new Date(base)
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+const dayEnd = (base = new Date()) => {
+  const d = new Date(base)
+  d.setHours(23, 59, 59, 999)
+  return d
+}
+
+const shiftDay = (base, days) => {
+  const d = new Date(base)
+  d.setDate(d.getDate() + days)
+  return d
+}
+
+const createdAtShortcuts = [
+  {
+    text: '今天',
+    value: () => {
+      const now = new Date()
+      return [dayStart(now), now]
+    }
+  },
+  {
+    text: '昨天',
+    value: () => {
+      const now = new Date()
+      const target = shiftDay(now, -1)
+      return [dayStart(target), dayEnd(target)]
+    }
+  },
+  {
+    text: '前天',
+    value: () => {
+      const now = new Date()
+      const target = shiftDay(now, -2)
+      return [dayStart(target), dayEnd(target)]
+    }
+  },
+  {
+    text: '近一周',
+    value: () => {
+      const now = new Date()
+      return [dayStart(shiftDay(now, -6)), now]
+    }
+  },
+  {
+    text: '近一个月',
+    value: () => {
+      const now = new Date()
+      return [dayStart(shiftDay(now, -29)), now]
+    }
+  }
+]
 
 const handleZipDownload = async (res, fallbackName) => {
   const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
@@ -223,12 +294,15 @@ const onExportPendingIniZip = async () => {
 
 const fetchList = async () => {
   try {
+    const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
     const { data } = await getQQCacheList({
       page: page.value,
       pageSize: pageSize.value,
       qqNum: searchInfo.value.qqNum || undefined,
       deviceId: searchInfo.value.deviceId || undefined,
-      extracted: searchInfo.value.extracted
+      extracted: searchInfo.value.extracted,
+      createdAtStart: createdAtStart || undefined,
+      createdAtEnd: createdAtEnd || undefined
     })
     tableData.value = data?.list || []
     total.value = data?.total || 0
@@ -247,6 +321,7 @@ const fetchList = async () => {
 
 const resetSearch = () => {
   searchInfo.value = {
+    createdAtRange: [],
     qqNum: '',
     deviceId: '',
     extracted: undefined
