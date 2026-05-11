@@ -79,6 +79,7 @@ excel:
     dir: ./resource/excel/
 extra:
     extract-url: http://127.0.0.1:19091/extract
+    upload-archive-dir: uploads/extra-cache-zips
 hua-wei-obs:
     path: you-path
     bucket: you-bucket

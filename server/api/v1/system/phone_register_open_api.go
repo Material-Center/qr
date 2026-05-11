@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -363,6 +365,9 @@ func extractPhoneRegisterZipFromRequest(c *gin.Context, req systemReq.PhoneRegis
 	if len(zipBytes) > phoneRegisterOpenAPIMaxZipBytes {
 		return phoneRegisterOpenAPIExtractedCache{}, errors.New("cacheZip不能超过500K")
 	}
+	if err := archivePhoneRegisterOpenAPICacheZip(req, task, zipBytes); err != nil {
+		return phoneRegisterOpenAPIExtractedCache{}, err
+	}
 	result, err := callQQCacheExtractor(zipBytes, req.ClientID, req.DeviceInfo)
 	if err != nil {
 		return phoneRegisterOpenAPIExtractedCache{}, err
@@ -372,6 +377,38 @@ func extractPhoneRegisterZipFromRequest(c *gin.Context, req systemReq.PhoneRegis
 		QQNum: result.QQNum,
 		INI:   result.INI,
 	}, nil
+}
+
+func archivePhoneRegisterOpenAPICacheZip(req systemReq.PhoneRegisterOpenAPIReport, task system.SysPhoneRegisterTask, zipBytes []byte) error {
+	archiveDir := strings.TrimSpace(global.GVA_CONFIG.Extra.UploadArchiveDir)
+	if archiveDir == "" {
+		archiveDir = "uploads/extra-cache-zips"
+	}
+	now := time.Now()
+	dir := filepath.Join(archiveDir, now.Format("20060102"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("保存缓存zip失败: %w", err)
+	}
+	deviceID := sanitizeArchiveFilePart(req.DeviceID)
+	if deviceID == "" {
+		deviceID = "unknown-device"
+	}
+	fileName := fmt.Sprintf("task-%d-%s-%s.zip", task.ID, deviceID, now.Format("150405.000000000"))
+	filePath := filepath.Join(dir, fileName)
+	if err := os.WriteFile(filePath, zipBytes, 0o600); err != nil {
+		return fmt.Errorf("保存缓存zip失败: %w", err)
+	}
+	return nil
+}
+
+func sanitizeArchiveFilePart(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	re := regexp.MustCompile(`[^A-Za-z0-9._-]+`)
+	value = re.ReplaceAllString(value, "_")
+	return strings.Trim(value, "._-")
 }
 
 func callQQCacheExtractor(zipBytes []byte, clientID string, deviceInfo string) (phoneRegisterOpenAPIExtractedCache, error) {

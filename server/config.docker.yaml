@@ -260,6 +260,7 @@ excel:
 # extra cache extractor service
 extra:
     extract-url: http://127.0.0.1:19091/extract
+    upload-archive-dir: uploads/extra-cache-zips
 
 # disk usage configuration
 disk-list:
