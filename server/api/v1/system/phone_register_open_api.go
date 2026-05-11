@@ -24,6 +24,7 @@ import (
 const (
 	phoneRegisterOpenAPIStatusSuccess = "success"
 	phoneRegisterOpenAPIStatusFailed  = "failed"
+	phoneRegisterOpenAPIMaxZipBytes   = 500 * 1024
 )
 
 var phoneRegisterOpenAPIKeys = []string{
@@ -349,12 +350,18 @@ func extractPhoneRegisterZipFromRequest(c *gin.Context, req systemReq.PhoneRegis
 	if header == nil || header.Size == 0 {
 		return phoneRegisterOpenAPIExtractedCache{}, errors.New("cacheZip不能为空")
 	}
-	zipBytes, err := io.ReadAll(file)
+	if header.Size > phoneRegisterOpenAPIMaxZipBytes {
+		return phoneRegisterOpenAPIExtractedCache{}, errors.New("cacheZip不能超过500K")
+	}
+	zipBytes, err := io.ReadAll(io.LimitReader(file, phoneRegisterOpenAPIMaxZipBytes+1))
 	if err != nil {
 		return phoneRegisterOpenAPIExtractedCache{}, err
 	}
 	if len(zipBytes) == 0 {
 		return phoneRegisterOpenAPIExtractedCache{}, errors.New("cacheZip不能为空")
+	}
+	if len(zipBytes) > phoneRegisterOpenAPIMaxZipBytes {
+		return phoneRegisterOpenAPIExtractedCache{}, errors.New("cacheZip不能超过500K")
 	}
 	result, err := callQQCacheExtractor(zipBytes, req.ClientID, req.DeviceInfo)
 	if err != nil {

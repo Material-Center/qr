@@ -255,6 +255,8 @@ deviceInfo  可选，设备信息
 cacheZip    必填，缓存 zip 文件
 ```
 
+`cacheZip` 文件大小最大 500K，超过会返回失败。
+
 示例:
 
 ```bash
