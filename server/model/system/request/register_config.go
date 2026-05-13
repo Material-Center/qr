@@ -24,4 +24,5 @@ type RegisterConfigUpsert struct {
 	PhoneImageProviderUsername  string `json:"phoneImageProviderUsername" form:"phoneImageProviderUsername"`
 	PhoneImageProviderPassword  string `json:"phoneImageProviderPassword" form:"phoneImageProviderPassword"`
 	PhoneImageProviderSecretKey string `json:"phoneImageProviderSecretKey" form:"phoneImageProviderSecretKey"`
+	PhoneRegisterEnabled        *bool  `json:"phoneRegisterEnabled" form:"phoneRegisterEnabled"`
 }

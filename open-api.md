@@ -201,7 +201,9 @@ X-Open-Api-Key: <api-key>
 
 ## 7. 上报成功
 
-注册成功时先调用该接口。该接口只标记注册流程成功，并让任务进入等待缓存上传状态，不处理缓存 zip。
+注册成功时先调用该接口。该接口会直接把任务标记为成功，地推侧会按成功展示和统计。
+
+缓存 zip 仍然需要后续调用 `/cache` 补充上传；如果 3 分钟内未上传缓存，服务端只记录一条任务日志用于回溯，不会把任务改为失败。
 
 ```http
 POST /report
@@ -248,7 +250,7 @@ X-Open-Api-Key: <api-key>
 
 ```text
 deviceId    必填，设备ID
-taskId      可选，任务ID；建议传，用于防止串任务
+taskId      必填，任务ID；用于把缓存绑定到已经成功的任务
 qqPwd       可选，QQ密码
 clientId    可选，Android ID
 deviceInfo  可选，设备信息
@@ -298,7 +300,7 @@ uifa.xml，可选
 mmkv/qq_uin_uid_map，可选
 ```
 
-服务端会调用 extra 缓存提取服务解析 zip，解析成功后写入 QQ 缓存表并完成任务。
+服务端会调用 extra 缓存提取服务解析 zip，解析成功后写入 QQ 缓存表，并把缓存记录绑定到已经成功的手机号注册任务。
 
 ## 10. 推荐流程
 
@@ -325,10 +327,13 @@ running -> waiting_code，等待地推输入验证码
 running/waiting_code -> failed
 
 上报成功:
-running/waiting_code -> registered_wait_upload
+running/waiting_code -> succeeded
 
 上传缓存:
-registered_wait_upload -> 缓存提取 -> 写入 QQ 缓存 -> succeeded
+succeeded -> 缓存提取 -> 写入 QQ 缓存 -> 绑定缓存记录
+
+缓存未上传:
+succeeded 后 3 分钟仍未上传缓存 -> 写入任务日志，不改变任务成功状态
 ```
 
 ## 12. 常见错误
@@ -355,6 +360,6 @@ taskId与当前设备任务不一致
 当前任务验证方式不需要获取验证码
   send 模式任务调用了 /verify-code。
 
-当前任务未处于待上传缓存状态
-  没有先调用 /report 上报 success，直接上传了缓存。
+当前任务未处于成功待补充缓存状态
+  没有先调用 /report 上报 success，直接上传了缓存，或 taskId 对应任务不是 OpenAPI 成功任务。
 ```

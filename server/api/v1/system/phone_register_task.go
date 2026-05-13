@@ -44,6 +44,25 @@ func (a *PhoneRegisterTaskApi) CreatePhoneRegisterTask(c *gin.Context) {
 	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "创建成功", c)
 }
 
+// GetPhoneRegisterSubmitStatus
+// @Tags      PhoneRegisterTask
+// @Summary   获取手机号注册提交开关
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200  {object}  response.Response{data=systemRes.PhoneRegisterSubmitStatusResponse,msg=string}
+// @Router    /phoneRegisterTask/submitStatus [get]
+func (a *PhoneRegisterTaskApi) GetPhoneRegisterSubmitStatus(c *gin.Context) {
+	enabled, message, err := phoneRegisterTaskService.IsSubmitEnabledForUser(utils.GetUserID(c))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(systemRes.PhoneRegisterSubmitStatusResponse{
+		Enabled: enabled,
+		Message: message,
+	}, "获取成功", c)
+}
+
 // SubmitPhoneRegisterTaskCode
 // @Tags      PhoneRegisterTask
 // @Summary   地推提交手机号注册验证码
@@ -148,13 +167,15 @@ func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskList(c *gin.Context) {
 		pageSize = 10
 	}
 	response.OkWithDetailed(systemRes.PhoneRegisterTaskListResponse{
-		List:            result.List,
-		Total:           result.Total,
-		Page:            page,
-		PageSize:        pageSize,
-		SuccessCount:    result.Success,
-		FailCount:       result.Failed,
-		ProcessingCount: result.Processing,
+		List:              result.List,
+		Total:             result.Total,
+		Page:              page,
+		PageSize:          pageSize,
+		SuccessCount:      result.Success,
+		FailCount:         result.Failed,
+		ProcessingCount:   result.Processing,
+		DeviceOnlineCount: result.Device.Online,
+		DeviceIdleCount:   result.Device.Idle,
 	}, "获取成功", c)
 }
 
@@ -386,7 +407,7 @@ func buildPhoneRegisterActiveInfo(task system.SysPhoneRegisterTask) systemRes.Ph
 	if task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend &&
 		task.Status == system.PhoneRegisterStatusWaitingPromoterCode &&
 		task.CodeRequestedAt != nil {
-		expiresAt := task.CodeRequestedAt.Add(4 * time.Minute)
+		expiresAt := task.CodeRequestedAt.Add(2 * time.Minute)
 		codeSubmitExpiresAt = &expiresAt
 	}
 	return systemRes.PhoneRegisterTaskActiveInfo{
@@ -394,6 +415,8 @@ func buildPhoneRegisterActiveInfo(task system.SysPhoneRegisterTask) systemRes.Ph
 		CreatedAt:           task.CreatedAt,
 		Phone:               task.Phone,
 		SMSReceiveMode:      task.SMSReceiveMode,
+		TaskSource:          task.TaskSource,
+		CacheStatus:         task.CacheStatus,
 		Status:              task.Status,
 		StatusCode:          task.StatusCode,
 		LastError:           task.LastError,
@@ -415,6 +438,8 @@ func buildPhoneRegisterDeviceTaskInfo(task system.SysPhoneRegisterTask, found bo
 		TaskID:           task.ID,
 		Phone:            task.Phone,
 		SMSReceiveMode:   task.SMSReceiveMode,
+		TaskSource:       task.TaskSource,
+		CacheStatus:      task.CacheStatus,
 		Status:           task.Status,
 		NeedPromoterCode: task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend && task.Status == system.PhoneRegisterStatusWaitingPromoterCode,
 		ClaimedAt:        task.ClaimedAt,

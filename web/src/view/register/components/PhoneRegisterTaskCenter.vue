@@ -10,10 +10,19 @@
         label-width="88px"
         class="compact-form"
       >
+        <el-alert
+          v-if="!submitStatus.enabled"
+          class="mb-2"
+          type="warning"
+          show-icon
+          :closable="false"
+          :title="submitStatus.message || '手机号注册已关闭'"
+        />
         <el-form-item label="手机号">
           <el-input
             v-model="phoneInput"
             placeholder="请输入手机号"
+            :disabled="!submitStatus.enabled"
           />
         </el-form-item>
         <el-form-item label="验证方式">
@@ -21,13 +30,14 @@
             <el-radio-group
               v-model="smsReceiveMode"
               size="small"
+              :disabled="!submitStatus.enabled"
               @change="persistSmsReceiveMode"
             >
               <el-radio-button label="PLATFORM_SEND">收码</el-radio-button>
               <el-radio-button label="USER_SENT_TO_TX">发码</el-radio-button>
             </el-radio-group>
             <span class="sms-switch-hint">
-              {{ smsReceiveMode === 'PLATFORM_SEND' ? '填写6位验证码，等待120s后自动重发一次，再120s后结束任务' : '发短信 “注册QQ” 到号码 10690700511' }}
+              {{ smsReceiveMode === 'PLATFORM_SEND' ? '填写6位验证码，等待120s未收到反馈后结束任务' : '发短信 “注册QQ” 到号码 10690700511' }}
             </span>
           </div>
         </el-form-item>
@@ -35,6 +45,7 @@
           <el-button
             size="small"
             type="primary"
+            :disabled="!submitStatus.enabled"
             @click="createTask"
           >提交</el-button>
           <el-button
@@ -234,6 +245,7 @@ import { ElMessage } from 'element-plus'
 import {
   createPhoneRegisterTask,
   getActivePhoneRegisterTasks,
+  getPhoneRegisterSubmitStatus,
   getPhoneRegisterTaskList,
   submitPhoneRegisterTaskCode
 } from '@/api/phoneRegisterTask'
@@ -257,6 +269,10 @@ const verifyCodeMap = ref({})
 const refreshTimer = ref(null)
 const countdownTimer = ref(null)
 const refreshing = ref(false)
+const submitStatus = ref({
+  enabled: true,
+  message: ''
+})
 const nowTs = ref(Date.now())
 const windowWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth)
 const counters = ref({
@@ -410,6 +426,7 @@ const statusTagType = (status, finishedAt) => {
 const promoterErrorText = (task) => {
   const raw = String(task?.lastError || '').trim()
   if (!raw) return ''
+  if (Number(task?.statusCode) === 1009) return raw
   if (raw.includes('手机号绑定名额已满')) return '手机号绑定名额已满'
   if (
     raw.includes('验证码输入后未通过') ||
@@ -444,6 +461,14 @@ const loadActiveTasks = async () => {
   verifyCodeMap.value = nextMap
 }
 
+const loadSubmitStatus = async () => {
+  const { data } = await getPhoneRegisterSubmitStatus()
+  submitStatus.value = {
+    enabled: data?.enabled !== false,
+    message: data?.message || ''
+  }
+}
+
 const loadMyTasks = async () => {
   const { data } = await getPhoneRegisterTaskList({
     page: taskPage.value,
@@ -464,7 +489,7 @@ const refreshAll = async () => {
   if (refreshing.value) return
   refreshing.value = true
   try {
-    await Promise.all([loadActiveTasks(), loadMyTasks()])
+    await Promise.all([loadSubmitStatus(), loadActiveTasks(), loadMyTasks()])
   } finally {
     refreshing.value = false
     syncAutoRefresh()
@@ -482,6 +507,10 @@ const handlePageSizeChange = async () => {
 }
 
 const createTask = async () => {
+  if (!submitStatus.value.enabled) {
+    ElMessage.warning(submitStatus.value.message || '手机号注册已关闭')
+    return
+  }
   const phone = String(phoneInput.value || '').trim()
   if (!phone) {
     ElMessage.warning('请先输入手机号')

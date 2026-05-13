@@ -1,6 +1,42 @@
 <template>
   <div class="register-config-page">
-    <el-card shadow="never" style="margin-top: 8px;">
+    <div class="register-config-layout">
+      <div
+        v-if="isAdminRole"
+        class="register-switch-column"
+      >
+        <el-card
+          shadow="never"
+          class="register-config-card"
+        >
+          <template #header>手机号注册开关</template>
+          <el-form label-width="86px">
+            <el-form-item label="提交验证">
+              <el-switch
+                v-model="form.phoneRegisterEnabled"
+                active-text="允许提交"
+                inactive-text="关闭提交"
+              />
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                type="primary"
+                :disabled="!canEdit"
+                @click="submitPhoneRegisterSwitch"
+              >保存开关</el-button>
+              <el-button
+                :disabled="!isAdminRole"
+                @click="loadConfig"
+              >刷新</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </div>
+
+    <el-card
+      shadow="never"
+      class="register-config-card register-main-column"
+    >
       <template #header>注册配置管理</template>
 
       <el-form label-width="130px">
@@ -116,6 +152,7 @@
         </el-form-item>
       </el-form>
     </el-card>
+    </div>
   </div>
 </template>
 
@@ -160,7 +197,8 @@ const form = ref({
   phoneImageProvider: '',
   phoneImageProviderUsername: '',
   phoneImageProviderPassword: '',
-  phoneImageProviderSecretKey: ''
+  phoneImageProviderSecretKey: '',
+  phoneRegisterEnabled: true
 })
 
 const proxyAccountLabel = computed(() => {
@@ -263,6 +301,8 @@ const phoneImageSecretModel = computed({
   }
 })
 
+const buildConfigPayload = () => ({ ...form.value })
+
 const loadConfig = async () => {
   const { data } = await getMyRegisterConfig()
   form.value = {
@@ -285,7 +325,8 @@ const loadConfig = async () => {
     phoneImageProvider: data?.phoneImageProvider || '',
     phoneImageProviderUsername: data?.phoneImageProviderUsername || '',
     phoneImageProviderPassword: data?.phoneImageProviderPassword || '',
-    phoneImageProviderSecretKey: data?.phoneImageProviderSecretKey || ''
+    phoneImageProviderSecretKey: data?.phoneImageProviderSecretKey || '',
+    phoneRegisterEnabled: data?.phoneRegisterEnabled !== false
   }
 }
 
@@ -331,8 +372,15 @@ const submit = async () => {
     ElMessage.warning('手机号注册图片识别必须填写密码')
     return
   }
-  await setMyRegisterConfig(form.value)
+  await setMyRegisterConfig(buildConfigPayload())
   ElMessage.success('保存成功')
+  await loadConfig()
+}
+
+const submitPhoneRegisterSwitch = async () => {
+  if (!canEdit.value) return
+  await setMyRegisterConfig(buildConfigPayload())
+  ElMessage.success('开关已保存')
   await loadConfig()
 }
 
@@ -388,6 +436,29 @@ onMounted(async () => {
 
 <style scoped>
 .register-config-page {
-  max-width: 760px;
+  max-width: 1120px;
+}
+
+.register-config-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.register-config-card {
+  margin-top: 8px;
+  width: 100%;
+}
+
+.register-switch-column,
+.register-main-column {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .register-config-layout {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

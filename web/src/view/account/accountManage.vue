@@ -61,6 +61,18 @@
             />
           </template>
         </el-table-column>
+        <el-table-column align="left" label="禁用创建任务" min-width="130">
+          <template #default="scope">
+            <el-switch
+              v-model="scope.row.phoneRegisterTaskDisabled"
+              inline-prompt
+              active-text="禁用"
+              inactive-text="正常"
+              :disabled="scope.row.authorityId !== ROLE_PROMOTER"
+              @change="() => switchTaskCreate(scope.row)"
+            />
+          </template>
+        </el-table-column>
         <el-table-column label="操作" min-width="220" fixed="right">
           <template #default="scope">
             <el-button type="primary" link icon="edit" @click="openEdit(scope.row)">
@@ -166,6 +178,13 @@
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="userForm.enable" inline-prompt :active-value="1" :inactive-value="2" />
+        </el-form-item>
+        <el-form-item v-if="userForm.authorityId === ROLE_PROMOTER" label="禁用创建">
+          <el-switch
+            v-model="userForm.phoneRegisterTaskDisabled"
+            active-text="禁用"
+            inactive-text="正常"
+          />
         </el-form-item>
         <el-form-item label="头像">
           <SelectImage v-model="userForm.headerImg" />
@@ -283,7 +302,10 @@ const fetchUsers = async () => {
   }
   const res = await getUserList(query)
   if (res.code === 0) {
-    const list = res.data.list || []
+    const list = (res.data.list || []).map((item) => ({
+      ...item,
+      phoneRegisterTaskDisabled: item.phoneRegisterTaskDisabled === true
+    }))
     leaderOptions.value = list.filter((item) => item.authorityId === ROLE_LEADER)
     const filtered = filterByRole(list)
     tableData.value = filtered
@@ -326,6 +348,7 @@ const userForm = ref({
   authorityId: undefined,
   leaderId: undefined,
   enable: 1,
+  phoneRegisterTaskDisabled: false,
   headerImg: ''
 })
 
@@ -354,6 +377,7 @@ const openAdd = () => {
     authorityId: roleOptions.value[0]?.value,
     leaderId: currentRoleId.value === ROLE_LEADER ? currentUserId.value : undefined,
     enable: 1,
+    phoneRegisterTaskDisabled: false,
     headerImg: ''
   }
   showDrawer.value = true
@@ -362,6 +386,7 @@ const openAdd = () => {
 const openEdit = (row) => {
   drawerMode.value = 'edit'
   userForm.value = JSON.parse(JSON.stringify(row))
+  userForm.value.phoneRegisterTaskDisabled = userForm.value.phoneRegisterTaskDisabled === true
   showDrawer.value = true
 }
 
@@ -427,6 +452,18 @@ const switchEnable = async (row) => {
   })
   if (res.code === 0) {
     ElMessage.success(`${row.enable === 1 ? '启用' : '禁用'}成功`)
+    await nextTick()
+    await fetchUsers()
+  }
+}
+
+const switchTaskCreate = async (row) => {
+  const res = await setUserInfo({
+    ...row,
+    authorityIds: [row.authorityId]
+  })
+  if (res.code === 0) {
+    ElMessage.success(`${row.phoneRegisterTaskDisabled ? '禁用' : '恢复'}成功`)
     await nextTick()
     await fetchUsers()
   }

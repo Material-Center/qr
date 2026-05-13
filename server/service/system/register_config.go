@@ -87,6 +87,9 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		data["phone_image_provider_username"] = strings.TrimSpace(req.PhoneImageProviderUsername)
 		data["phone_image_provider_password"] = strings.TrimSpace(req.PhoneImageProviderPassword)
 		data["phone_image_provider_secret_key"] = strings.TrimSpace(req.PhoneImageProviderSecretKey)
+		if req.PhoneRegisterEnabled != nil {
+			data["phone_register_enabled"] = *req.PhoneRegisterEnabled
+		}
 	case cfgRoleLeader:
 		return system.SysRegisterConfig{}, errors.New("团长配置能力已迁移到管理员，请联系管理员维护配置")
 	default:
@@ -122,6 +125,11 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.PhoneImageProviderUsername = strings.TrimSpace(req.PhoneImageProviderUsername)
 			cfg.PhoneImageProviderPassword = strings.TrimSpace(req.PhoneImageProviderPassword)
 			cfg.PhoneImageProviderSecretKey = strings.TrimSpace(req.PhoneImageProviderSecretKey)
+			enabled := true
+			if req.PhoneRegisterEnabled != nil {
+				enabled = *req.PhoneRegisterEnabled
+			}
+			cfg.PhoneRegisterEnabled = &enabled
 		}
 		if err = global.GVA_DB.Create(&cfg).Error; err != nil {
 			return system.SysRegisterConfig{}, err
@@ -208,6 +216,11 @@ func (s *RegisterConfigService) CheckMyConfig(role uint, userID uint) (map[strin
 		"phoneImageProvider": map[string]interface{}{
 			"enabled": true,
 			"ok":      strings.TrimSpace(cfg.PhoneImageProvider) != "",
+			"message": "",
+		},
+		"phoneRegister": map[string]interface{}{
+			"enabled": true,
+			"ok":      cfgModel.PhoneRegisterEnabled == nil || *cfgModel.PhoneRegisterEnabled,
 			"message": "",
 		},
 	}

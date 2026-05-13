@@ -54,14 +54,34 @@
 
     <div class="gva-table-box">
       <el-row :gutter="12" class="mb-3">
-        <el-col :span="8">
+        <el-col :xs="24" :sm="12" :md="6">
           <el-card shadow="never">待提取数量：{{ extractStats.pending }}</el-card>
         </el-col>
-        <el-col :span="8">
+        <el-col :xs="24" :sm="12" :md="6">
           <el-card shadow="never">已提取数量：{{ extractStats.extracted }}</el-card>
         </el-col>
-        <el-col :span="8">
+        <el-col :xs="24" :sm="12" :md="6">
           <el-card shadow="never">总数：{{ extractStats.total }}</el-card>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="6">
+          <el-card shadow="never">
+            <div class="billing-stat-card">
+              <span>待结算数量：{{ extractStats.billingUnsettled }}</span>
+              <div class="billing-actions">
+                <el-button
+                  type="primary"
+                  size="small"
+                  :disabled="extractStats.billingUnsettled <= 0"
+                  @click="onSettleBilling"
+                >
+                  结算
+                </el-button>
+                <el-button size="small" @click="onOpenBillingHistory">
+                  历史结算
+                </el-button>
+              </div>
+            </div>
+          </el-card>
         </el-col>
       </el-row>
 
@@ -110,6 +130,17 @@
         />
       </div>
     </div>
+
+    <el-dialog v-model="billingHistoryVisible" title="QQ缓存结算历史" width="520px">
+      <el-table v-loading="billingHistoryLoading" :data="billingHistory" size="small">
+        <el-table-column label="结算时间" min-width="180">
+          <template #default="{ row }">
+            {{ row.settledAt ? formatDate(row.settledAt) : '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="数量" prop="settledCount" width="120" />
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -117,7 +148,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/format'
-import { exportPendingQQCacheIniZip, exportQQCacheIniZip, getQQCacheList, resetQQCacheExtract } from '@/api/qqCache'
+import {
+  exportPendingQQCacheIniZip,
+  exportQQCacheIniZip,
+  getQQCacheBillingHistory,
+  getQQCacheList,
+  resetQQCacheExtract,
+  settleQQCacheBilling
+} from '@/api/qqCache'
 
 defineOptions({
   name: 'QQCacheManage'
@@ -132,8 +170,13 @@ const extractCount = ref(1)
 const extractStats = ref({
   pending: 0,
   extracted: 0,
-  total: 0
+  total: 0,
+  billingUnsettled: 0,
+  billingSettled: 0
 })
+const billingHistoryVisible = ref(false)
+const billingHistoryLoading = ref(false)
+const billingHistory = ref([])
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
@@ -297,6 +340,38 @@ const onExportPendingIniZip = async () => {
   }
 }
 
+const onSettleBilling = async () => {
+  const count = Number(extractStats.value.billingUnsettled) || 0
+  if (count <= 0) return
+  try {
+    await ElMessageBox.confirm(`确认结算当前 ${count} 个待结算账号？`, '确认结算', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const { data } = await settleQQCacheBilling()
+    ElMessage.success(`已结算 ${data?.settledCount || 0} 个账号`)
+    await fetchList()
+  } catch (e) {
+    if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || '结算失败')
+  }
+}
+
+const onOpenBillingHistory = async () => {
+  billingHistory.value = []
+  billingHistoryVisible.value = true
+  billingHistoryLoading.value = true
+  try {
+    const { data } = await getQQCacheBillingHistory()
+    billingHistory.value = data || []
+  } catch (e) {
+    ElMessage.error(e?.message || '结算历史加载失败')
+  } finally {
+    billingHistoryLoading.value = false
+  }
+}
+
 const fetchList = async () => {
   try {
     const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
@@ -314,7 +389,9 @@ const fetchList = async () => {
     extractStats.value = {
       pending: Number(data?.stats?.pending) || 0,
       extracted: Number(data?.stats?.extracted) || 0,
-      total: Number(data?.stats?.total) || 0
+      total: Number(data?.stats?.total) || 0,
+      billingUnsettled: Number(data?.stats?.billingUnsettled) || 0,
+      billingSettled: Number(data?.stats?.billingSettled) || 0
     }
     if (extractMax.value > 0 && extractCount.value > extractMax.value) {
       extractCount.value = extractMax.value
@@ -366,5 +443,30 @@ onMounted(() => {
 <style scoped>
 .extract-btn {
   margin-left: 8px;
+}
+
+.billing-stat-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.billing-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.billing-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+
+@media (max-width: 900px) {
+  .billing-stat-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

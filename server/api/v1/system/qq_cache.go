@@ -133,6 +133,11 @@ func (a *QQCacheApi) List(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	billingUnsettled, billingSettled, err := qqCacheService.CountBillingSettlementStats()
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
 	page := req.Page
 	if page <= 0 {
 		page = 1
@@ -147,11 +152,58 @@ func (a *QQCacheApi) List(c *gin.Context) {
 		Page:     page,
 		PageSize: pageSize,
 		Stats: systemRes.QQCacheExtractStats{
-			Pending:   pending,
-			Extracted: extracted,
-			Total:     statsTotal,
+			Pending:          pending,
+			Extracted:        extracted,
+			Total:            statsTotal,
+			BillingUnsettled: billingUnsettled,
+			BillingSettled:   billingSettled,
 		},
 	}, "获取成功", c)
+}
+
+// SettleBilling
+// @Tags      QQCache
+// @Summary   管理端结算QQ缓存计费数量
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200   {object}  response.Response
+// @Router    /qqCache/billing/settle [post]
+func (a *QQCacheApi) SettleBilling(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可结算", c)
+		return
+	}
+	result, err := qqCacheService.SettleBilling(role, utils.GetUserID(c))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{
+		"settledAt":    result.SettledAt,
+		"settledCount": result.SettledCount,
+	}, "结算成功", c)
+}
+
+// GetBillingSettlementHistory
+// @Tags      QQCache
+// @Summary   管理端查询QQ缓存计费结算历史
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200   {object}  response.Response
+// @Router    /qqCache/billing/history [get]
+func (a *QQCacheApi) GetBillingSettlementHistory(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可查看结算历史", c)
+		return
+	}
+	rows, err := qqCacheService.GetBillingSettlementHistory(role)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(rows, "获取成功", c)
 }
 
 // ResetExtract

@@ -3,6 +3,7 @@ package request
 import "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 
 type QQCacheUpload struct {
+	TaskID   uint   `json:"taskId" form:"taskId"`
 	Phone    string `json:"phone" form:"phone"`
 	QQNum    string `json:"qqNum" form:"qqNum"`
 	QQPwd    string `json:"qqPwd" form:"qqPwd"`

@@ -30,6 +30,13 @@ export const getActivePhoneRegisterTasks = () => {
   })
 }
 
+export const getPhoneRegisterSubmitStatus = () => {
+  return service({
+    url: '/phoneRegisterTask/submitStatus',
+    method: 'get'
+  })
+}
+
 export const getPhoneRegisterTaskList = (data) => {
   return service({
     url: '/phoneRegisterTask/list',

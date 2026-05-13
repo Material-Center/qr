@@ -14,13 +14,22 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
+	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 const qqCacheExportIniMaxIDs = 100
+const (
+	qqCacheServiceRoleSuperAdmin = uint(888)
+	qqCacheServiceRoleAdmin      = uint(100)
+)
 
 type QQCacheService struct{}
+type qqCacheBillingSettleResult struct {
+	SettledAt    time.Time
+	SettledCount int64
+}
 
 var QQCacheServiceApp = new(QQCacheService)
 
@@ -39,7 +48,14 @@ func (s *QQCacheService) UploadPhoneRegister(req systemReq.QQCacheUpload) (syste
 			return upErr
 		}
 		systemRes = record
-		completedTask, taskErr := (&PhoneRegisterTaskService{}).CompleteTaskAfterQQCacheUploadTx(tx, strings.TrimSpace(req.DeviceID), record.ID, record.QQNum)
+		phoneTaskService := &PhoneRegisterTaskService{}
+		var completedTask system.SysPhoneRegisterTask
+		var taskErr error
+		if req.TaskID != 0 {
+			completedTask, taskErr = phoneTaskService.AttachOpenAPICacheAfterSuccessTx(tx, strings.TrimSpace(req.DeviceID), req.TaskID, record.ID, record.QQNum)
+		} else {
+			completedTask, taskErr = phoneTaskService.CompleteTaskAfterQQCacheUploadTx(tx, strings.TrimSpace(req.DeviceID), record.ID, record.QQNum)
+		}
 		if taskErr != nil {
 			return taskErr
 		}
@@ -217,6 +233,59 @@ func (s *QQCacheService) CountExtractStatsByCreatedRange(createdAtStart string, 
 		return
 	}
 	return
+}
+
+func (s *QQCacheService) CountBillingSettlementStats() (unsettled int64, settled int64, err error) {
+	if err = global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Where("billing_settled_at IS NULL").
+		Count(&unsettled).Error; err != nil {
+		return
+	}
+	if err = global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Where("billing_settled_at IS NOT NULL").
+		Count(&settled).Error; err != nil {
+		return
+	}
+	return
+}
+
+func (s *QQCacheService) SettleBilling(operatorRole uint, operatorID uint) (qqCacheBillingSettleResult, error) {
+	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
+		return qqCacheBillingSettleResult{}, errors.New("仅管理员可结算")
+	}
+	settledAt := time.Now()
+	result := qqCacheBillingSettleResult{SettledAt: settledAt}
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		base := tx.Model(&system.SysQQCacheRecord{}).
+			Where("created_at <= ? AND billing_settled_at IS NULL", settledAt)
+		if err := base.Count(&result.SettledCount).Error; err != nil {
+			return err
+		}
+		if result.SettledCount <= 0 {
+			return nil
+		}
+		return tx.Model(&system.SysQQCacheRecord{}).
+			Where("created_at <= ? AND billing_settled_at IS NULL", settledAt).
+			Updates(map[string]interface{}{
+				"billing_settled_at": settledAt,
+				"billing_settled_by": operatorID,
+			}).Error
+	})
+	return result, err
+}
+
+func (s *QQCacheService) GetBillingSettlementHistory(operatorRole uint) ([]systemRes.QQCacheBillingSettlementHistoryItem, error) {
+	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
+		return nil, errors.New("仅管理员可查看结算历史")
+	}
+	var rows []systemRes.QQCacheBillingSettlementHistoryItem
+	err := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Select("billing_settled_at AS settled_at, COUNT(1) AS settled_count").
+		Where("billing_settled_at IS NOT NULL").
+		Group("billing_settled_at").
+		Order("billing_settled_at DESC").
+		Scan(&rows).Error
+	return rows, err
 }
 
 func applyQQCacheCreatedAtRangeFilter(db *gorm.DB, startRaw string, endRaw string) *gorm.DB {

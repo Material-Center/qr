@@ -1,6 +1,10 @@
 package response
 
-import "github.com/flipped-aurora/gin-vue-admin/server/model/system"
+import (
+	"time"
+
+	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
+)
 
 type QQCacheListResponse struct {
 	List     []system.SysQQCacheRecord `json:"list"`
@@ -11,7 +15,14 @@ type QQCacheListResponse struct {
 }
 
 type QQCacheExtractStats struct {
-	Pending   int64 `json:"pending"`
-	Extracted int64 `json:"extracted"`
-	Total     int64 `json:"total"`
+	Pending          int64 `json:"pending"`
+	Extracted        int64 `json:"extracted"`
+	Total            int64 `json:"total"`
+	BillingUnsettled int64 `json:"billingUnsettled"`
+	BillingSettled   int64 `json:"billingSettled"`
+}
+
+type QQCacheBillingSettlementHistoryItem struct {
+	SettledAt    time.Time `json:"settledAt"`
+	SettledCount int64     `json:"settledCount"`
 }

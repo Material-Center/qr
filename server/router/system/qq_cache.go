@@ -20,6 +20,8 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 		qqCacheRouterWithoutRecord.POST("exportPendingIniZip", qqCacheApi.ExportPendingIniZip)
 		qqCacheRouter.POST("list", qqCacheApi.List)
 		qqCacheRouter.POST("resetExtract", qqCacheApi.ResetExtract)
+		qqCacheRouter.POST("billing/settle", qqCacheApi.SettleBilling)
+		qqCacheRouterWithoutRecord.GET("billing/history", qqCacheApi.GetBillingSettlementHistory)
 	}
 	{
 		qqCacheRouterWithoutRecord.GET("roleHint", qqCacheApi.AppLoginRoleHint)

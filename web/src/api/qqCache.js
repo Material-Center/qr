@@ -37,3 +37,17 @@ export const exportPendingQQCacheIniZip = (payload, config = {}) => {
     ...config
   })
 }
+
+export const settleQQCacheBilling = () => {
+  return service({
+    url: '/qqCache/billing/settle',
+    method: 'post'
+  })
+}
+
+export const getQQCacheBillingHistory = () => {
+  return service({
+    url: '/qqCache/billing/history',
+    method: 'get'
+  })
+}

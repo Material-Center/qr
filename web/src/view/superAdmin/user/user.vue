@@ -104,6 +104,18 @@
             />
           </template>
         </el-table-column>
+        <el-table-column align="left" label="禁用创建任务" min-width="130">
+          <template #default="scope">
+            <el-switch
+              v-model="scope.row.phoneRegisterTaskDisabled"
+              inline-prompt
+              active-text="禁用"
+              inactive-text="正常"
+              :disabled="scope.row.authorityId !== 300"
+              @change="() => switchTaskCreate(scope.row)"
+            />
+          </template>
+        </el-table-column>
 
         <el-table-column label="操作" :min-width="appStore.operateMinWith" fixed="right">
           <template #default="scope">
@@ -242,6 +254,13 @@
             :inactive-value="2"
           />
         </el-form-item>
+        <el-form-item v-if="userInfo.authorityIds.includes(300) || userInfo.authorityId === 300" label="禁用创建">
+          <el-switch
+            v-model="userInfo.phoneRegisterTaskDisabled"
+            active-text="禁用"
+            inactive-text="正常"
+          />
+        </el-form-item>
         <el-form-item label="头像" label-width="80px">
           <SelectImage v-model="userInfo.headerImg" />
         </el-form-item>
@@ -355,7 +374,10 @@
       ...searchInfo.value
     })
     if (table.code === 0) {
-      tableData.value = table.data.list
+      tableData.value = (table.data.list || []).map((item) => ({
+        ...item,
+        phoneRegisterTaskDisabled: item.phoneRegisterTaskDisabled === true
+      }))
       total.value = table.data.total
       page.value = table.data.page
       pageSize.value = table.data.pageSize
@@ -491,7 +513,8 @@
     headerImg: '',
     authorityId: '',
     authorityIds: [],
-    enable: 1
+    enable: 1,
+    phoneRegisterTaskDisabled: false
   })
 
   const rules = ref({
@@ -562,6 +585,7 @@
 
   const addUser = () => {
     dialogFlag.value = 'add'
+    userInfo.value.phoneRegisterTaskDisabled = false
     addUserDialog.value = true
   }
 
@@ -593,6 +617,7 @@
   const openEdit = (row) => {
     dialogFlag.value = 'edit'
     userInfo.value = JSON.parse(JSON.stringify(row))
+    userInfo.value.phoneRegisterTaskDisabled = userInfo.value.phoneRegisterTaskDisabled === true
     addUserDialog.value = true
   }
 
@@ -607,6 +632,24 @@
       ElMessage({
         type: 'success',
         message: `${req.enable === 2 ? '禁用' : '启用'}成功`
+      })
+      await getTableData()
+      userInfo.value.headerImg = ''
+      userInfo.value.authorityIds = []
+    }
+  }
+
+  const switchTaskCreate = async (row) => {
+    userInfo.value = JSON.parse(JSON.stringify(row))
+    await nextTick()
+    const req = {
+      ...userInfo.value
+    }
+    const res = await setUserInfo(req)
+    if (res.code === 0) {
+      ElMessage({
+        type: 'success',
+        message: `${req.phoneRegisterTaskDisabled ? '禁用' : '恢复'}成功`
       })
       await getTableData()
       userInfo.value.headerImg = ''

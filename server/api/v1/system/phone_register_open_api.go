@@ -21,6 +21,7 @@ import (
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 const (
@@ -139,7 +140,7 @@ func (a *PhoneRegisterTaskApi) OpenAPIGetVerifyCode(c *gin.Context) {
 // @accept    multipart/form-data
 // @Produce   application/json
 // @Param     deviceId  formData  string  true   "设备ID"
-// @Param     taskId    formData  int     false  "任务ID"
+// @Param     taskId    formData  int     true   "任务ID"
 // @Param     status    formData  string  true   "success/failed"
 // @Param     reason    formData  string  false  "失败原因"
 // @Success   200       {object}  response.Response{data=systemRes.PhoneRegisterOpenAPIReportResponse,msg=string}
@@ -165,7 +166,7 @@ func (a *PhoneRegisterTaskApi) OpenAPIReportPhoneRegisterTask(c *gin.Context) {
 			DeviceID:   req.DeviceID,
 			Action:     system.PhoneRegisterDeviceActionFail,
 			Message:    req.Reason,
-			StatusCode: intPtr(system.PhoneRegisterStatusCodeDeviceExecFail),
+			StatusCode: intPtr(system.PhoneRegisterStatusCodeOpenAPIFeedback),
 		})
 		if err != nil {
 			response.FailWithMessage(err.Error(), c)
@@ -176,22 +177,10 @@ func (a *PhoneRegisterTaskApi) OpenAPIReportPhoneRegisterTask(c *gin.Context) {
 		}
 		response.OkWithDetailed(systemRes.PhoneRegisterOpenAPIReportResponse{OK: true, TaskID: task.ID}, "上报成功", c)
 	case phoneRegisterOpenAPIStatusSuccess:
-		currentTask, err := getAndValidatePhoneRegisterOpenAPITask(req.DeviceID, req.TaskID)
+		task, err := phoneRegisterTaskService.OpenAPIReportSuccess(req.DeviceID, req.TaskID)
 		if err != nil {
 			response.FailWithMessage(err.Error(), c)
 			return
-		}
-		task, err := phoneRegisterTaskService.DeviceReport(systemReq.PhoneRegisterDeviceReport{
-			DeviceID: req.DeviceID,
-			Action:   system.PhoneRegisterDeviceActionRegisterSuccess,
-			Message:  "注册成功，等待上传缓存",
-		})
-		if err != nil {
-			response.FailWithMessage(err.Error(), c)
-			return
-		}
-		if task.ID == 0 {
-			task.ID = currentTask.ID
 		}
 		response.OkWithDetailed(systemRes.PhoneRegisterOpenAPIReportResponse{OK: true, TaskID: task.ID}, "上报成功", c)
 	default:
@@ -205,7 +194,7 @@ func (a *PhoneRegisterTaskApi) OpenAPIReportPhoneRegisterTask(c *gin.Context) {
 // @accept    multipart/form-data
 // @Produce   application/json
 // @Param     deviceId    formData  string  true   "设备ID"
-// @Param     taskId      formData  int     false  "任务ID"
+// @Param     taskId      formData  int     true   "任务ID"
 // @Param     qqPwd       formData  string  false  "QQ密码"
 // @Param     clientId    formData  string  false  "Android ID"
 // @Param     deviceInfo  formData  string  false  "设备信息"
@@ -227,6 +216,7 @@ func (a *PhoneRegisterTaskApi) OpenAPIUploadPhoneRegisterCache(c *gin.Context) {
 		return
 	}
 	record, task, err := qqCacheService.UploadPhoneRegister(systemReq.QQCacheUpload{
+		TaskID:   req.TaskID,
 		Phone:    data.Phone,
 		QQNum:    data.QQNum,
 		QQPwd:    req.QQPwd,
@@ -333,16 +323,16 @@ func bindPhoneRegisterOpenAPICacheUpload(c *gin.Context) (systemReq.PhoneRegiste
 	if req.DeviceID == "" {
 		return req, errors.New("deviceId不能为空")
 	}
+	if req.TaskID == 0 {
+		return req, errors.New("taskId不能为空")
+	}
 	return req, nil
 }
 
 func extractPhoneRegisterZipFromRequest(c *gin.Context, req systemReq.PhoneRegisterOpenAPIReport) (phoneRegisterOpenAPIExtractedCache, error) {
-	task, err := getAndValidatePhoneRegisterOpenAPITask(req.DeviceID, req.TaskID)
+	task, err := getPhoneRegisterOpenAPICacheUploadTask(req.DeviceID, req.TaskID)
 	if err != nil {
 		return phoneRegisterOpenAPIExtractedCache{}, err
-	}
-	if task.Status != system.PhoneRegisterStatusRegisteredWaitUpload {
-		return phoneRegisterOpenAPIExtractedCache{}, errors.New("当前任务未处于待上传缓存状态")
 	}
 	file, header, err := c.Request.FormFile("cacheZip")
 	if err != nil {
@@ -494,6 +484,32 @@ func getAndValidatePhoneRegisterOpenAPITask(deviceID string, taskID uint) (syste
 	return task, nil
 }
 
+func getPhoneRegisterOpenAPICacheUploadTask(deviceID string, taskID uint) (system.SysPhoneRegisterTask, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
+	}
+	if taskID == 0 {
+		return system.SysPhoneRegisterTask{}, errors.New("taskId不能为空")
+	}
+	var task system.SysPhoneRegisterTask
+	if err := global.GVA_DB.
+		Where("id = ? AND task_source = ?", taskID, system.PhoneRegisterTaskSourceOpenAPI).
+		First(&task).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return system.SysPhoneRegisterTask{}, errors.New("任务不存在")
+		}
+		return system.SysPhoneRegisterTask{}, err
+	}
+	if task.HolderDeviceID == nil || strings.TrimSpace(*task.HolderDeviceID) != deviceID {
+		return system.SysPhoneRegisterTask{}, errors.New("taskId与当前设备任务不一致")
+	}
+	if task.Status != system.PhoneRegisterStatusSucceeded || task.FinishedAt == nil {
+		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于成功待补充缓存状态")
+	}
+	return task, nil
+}
+
 func refreshPhoneRegisterOpenAPIHeartbeat(deviceID string, found bool) {
 	if !found {
 		return
@@ -506,12 +522,14 @@ func buildPhoneRegisterOpenAPITaskInfo(task system.SysPhoneRegisterTask, found b
 		return systemRes.PhoneRegisterOpenAPITaskInfo{HasTask: false}
 	}
 	info := systemRes.PhoneRegisterOpenAPITaskInfo{
-		TaskID:     task.ID,
-		Phone:      task.Phone,
-		VerifyMode: phoneRegisterOpenAPIVerifyMode(task.SMSReceiveMode),
-		Status:     task.Status,
-		HasTask:    true,
-		NeedCode:   task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend,
+		TaskID:      task.ID,
+		Phone:       task.Phone,
+		VerifyMode:  phoneRegisterOpenAPIVerifyMode(task.SMSReceiveMode),
+		TaskSource:  task.TaskSource,
+		CacheStatus: task.CacheStatus,
+		Status:      task.Status,
+		HasTask:     true,
+		NeedCode:    task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend,
 	}
 	expiresAt := task.ExpiresAt
 	info.ExpiresAt = &expiresAt

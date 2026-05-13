@@ -96,14 +96,17 @@
 
     <div class="gva-table-box">
       <el-row v-if="showCounters" :gutter="12" class="mb-3">
-        <el-col :span="8">
+        <el-col :span="6">
           <el-card shadow="never">成功任务：{{ counters.success }}</el-card>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="6">
           <el-card shadow="never">失败任务：{{ counters.fail }}</el-card>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="6">
           <el-card shadow="never">处理中任务：{{ counters.processing }}</el-card>
+        </el-col>
+        <el-col :span="6">
+          <el-card shadow="never">当前设备：在线 {{ counters.deviceOnline }} / 空闲 {{ counters.deviceIdle }}</el-card>
         </el-col>
       </el-row>
 
@@ -126,6 +129,17 @@
               <el-tag :type="statusTagType(scope.row.status)">
                 {{ statusText(scope.row.status) }}
               </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="缓存上报" min-width="120">
+            <template #default="scope">
+              <el-tag
+                v-if="scope.row.cacheStatus"
+                :type="cacheStatusTagType(scope.row.cacheStatus)"
+              >
+                {{ cacheStatusText(scope.row.cacheStatus) }}
+              </el-tag>
+              <span v-else>-</span>
             </template>
           </el-table-column>
           <el-table-column label="当前设备" min-width="140">
@@ -325,7 +339,9 @@ const promoterOptions = ref([])
 const counters = ref({
   success: 0,
   fail: 0,
-  processing: 0
+  processing: 0,
+  deviceOnline: 0,
+  deviceIdle: 0
 })
 const summary = ref({
   leaders: [],
@@ -484,6 +500,22 @@ const statusTagType = (status) => {
   return 'info'
 }
 
+const cacheStatusText = (status) => {
+  const map = {
+    pending: '待上传',
+    uploaded: '已上传',
+    timeout: '超时未传'
+  }
+  return map[status] || status || '-'
+}
+
+const cacheStatusTagType = (status) => {
+  if (status === 'uploaded') return 'success'
+  if (status === 'timeout') return 'danger'
+  if (status === 'pending') return 'warning'
+  return 'info'
+}
+
 const loadLeaderOptions = async () => {
   if (!showLeaderFilter.value) {
     leaderOptions.value = []
@@ -536,7 +568,9 @@ const fetchList = async () => {
   counters.value = {
     success: data?.successCount || 0,
     fail: data?.failCount || 0,
-    processing: data?.processingCount || 0
+    processing: data?.processingCount || 0,
+    deviceOnline: data?.deviceOnlineCount || 0,
+    deviceIdle: data?.deviceIdleCount || 0
   }
 }
 

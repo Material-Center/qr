@@ -20,13 +20,16 @@ const (
 	phoneRegisterTaskTimeout      = 30 * time.Minute
 	phoneRegisterLeaseTimeout     = 5 * time.Minute
 	phoneRegisterTimeoutScanEvery = 1 * time.Minute
-	phoneRegisterCodeSubmitWindow = 4 * time.Minute
+	phoneRegisterCodeSubmitWindow = 2 * time.Minute
+	phoneRegisterCacheWaitTimeout = 3 * time.Minute
 
 	phoneRoleSuperAdmin = uint(888)
 	phoneRoleAdmin      = uint(100)
 	phoneRoleLeader     = uint(200)
 	phoneRolePromoter   = uint(300)
 )
+
+const phoneRegisterOpenAPICacheTimeoutLog = "OpenAPI缓存上传超时未上传"
 
 type PhoneRegisterTaskService struct{}
 
@@ -36,11 +39,17 @@ type phoneRegisterTaskListResult struct {
 	Success    int64
 	Failed     int64
 	Processing int64
+	Device     phoneRegisterDeviceStats
 }
 
 type phoneRegisterTaskSettleResult struct {
 	SettledAt    time.Time
 	SettledCount int64
+}
+
+type phoneRegisterDeviceStats struct {
+	Online int64
+	Idle   int64
 }
 
 var phoneRegisterTaskDaemonOnce sync.Once
@@ -72,13 +81,23 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	if !isValidPhoneRegisterSMSMode(smsReceiveMode) {
 		return system.SysPhoneRegisterTask{}, errors.New("不支持的收码方式")
 	}
+	enabled, err := s.IsSubmitEnabled()
+	if err != nil {
+		return system.SysPhoneRegisterTask{}, err
+	}
+	if !enabled {
+		return system.SysPhoneRegisterTask{}, errors.New("手机号注册已关闭")
+	}
 
 	var promoter system.SysUser
-	if err := global.GVA_DB.Select("id, leader_id").Where("id = ?", promoterID).First(&promoter).Error; err != nil {
+	if err = global.GVA_DB.Select("id, leader_id, phone_register_task_disabled").Where("id = ?", promoterID).First(&promoter).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return system.SysPhoneRegisterTask{}, errors.New("地推账号不存在")
 		}
 		return system.SysPhoneRegisterTask{}, err
+	}
+	if promoter.PhoneRegisterTaskDisabled != nil && *promoter.PhoneRegisterTaskDisabled {
+		return system.SysPhoneRegisterTask{}, errors.New("当前账号已禁用任务创建")
 	}
 
 	task := system.SysPhoneRegisterTask{
@@ -93,6 +112,41 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		return system.SysPhoneRegisterTask{}, err
 	}
 	return task, nil
+}
+
+func (s *PhoneRegisterTaskService) IsSubmitEnabled() (bool, error) {
+	var cfg system.SysRegisterConfig
+	err := global.GVA_DB.Select("phone_register_enabled").
+		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
+		First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return cfg.PhoneRegisterEnabled == nil || *cfg.PhoneRegisterEnabled, nil
+}
+
+func (s *PhoneRegisterTaskService) IsSubmitEnabledForUser(userID uint) (bool, string, error) {
+	enabled, err := s.IsSubmitEnabled()
+	if err != nil {
+		return false, "", err
+	}
+	if !enabled {
+		return false, "今日手机号注册已关闭", nil
+	}
+	var user system.SysUser
+	if err := global.GVA_DB.Select("id, phone_register_task_disabled").Where("id = ?", userID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, "账号不存在", nil
+		}
+		return false, "", err
+	}
+	if user.PhoneRegisterTaskDisabled != nil && *user.PhoneRegisterTaskDisabled {
+		return false, "当前账号已禁用任务创建", nil
+	}
+	return true, "", nil
 }
 
 func (s *PhoneRegisterTaskService) SubmitCode(promoterID uint, req systemReq.PhoneRegisterTaskSubmitCode) (system.SysPhoneRegisterTask, error) {
@@ -219,6 +273,10 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	).Scan(&stat).Error; err != nil {
 		return phoneRegisterTaskListResult{}, err
 	}
+	deviceStats, err := s.GetCurrentDeviceStats()
+	if err != nil {
+		return phoneRegisterTaskListResult{}, err
+	}
 
 	return phoneRegisterTaskListResult{
 		List:       buildPhoneRegisterTaskListItems(list, operatorRole != phoneRolePromoter),
@@ -226,6 +284,74 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 		Success:    stat.Success,
 		Failed:     stat.Failed,
 		Processing: stat.Processing,
+		Device:     deviceStats,
+	}, nil
+}
+
+func (s *PhoneRegisterTaskService) GetCurrentDeviceStats() (phoneRegisterDeviceStats, error) {
+	if global.GVA_DB == nil {
+		return phoneRegisterDeviceStats{}, nil
+	}
+	deadline := time.Now().Add(-phoneRegisterLeaseTimeout)
+	onlineDevices := map[string]struct{}{}
+
+	var heartbeatDevices []string
+	if err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Distinct("holder_device_id").
+		Where("holder_device_id IS NOT NULL AND holder_device_id <> ''").
+		Where("last_heartbeat_at IS NOT NULL AND last_heartbeat_at >= ?", deadline).
+		Pluck("holder_device_id", &heartbeatDevices).Error; err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	for _, deviceID := range heartbeatDevices {
+		deviceID = strings.TrimSpace(deviceID)
+		if deviceID != "" {
+			onlineDevices[deviceID] = struct{}{}
+		}
+	}
+
+	var logDevices []string
+	if err := global.GVA_DB.Model(&system.SysPhoneRegisterTaskLog{}).
+		Distinct("device_id").
+		Where("device_id <> ''").
+		Where("(client_time IS NOT NULL AND client_time >= ?) OR created_at >= ?", deadline, deadline).
+		Pluck("device_id", &logDevices).Error; err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	for _, deviceID := range logDevices {
+		deviceID = strings.TrimSpace(deviceID)
+		if deviceID != "" {
+			onlineDevices[deviceID] = struct{}{}
+		}
+	}
+
+	busyDevices := map[string]struct{}{}
+	var busyDeviceIDs []string
+	if err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Distinct("holder_device_id").
+		Where("holder_device_id IS NOT NULL AND holder_device_id <> ''").
+		Where("finished_at IS NULL").
+		Where("status NOT IN ?", []string{system.PhoneRegisterStatusSucceeded, system.PhoneRegisterStatusFailed}).
+		Where("last_heartbeat_at IS NOT NULL AND last_heartbeat_at >= ?", deadline).
+		Pluck("holder_device_id", &busyDeviceIDs).Error; err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	for _, deviceID := range busyDeviceIDs {
+		deviceID = strings.TrimSpace(deviceID)
+		if deviceID != "" {
+			busyDevices[deviceID] = struct{}{}
+		}
+	}
+
+	var idle int64
+	for deviceID := range onlineDevices {
+		if _, busy := busyDevices[deviceID]; !busy {
+			idle++
+		}
+	}
+	return phoneRegisterDeviceStats{
+		Online: int64(len(onlineDevices)),
+		Idle:   idle,
 	}, nil
 }
 
@@ -238,6 +364,8 @@ func buildPhoneRegisterTaskListItems(tasks []system.SysPhoneRegisterTask, includ
 			CreatedAt:       task.CreatedAt,
 			Phone:           task.Phone,
 			SMSReceiveMode:  task.SMSReceiveMode,
+			TaskSource:      task.TaskSource,
+			CacheStatus:     task.CacheStatus,
 			Status:          task.Status,
 			StatusCode:      task.StatusCode,
 			LastError:       task.LastError,
@@ -482,12 +610,13 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 		}
 		now := time.Now()
 		task.Status = system.PhoneRegisterStatusRunning
+		task.TaskSource = system.PhoneRegisterTaskSourceScript
 		task.HolderDeviceID = stringPtr(deviceID)
 		task.ClaimedAt = &now
 		task.LastHeartbeatAt = &now
 		task.LastError = ""
 		if err := tx.Model(&task).
-			Select("status", "holder_device_id", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
+			Select("status", "task_source", "holder_device_id", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
 			Updates(task).Error; err != nil {
 			return err
 		}
@@ -535,12 +664,13 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 		}
 		now := time.Now()
 		task.Status = system.PhoneRegisterStatusRunning
+		task.TaskSource = system.PhoneRegisterTaskSourceOpenAPI
 		task.HolderDeviceID = stringPtr(deviceID)
 		task.ClaimedAt = &now
 		task.LastHeartbeatAt = &now
 		task.LastError = ""
 		if err := tx.Model(&task).
-			Select("status", "holder_device_id", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
+			Select("status", "task_source", "holder_device_id", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
 			Updates(task).Error; err != nil {
 			return err
 		}
@@ -678,6 +808,61 @@ func (s *PhoneRegisterTaskService) DeviceReport(req systemReq.PhoneRegisterDevic
 	return task, nil
 }
 
+func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID uint) (system.SysPhoneRegisterTask, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
+	}
+	if taskID == 0 {
+		return system.SysPhoneRegisterTask{}, errors.New("taskId不能为空")
+	}
+	_ = s.timeoutUnfinishedTasks()
+
+	var task system.SysPhoneRegisterTask
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND task_source = ?", taskID, system.PhoneRegisterTaskSourceOpenAPI).
+			First(&task).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("当前设备暂无执行中任务")
+			}
+			return err
+		}
+		if task.HolderDeviceID == nil || strings.TrimSpace(*task.HolderDeviceID) != deviceID {
+			return errors.New("taskId与当前设备任务不一致")
+		}
+		if isPhoneRegisterTaskTerminal(task.Status, task.FinishedAt) {
+			if task.Status == system.PhoneRegisterStatusSucceeded {
+				return nil
+			}
+			return errors.New("任务已完成")
+		}
+		if !time.Now().Before(task.ExpiresAt) {
+			if err := s.failTaskTx(tx, &task, system.PhoneRegisterStatusCodeTaskTimeout, "任务总超时"); err != nil {
+				return err
+			}
+			return errors.New("任务已超时")
+		}
+		now := time.Now()
+		successCode := system.PhoneRegisterStatusCodeSucceeded
+		task.Status = system.PhoneRegisterStatusSucceeded
+		task.StatusCode = &successCode
+		task.CacheStatus = system.PhoneRegisterCacheStatusPending
+		task.FinishedAt = &now
+		task.LastHeartbeatAt = &now
+		task.PendingCode = ""
+		task.CodeRequestedAt = nil
+		task.LastError = ""
+		return tx.Model(&task).
+			Select("status", "status_code", "cache_status", "finished_at", "last_heartbeat_at", "pending_code", "code_requested_at", "last_error", "updated_at").
+			Updates(task).Error
+	})
+	if err != nil {
+		return system.SysPhoneRegisterTask{}, err
+	}
+	return task, nil
+}
+
 func (s *PhoneRegisterTaskService) DeviceLog(req systemReq.PhoneRegisterDeviceLog) error {
 	deviceID := strings.TrimSpace(req.DeviceID)
 	message := strings.TrimSpace(req.Message)
@@ -759,13 +944,49 @@ func (s *PhoneRegisterTaskService) CompleteTaskAfterQQCacheUploadTx(tx *gorm.DB,
 	task.StatusCode = &successCode
 	task.QQNum = strings.TrimSpace(qqNum)
 	task.QQCacheRecordID = &qqCacheRecordID
+	task.CacheStatus = system.PhoneRegisterCacheStatusUploaded
 	task.FinishedAt = &now
 	task.HolderDeviceID = nil
 	task.PendingCode = ""
 	task.CodeRequestedAt = nil
 	task.LastError = ""
 	if err := tx.Model(&task).
-		Select("status", "status_code", "qq_num", "qq_cache_record_id", "finished_at", "holder_device_id", "pending_code", "code_requested_at", "last_error", "updated_at").
+		Select("status", "status_code", "qq_num", "qq_cache_record_id", "cache_status", "finished_at", "holder_device_id", "pending_code", "code_requested_at", "last_error", "updated_at").
+		Updates(task).Error; err != nil {
+		return system.SysPhoneRegisterTask{}, err
+	}
+	return task, nil
+}
+
+func (s *PhoneRegisterTaskService) AttachOpenAPICacheAfterSuccessTx(tx *gorm.DB, deviceID string, taskID uint, qqCacheRecordID uint, qqNum string) (system.SysPhoneRegisterTask, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
+	}
+	if taskID == 0 {
+		return system.SysPhoneRegisterTask{}, errors.New("taskId不能为空")
+	}
+	var task system.SysPhoneRegisterTask
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id = ? AND task_source = ?", taskID, system.PhoneRegisterTaskSourceOpenAPI).
+		First(&task).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return system.SysPhoneRegisterTask{}, errors.New("任务不存在")
+		}
+		return system.SysPhoneRegisterTask{}, err
+	}
+	if task.HolderDeviceID == nil || strings.TrimSpace(*task.HolderDeviceID) != deviceID {
+		return system.SysPhoneRegisterTask{}, errors.New("taskId与当前设备任务不一致")
+	}
+	if task.Status != system.PhoneRegisterStatusSucceeded || task.FinishedAt == nil {
+		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于成功待补充缓存状态")
+	}
+	task.QQNum = strings.TrimSpace(qqNum)
+	task.QQCacheRecordID = &qqCacheRecordID
+	task.CacheStatus = system.PhoneRegisterCacheStatusUploaded
+	task.LastError = ""
+	if err := tx.Model(&task).
+		Select("qq_num", "qq_cache_record_id", "cache_status", "last_error", "updated_at").
 		Updates(task).Error; err != nil {
 		return system.SysPhoneRegisterTask{}, err
 	}
@@ -798,6 +1019,24 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 
 	if err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
 		Where("finished_at IS NULL").
+		Where("status = ?", system.PhoneRegisterStatusWaitingPromoterCode).
+		Where("code_requested_at IS NOT NULL AND code_requested_at <= ?", now.Add(-phoneRegisterCodeSubmitWindow)).
+		Where("pending_code = ''").
+		Updates(map[string]any{
+			"status":            system.PhoneRegisterStatusFailed,
+			"status_code":       system.PhoneRegisterStatusCodeVerifyCodeTimeout,
+			"last_error":        "验证码等待超时",
+			"finished_at":       now,
+			"holder_device_id":  nil,
+			"pending_code":      "",
+			"code_requested_at": nil,
+			"updated_at":        now,
+		}).Error; err != nil {
+		return err
+	}
+
+	if err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Where("finished_at IS NULL").
 		Where("status IN ?", []string{
 			system.PhoneRegisterStatusRunning,
 			system.PhoneRegisterStatusWaitingPromoterCode,
@@ -817,7 +1056,55 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 		}).Error; err != nil {
 		return err
 	}
+	if err := s.recordOpenAPICacheUploadTimeouts(now); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *PhoneRegisterTaskService) recordOpenAPICacheUploadTimeouts(now time.Time) error {
+	deadline := now.Add(-phoneRegisterCacheWaitTimeout)
+	var tasks []system.SysPhoneRegisterTask
+	if err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Where("task_source = ?", system.PhoneRegisterTaskSourceOpenAPI).
+		Where("status = ? AND status_code = ?", system.PhoneRegisterStatusSucceeded, system.PhoneRegisterStatusCodeSucceeded).
+		Where("qq_cache_record_id IS NULL").
+		Where("(cache_status = ? OR cache_status = '')", system.PhoneRegisterCacheStatusPending).
+		Where("last_heartbeat_at IS NOT NULL AND last_heartbeat_at <= ?", deadline).
+		Limit(100).
+		Find(&tasks).Error; err != nil {
+		return err
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+	logs := make([]system.SysPhoneRegisterTaskLog, 0, len(tasks))
+	for i := range tasks {
+		deviceID := ""
+		if tasks[i].HolderDeviceID != nil {
+			deviceID = strings.TrimSpace(*tasks[i].HolderDeviceID)
+		}
+		logs = append(logs, system.SysPhoneRegisterTaskLog{
+			TaskID:   tasks[i].ID,
+			DeviceID: deviceID,
+			Message:  phoneRegisterOpenAPICacheTimeoutLog,
+		})
+	}
+	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&logs).Error; err != nil {
+			return err
+		}
+		ids := make([]uint, 0, len(tasks))
+		for i := range tasks {
+			ids = append(ids, tasks[i].ID)
+		}
+		return tx.Model(&system.SysPhoneRegisterTask{}).
+			Where("id IN ?", ids).
+			Updates(map[string]any{
+				"cache_status": system.PhoneRegisterCacheStatusTimeout,
+				"updated_at":   now,
+			}).Error
+	})
 }
 
 func (s *PhoneRegisterTaskService) failTaskTx(tx *gorm.DB, task *system.SysPhoneRegisterTask, statusCode int, lastError string) error {

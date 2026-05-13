@@ -10,6 +10,13 @@ const (
 	PhoneRegisterSMSModePlatformSend = "PLATFORM_SEND"
 	PhoneRegisterSMSModeUserSentToTX = "USER_SENT_TO_TX"
 
+	PhoneRegisterTaskSourceScript  = "SCRIPT"
+	PhoneRegisterTaskSourceOpenAPI = "OPENAPI"
+
+	PhoneRegisterCacheStatusPending  = "pending"
+	PhoneRegisterCacheStatusUploaded = "uploaded"
+	PhoneRegisterCacheStatusTimeout  = "timeout"
+
 	PhoneRegisterStatusPending              = "pending"
 	PhoneRegisterStatusRunning              = "running"
 	PhoneRegisterStatusWaitingPromoterCode  = "waiting_promoter_code"
@@ -26,6 +33,7 @@ const (
 	PhoneRegisterStatusCodeCacheToolReadFailed     = 1006
 	PhoneRegisterStatusCodeRecoverTimeout          = 1007
 	PhoneRegisterStatusCodePromoterManualTerminate = 1008
+	PhoneRegisterStatusCodeOpenAPIFeedback         = 1009
 	PhoneRegisterStatusCodeUnknown                 = 1099
 
 	PhoneRegisterDeviceActionEnterWaitingCode = "enter_waiting_code"
@@ -40,6 +48,8 @@ type SysPhoneRegisterTask struct {
 	PromoterID      uint       `json:"promoterId" gorm:"index;comment:地推账号ID"`
 	LeaderID        *uint      `json:"leaderId" gorm:"index;comment:团长账号ID"`
 	SMSReceiveMode  string     `json:"smsReceiveMode" gorm:"index;size:32;comment:收码方式"`
+	TaskSource      string     `json:"taskSource" gorm:"index;size:32;comment:任务执行来源"`
+	CacheStatus     string     `json:"cacheStatus" gorm:"index;size:32;comment:缓存处理状态"`
 	QQNum           string     `json:"qqNum" gorm:"index;size:32;comment:注册成功QQ号"`
 	QQCacheRecordID *uint      `json:"qqCacheRecordId" gorm:"index;comment:QQ缓存记录ID"`
 	PendingCode     string     `json:"-" gorm:"column:pending_code;size:32;comment:待设备消费验证码"`

@@ -35,4 +35,5 @@ type SysRegisterConfig struct {
 	PhoneImageProviderUsername  string `json:"phoneImageProviderUsername" gorm:"size:128;comment:手机号注册图片识别账号"`
 	PhoneImageProviderPassword  string `json:"phoneImageProviderPassword" gorm:"size:128;comment:手机号注册图片识别密码"`
 	PhoneImageProviderSecretKey string `json:"phoneImageProviderSecretKey" gorm:"size:256;comment:手机号注册图片识别密钥"`
+	PhoneRegisterEnabled        *bool  `json:"phoneRegisterEnabled" gorm:"comment:是否允许地推提交手机号注册"`
 }
