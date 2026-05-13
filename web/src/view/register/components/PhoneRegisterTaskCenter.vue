@@ -4,7 +4,12 @@
       shadow="never"
       class="mb-3"
     >
-      <template #header>提交手机号注册</template>
+      <template #header>
+        <div class="submit-card-title">
+          <span>提交手机号注册</span>
+          <span class="device-stat-title">设备：在线 {{ counters.deviceOnline }} / 空闲 {{ counters.deviceIdle }}</span>
+        </div>
+      </template>
 
       <el-form
         label-width="88px"
@@ -278,7 +283,9 @@ const windowWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth
 const counters = ref({
   success: 0,
   fail: 0,
-  processing: 0
+  processing: 0,
+  deviceOnline: 0,
+  deviceIdle: 0
 })
 
 const isMobile = computed(() => windowWidth.value <= 768)
@@ -481,7 +488,9 @@ const loadMyTasks = async () => {
   counters.value = {
     success: data?.successCount || 0,
     fail: data?.failCount || 0,
-    processing: data?.processingCount || 0
+    processing: data?.processingCount || 0,
+    deviceOnline: data?.deviceOnlineCount || 0,
+    deviceIdle: data?.deviceIdleCount || 0
   }
 }
 
@@ -623,6 +632,20 @@ onBeforeUnmount(() => {
   padding: 10px;
 }
 
+.submit-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.device-stat-title {
+  color: #606266;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .sms-switch-row {
   display: flex;
   align-items: center;
@@ -686,6 +709,12 @@ onBeforeUnmount(() => {
 
   .compact-page :deep(.el-card__body) {
     padding: 8px;
+  }
+
+  .submit-card-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .sms-switch-row {
