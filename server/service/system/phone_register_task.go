@@ -791,7 +791,7 @@ func (s *PhoneRegisterTaskService) DeviceReport(req systemReq.PhoneRegisterDevic
 		return system.SysPhoneRegisterTask{}, err
 	}
 	if action == system.PhoneRegisterDeviceActionFail {
-		_ = clearPhoneRegisterDeviceBusy(deviceID)
+		_ = markPhoneRegisterDeviceOffline(deviceID)
 	} else {
 		_ = markPhoneRegisterDeviceBusy(deviceID)
 	}
@@ -850,7 +850,7 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 	if err != nil {
 		return system.SysPhoneRegisterTask{}, err
 	}
-	_ = clearPhoneRegisterDeviceBusy(deviceID)
+	_ = markPhoneRegisterDeviceOffline(deviceID)
 	return task, nil
 }
 
@@ -950,7 +950,6 @@ func (s *PhoneRegisterTaskService) CompleteTaskAfterQQCacheUploadTx(tx *gorm.DB,
 		Updates(task).Error; err != nil {
 		return system.SysPhoneRegisterTask{}, err
 	}
-	_ = clearPhoneRegisterDeviceBusy(deviceID)
 	return task, nil
 }
 
@@ -1060,7 +1059,7 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 		return err
 	}
 	for _, deviceID := range releasedDeviceIDs {
-		_ = clearPhoneRegisterDeviceBusy(deviceID)
+		_ = markPhoneRegisterDeviceOffline(deviceID)
 	}
 	return nil
 }
@@ -1185,8 +1184,8 @@ func markPhoneRegisterDeviceBusy(deviceID string) error {
 	return (&DeviceService{}).MarkBusy(deviceID, phoneRegisterDeviceBusyBusiness)
 }
 
-func clearPhoneRegisterDeviceBusy(deviceID string) error {
-	return (&DeviceService{}).ClearBusy(deviceID, phoneRegisterDeviceBusyBusiness)
+func markPhoneRegisterDeviceOffline(deviceID string) error {
+	return (&DeviceService{}).MarkOffline(deviceID)
 }
 
 func (s *PhoneRegisterTaskService) findUniqueOpenTaskByDeviceTx(tx *gorm.DB, deviceID string, lock bool) (system.SysPhoneRegisterTask, bool, error) {

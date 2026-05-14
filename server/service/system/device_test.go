@@ -17,6 +17,7 @@ func TestDeviceServiceNoopsWhenRedisUnavailable(t *testing.T) {
 	require.NoError(t, (&DeviceService{}).MarkHeartbeat("9130dbc0"))
 	require.NoError(t, (&DeviceService{}).MarkBusy("9130dbc0", "phone_register"))
 	require.NoError(t, (&DeviceService{}).ClearBusy("9130dbc0"))
+	require.NoError(t, (&DeviceService{}).MarkOffline("9130dbc0"))
 	require.Empty(t, (&DeviceService{}).ListOnlineDeviceIDs())
 	require.Empty(t, (&DeviceService{}).ListBusyDeviceIDs())
 }

@@ -69,6 +69,17 @@ func (s *DeviceService) ClearBusy(deviceID string, businesses ...string) error {
 	return global.GVA_REDIS.Del(ctx, key).Err()
 }
 
+func (s *DeviceService) MarkOffline(deviceID string) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return nil
+	}
+	if global.GVA_REDIS == nil {
+		return nil
+	}
+	return global.GVA_REDIS.Del(context.Background(), deviceHeartbeatKey(deviceID), deviceBusyKey(deviceID)).Err()
+}
+
 func (s *DeviceService) ListOnlineDeviceIDs() []string {
 	return s.listDeviceIDsByPrefix(deviceHeartbeatKeyPrefix)
 }

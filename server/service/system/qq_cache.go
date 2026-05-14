@@ -62,6 +62,9 @@ func (s *QQCacheService) UploadPhoneRegister(req systemReq.QQCacheUpload) (syste
 		task = completedTask
 		return nil
 	})
+	if err == nil {
+		_ = (&DeviceService{}).MarkOffline(strings.TrimSpace(req.DeviceID))
+	}
 	return systemRes, task, err
 }
 
