@@ -569,12 +569,8 @@ const stopAutoRefresh = () => {
 }
 
 const syncAutoRefresh = () => {
-  if (activeTasks.value.length > 0) {
-    if (!refreshTimer.value) {
-      startAutoRefresh()
-    }
-  } else {
-    stopAutoRefresh()
+  if (!refreshTimer.value) {
+    startAutoRefresh()
   }
 }
 
