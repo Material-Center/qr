@@ -7,7 +7,7 @@
       <template #header>
         <div class="submit-card-title">
           <span>提交手机号注册</span>
-          <span class="device-stat-title">设备：在线 {{ counters.deviceOnline }} / 空闲 {{ counters.deviceIdle }}</span>
+          <span class="device-stat-title">空闲设备：{{ counters.deviceIdle }}</span>
         </div>
       </template>
 
