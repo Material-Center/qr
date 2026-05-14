@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="account-manage-page">
     <div class="gva-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="用户名">
@@ -28,7 +28,7 @@
         </el-button>
       </div>
 
-      <el-table :data="tableData" row-key="ID">
+      <el-table :data="tableData" row-key="ID" class="account-table">
         <el-table-column align="left" label="头像" min-width="75">
           <template #default="scope">
             <CustomPic style="margin-top: 8px" :pic-src="scope.row.headerImg" />
@@ -504,3 +504,77 @@ const confirmResetPassword = async () => {
 
 fetchUsers()
 </script>
+
+<style scoped>
+@media (max-width: 768px) {
+  .account-manage-page :deep(.gva-search-box .el-form) {
+    display: block;
+  }
+
+  .account-manage-page :deep(.gva-search-box .el-form-item) {
+    display: flex;
+    margin-right: 0;
+    margin-bottom: 8px;
+  }
+
+  .account-manage-page :deep(.gva-search-box .el-form-item__label) {
+    width: 64px;
+    justify-content: flex-start;
+    padding-right: 8px;
+  }
+
+  .account-manage-page :deep(.gva-search-box .el-form-item__content) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .account-manage-page :deep(.gva-search-box .el-input) {
+    width: 100%;
+  }
+
+  .account-manage-page :deep(.gva-btn-list) {
+    margin-bottom: 8px;
+  }
+
+  .account-table :deep(.el-table__cell) {
+    padding: 6px 0;
+  }
+
+  .account-table :deep(.cell) {
+    padding: 0 6px;
+    line-height: 1.25;
+  }
+
+  .account-manage-page :deep(.gva-pagination) {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .account-manage-page :deep(.el-pagination) {
+    min-width: max-content;
+  }
+
+  .account-manage-page :deep(.el-dialog) {
+    width: 94vw !important;
+    max-width: 94vw;
+  }
+
+  .account-manage-page :deep(.el-drawer) {
+    width: 100vw !important;
+  }
+
+  .account-manage-page :deep(.el-drawer__header) {
+    margin-bottom: 8px;
+    padding: 12px;
+  }
+
+  .account-manage-page :deep(.el-drawer__body) {
+    padding: 12px;
+  }
+
+  .account-manage-page :deep(.el-drawer__header .flex) {
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+</style>

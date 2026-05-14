@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="phone-register-task-manage">
     <div v-if="showTaskList" class="gva-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="完成时间">
@@ -95,23 +95,23 @@
     </div>
 
     <div class="gva-table-box">
-      <el-row v-if="showCounters" :gutter="12" class="mb-3">
+      <el-row v-if="showCounters" :gutter="12" class="mb-3 counter-row">
         <el-col :span="6">
-          <el-card shadow="never">成功任务：{{ counters.success }}</el-card>
+          <el-card shadow="never" class="counter-card">成功任务：{{ counters.success }}</el-card>
         </el-col>
         <el-col :span="6">
-          <el-card shadow="never">失败任务：{{ counters.fail }}</el-card>
+          <el-card shadow="never" class="counter-card">失败任务：{{ counters.fail }}</el-card>
         </el-col>
         <el-col :span="6">
-          <el-card shadow="never">处理中任务：{{ counters.processing }}</el-card>
+          <el-card shadow="never" class="counter-card">处理中任务：{{ counters.processing }}</el-card>
         </el-col>
         <el-col :span="6">
-          <el-card shadow="never">当前设备：在线 {{ counters.deviceOnline }} / 空闲 {{ counters.deviceIdle }}</el-card>
+          <el-card shadow="never" class="counter-card">当前设备：在线 {{ counters.deviceOnline }} / 空闲 {{ counters.deviceIdle }}</el-card>
         </el-col>
       </el-row>
 
       <template v-if="showTaskList">
-        <el-table :data="tableData" row-key="ID">
+        <el-table :data="tableData" row-key="ID" class="phone-task-table">
           <el-table-column label="任务ID" min-width="90" prop="ID" />
           <el-table-column label="创建时间" min-width="170">
             <template #default="scope">
@@ -193,7 +193,7 @@
 
       <template v-if="showSummary">
         <el-divider v-if="showTaskList" />
-        <el-row :gutter="12">
+        <el-row :gutter="12" class="summary-row">
           <el-col :span="12">
             <el-card shadow="never">
               <template #header>团长汇总</template>
@@ -775,8 +775,91 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .phone-register-task-manage :deep(.gva-search-box .el-form) {
+    display: block;
+  }
+
+  .phone-register-task-manage :deep(.gva-search-box .el-form-item) {
+    display: flex;
+    margin-right: 0;
+    margin-bottom: 8px;
+  }
+
+  .phone-register-task-manage :deep(.gva-search-box .el-form-item__label) {
+    width: 72px;
+    justify-content: flex-start;
+    padding-right: 8px;
+  }
+
+  .phone-register-task-manage :deep(.gva-search-box .el-form-item__content) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .phone-register-task-manage :deep(.gva-search-box .el-input),
+  .phone-register-task-manage :deep(.gva-search-box .el-select),
+  .phone-register-task-manage :deep(.gva-search-box .el-date-editor) {
+    width: 100% !important;
+  }
+
+  .counter-row :deep(.el-col) {
+    flex: 0 0 50%;
+    max-width: 50%;
+    margin-bottom: 8px;
+  }
+
+  .counter-card :deep(.el-card__body) {
+    min-height: 40px;
+    padding: 8px;
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  .summary-row > .el-col {
+    flex: 0 0 100%;
+    max-width: 100%;
+    margin-bottom: 12px;
+  }
+
+  .phone-task-table :deep(.el-table__cell) {
+    padding: 6px 0;
+  }
+
+  .phone-task-table :deep(.cell) {
+    padding: 0 6px;
+    line-height: 1.25;
+  }
+
+  .phone-register-task-manage :deep(.gva-pagination) {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .phone-register-task-manage :deep(.el-pagination) {
+    min-width: max-content;
+  }
+
   :deep(.task-log-dialog) {
     width: 94vw;
+  }
+
+  .task-log-panel {
+    min-height: 300px;
+  }
+
+  .task-log-list {
+    max-height: 60vh;
+    font-size: 11px;
+  }
+
+  .task-log-line {
+    grid-template-columns: 118px 62px minmax(180px, 1fr);
+    gap: 8px;
+    padding: 5px 8px;
+  }
+
+  :deep(.el-dialog) {
+    max-width: 94vw;
   }
 }
 </style>
