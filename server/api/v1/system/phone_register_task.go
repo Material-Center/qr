@@ -407,7 +407,7 @@ func buildPhoneRegisterActiveInfo(task system.SysPhoneRegisterTask) systemRes.Ph
 	if task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend &&
 		task.Status == system.PhoneRegisterStatusWaitingPromoterCode &&
 		task.CodeRequestedAt != nil {
-		expiresAt := task.CodeRequestedAt.Add(2 * time.Minute)
+		expiresAt := task.CodeRequestedAt.Add(3 * time.Minute)
 		codeSubmitExpiresAt = &expiresAt
 	}
 	return systemRes.PhoneRegisterTaskActiveInfo{

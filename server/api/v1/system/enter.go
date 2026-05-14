@@ -62,4 +62,5 @@ var (
 	phoneRegisterTaskService = service.ServiceGroupApp.SystemServiceGroup.PhoneRegisterTaskService
 	registerConfigService    = service.ServiceGroupApp.SystemServiceGroup.RegisterConfigService
 	qqCacheService           = service.ServiceGroupApp.SystemServiceGroup.QQCacheService
+	deviceService            = service.ServiceGroupApp.SystemServiceGroup.DeviceService
 )

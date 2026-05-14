@@ -512,6 +512,7 @@ func getPhoneRegisterOpenAPICacheUploadTask(deviceID string, taskID uint) (syste
 
 func refreshPhoneRegisterOpenAPIHeartbeat(deviceID string, found bool) {
 	if !found {
+		_ = deviceService.MarkHeartbeat(deviceID)
 		return
 	}
 	_ = phoneRegisterTaskService.DeviceHeartbeat(systemReq.PhoneRegisterDeviceHeartbeat{DeviceID: deviceID})

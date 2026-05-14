@@ -89,12 +89,11 @@ func TestCreateTaskRejectsWhenPromoterTaskCreationDisabled(t *testing.T) {
 	require.EqualError(t, err, "当前账号已禁用任务创建")
 }
 
-func TestGetCurrentDeviceStatsCountsOnlineAndIdle(t *testing.T) {
+func TestGetCurrentDeviceStatsIgnoresTaskHeartbeatWithoutDeviceHeartbeat(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 
 	now := time.Now()
 	busyDevice := "busy-device"
-	idleDevice := "idle-device"
 	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
 		Phone:           "18800000001",
 		PromoterID:      1,
@@ -104,13 +103,9 @@ func TestGetCurrentDeviceStatsCountsOnlineAndIdle(t *testing.T) {
 		LastHeartbeatAt: &now,
 		ExpiresAt:       now.Add(time.Hour),
 	}).Error)
-	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTaskLog{
-		DeviceID: idleDevice,
-		Message:  "poll",
-	}).Error)
 
 	stats, err := (&PhoneRegisterTaskService{}).GetCurrentDeviceStats()
 	require.NoError(t, err)
-	require.EqualValues(t, 2, stats.Online)
-	require.EqualValues(t, 1, stats.Idle)
+	require.EqualValues(t, 0, stats.Online)
+	require.EqualValues(t, 0, stats.Idle)
 }

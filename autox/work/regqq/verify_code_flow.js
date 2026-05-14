@@ -1,6 +1,6 @@
 const VERIFY_CODE_STAGE_POLICY = {
   PLATFORM_SEND: {
-    waitRounds: [120000, 120000],
+    waitRounds: [180000, 180000],
     resendCount: 1,
     manualSubmitMaxAttempts: 0,
     manualSubmitIntervalMs: 0,

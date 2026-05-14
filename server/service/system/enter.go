@@ -30,4 +30,5 @@ type ServiceGroup struct {
 	PhoneRegisterTaskService
 	RegisterConfigService
 	QQCacheService
+	DeviceService
 }

@@ -42,7 +42,7 @@
               <el-radio-button label="USER_SENT_TO_TX">发码</el-radio-button>
             </el-radio-group>
             <span class="sms-switch-hint">
-              {{ smsReceiveMode === 'PLATFORM_SEND' ? '填写6位验证码，等待120s未收到反馈后结束任务' : '发短信 “注册QQ” 到号码 10690700511' }}
+              {{ smsReceiveMode === 'PLATFORM_SEND' ? '填写6位验证码，等待180s未收到反馈后结束任务' : '发短信 “注册QQ” 到号码 10690700511' }}
             </span>
           </div>
         </el-form-item>
