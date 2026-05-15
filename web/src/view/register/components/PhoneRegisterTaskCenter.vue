@@ -49,7 +49,7 @@
         <el-form-item>
           <el-button
             size="small"
-            :type="hasSubmittedPhone ? 'warning' : 'primary'"
+            type="primary"
             :disabled="!submitStatus.enabled"
             @click="createTask"
           >提交</el-button>
@@ -105,11 +105,11 @@
                   />
                   <el-button
                     size="small"
-                    type="primary"
+                    :type="isVerifyCodeSubmitted(scope.row) ? 'warning' : 'primary'"
                     :disabled="isVerifyCodeInputDisabled(scope.row)"
                     @click="submitCode(scope.row)"
                   >
-                    提交
+                    {{ isVerifyCodeSubmitted(scope.row) ? '已提交' : '提交' }}
                   </el-button>
                 </div>
                 <span v-else>-</span>
@@ -271,6 +271,7 @@ const taskPage = ref(1)
 const taskPageSize = ref(10)
 const taskTotal = ref(0)
 const verifyCodeMap = ref({})
+const submittedVerifyCodeMap = ref({})
 const refreshTimer = ref(null)
 const countdownTimer = ref(null)
 const refreshing = ref(false)
@@ -289,12 +290,6 @@ const counters = ref({
 })
 
 const isMobile = computed(() => windowWidth.value <= 768)
-const hasSubmittedPhone = computed(() => {
-  return activeTasks.value.length > 0 ||
-    counters.value.success > 0 ||
-    counters.value.fail > 0 ||
-    counters.value.processing > 0
-})
 const taskColumnWidth = computed(() => {
   if (isMobile.value) {
     return {
@@ -406,6 +401,12 @@ const verifyCodeInputPlaceholder = (task) => {
   return isVerifyCodeInputDisabled(task) ? '验证码已超时' : '请输入验证码'
 }
 
+const isVerifyCodeSubmitted = (task) => {
+  if (!task?.id) return false
+  if (submittedVerifyCodeMap.value?.[task.id]) return true
+  return String(task?.lastError || '').includes('地推已提交验证码')
+}
+
 const activeTaskRowClassName = ({ row }) => {
   return row?.needPromoterCode && !isVerifyCodeInputDisabled(row) ? 'verify-code-row' : ''
 }
@@ -468,10 +469,15 @@ const loadActiveTasks = async () => {
   const res = await getActivePhoneRegisterTasks()
   activeTasks.value = Array.isArray(res.data) ? res.data : []
   const nextMap = {}
+  const nextSubmittedMap = {}
   activeTasks.value.forEach((task) => {
     nextMap[task.id] = verifyCodeMap.value?.[task.id] || ''
+    if (submittedVerifyCodeMap.value?.[task.id] || isVerifyCodeSubmitted(task)) {
+      nextSubmittedMap[task.id] = true
+    }
   })
   verifyCodeMap.value = nextMap
+  submittedVerifyCodeMap.value = nextSubmittedMap
 }
 
 const loadSubmitStatus = async () => {
@@ -555,6 +561,7 @@ const submitCode = async (task) => {
     taskId: task.id,
     verifyCode
   })
+  submittedVerifyCodeMap.value[task.id] = true
   verifyCodeMap.value[task.id] = ''
   ElMessage.success('验证码已提交')
   await refreshAll()

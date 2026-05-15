@@ -35,7 +35,7 @@ const currentUser = computed(() => userStore.userInfo || {})
   width: 100%;
   height: 100%;
   min-height: 100%;
-  max-width: 960px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 8px;
   box-sizing: border-box;
