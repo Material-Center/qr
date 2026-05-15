@@ -89,6 +89,13 @@ func TestCreateTaskRejectsWhenPromoterTaskCreationDisabled(t *testing.T) {
 	require.EqualError(t, err, "当前账号已禁用任务创建")
 }
 
+func TestCreateTaskRejectsBlockedPhonePrefix(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "13300000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "该手机号段暂不支持提交")
+}
+
 func TestGetCurrentDeviceStatsIgnoresTaskHeartbeatWithoutDeviceHeartbeat(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 

@@ -3,6 +3,7 @@ package system
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -16,10 +17,11 @@ import (
 type QQCacheApi struct{}
 
 const (
-	qqCacheRoleSuperAdmin = uint(888)
-	qqCacheRoleAdmin      = uint(100)
-	qqCacheRoleAppExtract = uint(400)
-	qqCacheRoleAppUpload  = uint(500)
+	qqCacheRoleSuperAdmin       = uint(888)
+	qqCacheRoleAdmin            = uint(100)
+	qqCacheRoleAppExtract       = uint(400)
+	qqCacheRoleAppUpload        = uint(500)
+	qqCacheExportQQFileMaxBytes = 512 * 1024
 )
 
 // Upload
@@ -286,6 +288,48 @@ func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
 		return
 	}
 	zipBytes, count, err := qqCacheService.ExportPendingIniZipByCount(req.Count, utils.GetUserID(c), req.CreatedAtStart, req.CreatedAtEnd)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	filename := fmt.Sprintf("qq_cache_ini_%d_%s.zip", count, time.Now().Format("20060102_150405"))
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(200, "application/zip", zipBytes)
+}
+
+// ExportIniZipByQQFile
+// @Tags      QQCache
+// @Summary   管理端按上传TXT内QQ账号导出缓存 INI（zip）
+// @Security  ApiKeyAuth
+// @accept    multipart/form-data
+// @Produce   application/zip
+// @Param     qqFile  formData  file  true  "TXT文件，每行格式：QQ----状态"
+// @Success   200     file      zip
+// @Router    /qqCache/exportIniZipByQQFile [post]
+func (a *QQCacheApi) ExportIniZipByQQFile(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可导出缓存", c)
+		return
+	}
+	file, _, err := c.Request.FormFile("qqFile")
+	if err != nil {
+		response.FailWithMessage("请上传TXT文件", c)
+		return
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, qqCacheExportQQFileMaxBytes+1))
+	if err != nil {
+		response.FailWithMessage("读取TXT文件失败", c)
+		return
+	}
+	if len(raw) > qqCacheExportQQFileMaxBytes {
+		response.FailWithMessage("TXT文件不能超过512KB", c)
+		return
+	}
+	zipBytes, count, err := qqCacheService.ExportIniZipByQQText(string(raw))
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return

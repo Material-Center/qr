@@ -38,6 +38,19 @@ export const exportPendingQQCacheIniZip = (payload, config = {}) => {
   })
 }
 
+export const exportQQCacheIniZipByQQFile = (file, config = {}) => {
+  const form = new FormData()
+  form.append('qqFile', file)
+  return service({
+    url: '/qqCache/exportIniZipByQQFile',
+    method: 'post',
+    data: form,
+    responseType: 'blob',
+    donNotShowLoading: true,
+    ...config
+  })
+}
+
 export const settleQQCacheBilling = () => {
   return service({
     url: '/qqCache/billing/settle',

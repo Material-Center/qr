@@ -49,7 +49,7 @@
         <el-form-item>
           <el-button
             size="small"
-            type="primary"
+            :type="hasSubmittedPhone ? 'warning' : 'primary'"
             :disabled="!submitStatus.enabled"
             @click="createTask"
           >提交</el-button>
@@ -289,6 +289,12 @@ const counters = ref({
 })
 
 const isMobile = computed(() => windowWidth.value <= 768)
+const hasSubmittedPhone = computed(() => {
+  return activeTasks.value.length > 0 ||
+    counters.value.success > 0 ||
+    counters.value.fail > 0 ||
+    counters.value.processing > 0
+})
 const taskColumnWidth = computed(() => {
   if (isMobile.value) {
     return {

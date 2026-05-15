@@ -395,6 +395,69 @@ func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, int, error) {
 	return buildQQCacheIniZip(records)
 }
 
+func (s *QQCacheService) ExportIniZipByQQText(raw string) ([]byte, int, error) {
+	qqNums := parseQQCacheExportQQNums(raw)
+	if len(qqNums) == 0 {
+		return nil, 0, errors.New("未解析到QQ账号")
+	}
+	var records []system.SysQQCacheRecord
+	if err := global.GVA_DB.Where("qq_num IN ?", qqNums).Find(&records).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(records) == 0 {
+		return nil, 0, errors.New("未找到匹配QQ缓存")
+	}
+	recordMap := make(map[string]system.SysQQCacheRecord, len(records))
+	for _, record := range records {
+		recordMap[strings.TrimSpace(record.QQNum)] = record
+	}
+	ordered := make([]system.SysQQCacheRecord, 0, len(records))
+	for _, qqNum := range qqNums {
+		if record, ok := recordMap[qqNum]; ok {
+			ordered = append(ordered, record)
+		}
+	}
+	if len(ordered) == 0 {
+		return nil, 0, errors.New("未找到匹配QQ缓存")
+	}
+	return buildQQCacheIniZip(ordered)
+}
+
+func parseQQCacheExportQQNums(raw string) []string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	seen := map[string]struct{}{}
+	qqNums := make([]string, 0)
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		qqNum := strings.TrimSpace(line)
+		if idx := strings.Index(qqNum, "----"); idx >= 0 {
+			qqNum = strings.TrimSpace(qqNum[:idx])
+		}
+		if qqNum == "" {
+			continue
+		}
+		valid := true
+		for _, r := range qqNum {
+			if !unicode.IsDigit(r) {
+				valid = false
+				break
+			}
+		}
+		if !valid {
+			continue
+		}
+		if _, ok := seen[qqNum]; ok {
+			continue
+		}
+		seen[qqNum] = struct{}{}
+		qqNums = append(qqNums, qqNum)
+	}
+	return qqNums
+}
+
 func buildQQCacheIniZip(records []system.SysQQCacheRecord) ([]byte, int, error) {
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)

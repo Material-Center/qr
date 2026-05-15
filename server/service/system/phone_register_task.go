@@ -33,6 +33,8 @@ const phoneRegisterOpenAPICacheTimeoutLog = "OpenAPI缓存上传超时未上传"
 
 const phoneRegisterDeviceBusyBusiness = "phone_register"
 
+var blockedPhoneRegisterPrefixes = []string{"133", "149", "153", "173", "177", "180", "181", "189", "199"}
+
 type PhoneRegisterTaskService struct{}
 
 type phoneRegisterTaskListResult struct {
@@ -79,6 +81,9 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	smsReceiveMode = normalizePhoneRegisterSMSMode(smsReceiveMode)
 	if phone == "" {
 		return system.SysPhoneRegisterTask{}, errors.New("手机号不能为空")
+	}
+	if isBlockedPhoneRegisterPhone(phone) {
+		return system.SysPhoneRegisterTask{}, errors.New("该手机号段暂不支持提交")
 	}
 	if !isValidPhoneRegisterSMSMode(smsReceiveMode) {
 		return system.SysPhoneRegisterTask{}, errors.New("不支持的收码方式")
@@ -1328,6 +1333,16 @@ func isValidPhoneRegisterSMSMode(mode string) bool {
 
 func isPhoneRegisterTaskTerminal(status string, finishedAt *time.Time) bool {
 	return finishedAt != nil || status == system.PhoneRegisterStatusSucceeded || status == system.PhoneRegisterStatusFailed
+}
+
+func isBlockedPhoneRegisterPhone(phone string) bool {
+	phone = strings.TrimSpace(phone)
+	for _, prefix := range blockedPhoneRegisterPrefixes {
+		if strings.HasPrefix(phone, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func phoneRegisterDefaultMessageByAction(action string) string {

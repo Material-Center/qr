@@ -30,6 +30,15 @@
           <el-button type="primary" icon="search" @click="fetchList">查询</el-button>
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
           <el-button type="success" :disabled="!selectedRows.length" @click="onExportIniZip">下载INI(ZIP)</el-button>
+          <el-upload
+            class="qq-file-upload"
+            accept=".txt,text/plain"
+            :show-file-list="false"
+            :auto-upload="false"
+            :on-change="onExportByQQFile"
+          >
+            <el-button type="info">按TXT导出</el-button>
+          </el-upload>
         </el-form-item>
         <el-form-item label="提取数量">
           <el-input-number
@@ -150,6 +159,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/format'
 import {
   exportPendingQQCacheIniZip,
+  exportQQCacheIniZipByQQFile,
   exportQQCacheIniZip,
   getQQCacheBillingHistory,
   getQQCacheList,
@@ -340,6 +350,20 @@ const onExportPendingIniZip = async () => {
   }
 }
 
+const onExportByQQFile = async (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file) {
+    ElMessage.warning('请先选择TXT文件')
+    return
+  }
+  try {
+    const res = await exportQQCacheIniZipByQQFile(file)
+    await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+  } catch (e) {
+    ElMessage.error(e?.message || '导出失败')
+  }
+}
+
 const onSettleBilling = async () => {
   const count = Number(extractStats.value.billingUnsettled) || 0
   if (count <= 0) return
@@ -443,6 +467,12 @@ onMounted(() => {
 <style scoped>
 .extract-btn {
   margin-left: 8px;
+}
+
+.qq-file-upload {
+  display: inline-flex;
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
 .billing-stat-card {

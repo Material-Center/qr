@@ -1,6 +1,8 @@
 package system
 
 import (
+	"archive/zip"
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +98,37 @@ func TestBuildQQCacheAccountLine(t *testing.T) {
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
+}
+
+func TestExportIniZipByQQText(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	ini1 := "qqnum=3995613452\nguid=GUID001\n"
+	ini2 := "qqnum=626384712\nguid=GUID002\n"
+	ini3 := "qqnum=930634982\nguid=GUID003\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "3995613452", QQPwd: "pwd1", INI: &ini1}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "626384712", QQPwd: "pwd2", INI: &ini2}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "930634982", QQPwd: "pwd3", INI: &ini3}).Error)
+
+	zipBytes, count, err := (&QQCacheService{}).ExportIniZipByQQText(strings.Join([]string{
+		"3995613452----冻结",
+		"930634982",
+		"626384712----冻结",
+		"3995613452----冻结",
+	}, "\n"))
+	require.NoError(t, err)
+	require.EqualValues(t, 3, count)
+
+	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	require.NoError(t, err)
+	names := map[string]bool{}
+	for _, f := range zr.File {
+		names[f.Name] = true
+	}
+	require.True(t, names["3995613452.ini"])
+	require.True(t, names["930634982.ini"])
+	require.True(t, names["626384712.ini"])
+	require.True(t, names["账号.txt"])
 }
 
 func TestQQCacheBillingSettlementStatsIgnoreCreatedAtFilter(t *testing.T) {
