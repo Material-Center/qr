@@ -121,6 +121,78 @@ func TestCreateTaskUsesConfiguredBlockedPhonePrefixes(t *testing.T) {
 	require.EqualError(t, err, "该手机号段暂不支持提交")
 }
 
+func TestAttachOpenAPICacheAllowsFailedTaskAndKeepsFailure(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	statusCode := modelSystem.PhoneRegisterStatusCodeOpenAPIFeedback
+	holderDeviceID := "openapi-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000000",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusFailed,
+		StatusCode:     &statusCode,
+		LastError:      "注册失败",
+		FinishedAt:     &now,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	var got modelSystem.SysPhoneRegisterTask
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		var attachErr error
+		got, attachErr = (&PhoneRegisterTaskService{}).AttachOpenAPICacheTx(tx, "openapi-device", task.ID, 123, "3995613452")
+		return attachErr
+	})
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, got.Status)
+	require.Equal(t, "注册失败", got.LastError)
+	require.Equal(t, modelSystem.PhoneRegisterCacheStatusUploaded, got.CacheStatus)
+	require.Equal(t, "3995613452", got.QQNum)
+	require.NotNil(t, got.QQCacheRecordID)
+	require.EqualValues(t, 123, *got.QQCacheRecordID)
+
+	var stored modelSystem.SysPhoneRegisterTask
+	require.NoError(t, global.GVA_DB.First(&stored, task.ID).Error)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, stored.Status)
+	require.Equal(t, "注册失败", stored.LastError)
+	require.Equal(t, modelSystem.PhoneRegisterCacheStatusUploaded, stored.CacheStatus)
+	require.Equal(t, "3995613452", stored.QQNum)
+}
+
+func TestOpenAPIReportFailureKeepsHolderForCacheUpload(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	holderDeviceID := "openapi-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000000",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportFailure(holderDeviceID, task.ID, "注册失败")
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, got.Status)
+	require.Equal(t, "注册失败", got.LastError)
+	require.NotNil(t, got.HolderDeviceID)
+	require.Equal(t, holderDeviceID, *got.HolderDeviceID)
+
+	var stored modelSystem.SysPhoneRegisterTask
+	require.NoError(t, global.GVA_DB.First(&stored, task.ID).Error)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, stored.Status)
+	require.NotNil(t, stored.HolderDeviceID)
+	require.Equal(t, holderDeviceID, *stored.HolderDeviceID)
+}
+
 func TestGetCurrentDeviceStatsIgnoresTaskHeartbeatWithoutDeviceHeartbeat(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 

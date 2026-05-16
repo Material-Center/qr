@@ -52,7 +52,7 @@ func (s *QQCacheService) UploadPhoneRegister(req systemReq.QQCacheUpload) (syste
 		var completedTask system.SysPhoneRegisterTask
 		var taskErr error
 		if req.TaskID != 0 {
-			completedTask, taskErr = phoneTaskService.AttachOpenAPICacheAfterSuccessTx(tx, strings.TrimSpace(req.DeviceID), req.TaskID, record.ID, record.QQNum)
+			completedTask, taskErr = phoneTaskService.AttachOpenAPICacheTx(tx, strings.TrimSpace(req.DeviceID), req.TaskID, record.ID, record.QQNum)
 		} else {
 			completedTask, taskErr = phoneTaskService.CompleteTaskAfterQQCacheUploadTx(tx, strings.TrimSpace(req.DeviceID), record.ID, record.QQNum)
 		}

@@ -877,6 +877,62 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 	return task, nil
 }
 
+func (s *PhoneRegisterTaskService) OpenAPIReportFailure(deviceID string, taskID uint, reason string) (system.SysPhoneRegisterTask, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
+	}
+	if taskID == 0 {
+		return system.SysPhoneRegisterTask{}, errors.New("taskId不能为空")
+	}
+	_ = (&DeviceService{}).MarkHeartbeat(deviceID)
+	_ = s.timeoutUnfinishedTasks()
+
+	var task system.SysPhoneRegisterTask
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND task_source = ?", taskID, system.PhoneRegisterTaskSourceOpenAPI).
+			First(&task).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return errors.New("当前设备暂无执行中任务")
+			}
+			return err
+		}
+		if task.HolderDeviceID == nil || strings.TrimSpace(*task.HolderDeviceID) != deviceID {
+			return errors.New("taskId与当前设备任务不一致")
+		}
+		if isPhoneRegisterTaskTerminal(task.Status, task.FinishedAt) {
+			if task.Status == system.PhoneRegisterStatusFailed {
+				return nil
+			}
+			return errors.New("任务已完成")
+		}
+		if !time.Now().Before(task.ExpiresAt) {
+			return s.failTaskTx(tx, &task, system.PhoneRegisterStatusCodeTaskTimeout, "任务总超时")
+		}
+		now := time.Now()
+		statusCode := system.PhoneRegisterStatusCodeOpenAPIFeedback
+		message := strings.TrimSpace(reason)
+		if message == "" {
+			message = "任务失败"
+		}
+		task.Status = system.PhoneRegisterStatusFailed
+		task.StatusCode = &statusCode
+		task.LastError = message
+		task.FinishedAt = &now
+		task.PendingCode = ""
+		task.CodeRequestedAt = nil
+		return tx.Model(&task).
+			Select("status", "status_code", "last_error", "finished_at", "pending_code", "code_requested_at", "updated_at").
+			Updates(task).Error
+	})
+	if err != nil {
+		return system.SysPhoneRegisterTask{}, err
+	}
+	_ = markPhoneRegisterDeviceOffline(deviceID)
+	return task, nil
+}
+
 func (s *PhoneRegisterTaskService) DeviceLog(req systemReq.PhoneRegisterDeviceLog) error {
 	deviceID := strings.TrimSpace(req.DeviceID)
 	message := strings.TrimSpace(req.Message)
@@ -976,7 +1032,7 @@ func (s *PhoneRegisterTaskService) CompleteTaskAfterQQCacheUploadTx(tx *gorm.DB,
 	return task, nil
 }
 
-func (s *PhoneRegisterTaskService) AttachOpenAPICacheAfterSuccessTx(tx *gorm.DB, deviceID string, taskID uint, qqCacheRecordID uint, qqNum string) (system.SysPhoneRegisterTask, error) {
+func (s *PhoneRegisterTaskService) AttachOpenAPICacheTx(tx *gorm.DB, deviceID string, taskID uint, qqCacheRecordID uint, qqNum string) (system.SysPhoneRegisterTask, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
 		return system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
@@ -996,19 +1052,33 @@ func (s *PhoneRegisterTaskService) AttachOpenAPICacheAfterSuccessTx(tx *gorm.DB,
 	if task.HolderDeviceID == nil || strings.TrimSpace(*task.HolderDeviceID) != deviceID {
 		return system.SysPhoneRegisterTask{}, errors.New("taskId与当前设备任务不一致")
 	}
-	if task.Status != system.PhoneRegisterStatusSucceeded || task.FinishedAt == nil {
-		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于成功待补充缓存状态")
+	if !isOpenAPICacheUploadAllowedTask(task) {
+		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于可上传缓存状态")
 	}
 	task.QQNum = strings.TrimSpace(qqNum)
 	task.QQCacheRecordID = &qqCacheRecordID
 	task.CacheStatus = system.PhoneRegisterCacheStatusUploaded
-	task.LastError = ""
-	if err := tx.Model(&task).
-		Select("qq_num", "qq_cache_record_id", "cache_status", "last_error", "updated_at").
-		Updates(task).Error; err != nil {
+	updates := map[string]any{
+		"qq_num":             task.QQNum,
+		"qq_cache_record_id": task.QQCacheRecordID,
+		"cache_status":       task.CacheStatus,
+		"updated_at":         time.Now(),
+	}
+	if task.Status == system.PhoneRegisterStatusSucceeded {
+		task.LastError = ""
+		updates["last_error"] = ""
+	}
+	if err := tx.Model(&task).Updates(updates).Error; err != nil {
 		return system.SysPhoneRegisterTask{}, err
 	}
 	return task, nil
+}
+
+func isOpenAPICacheUploadAllowedTask(task system.SysPhoneRegisterTask) bool {
+	if task.FinishedAt == nil {
+		return false
+	}
+	return task.Status == system.PhoneRegisterStatusSucceeded || task.Status == system.PhoneRegisterStatusFailed
 }
 
 func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {

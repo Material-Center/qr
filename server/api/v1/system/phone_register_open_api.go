@@ -157,23 +157,10 @@ func (a *PhoneRegisterTaskApi) OpenAPIReportPhoneRegisterTask(c *gin.Context) {
 
 	switch strings.ToLower(strings.TrimSpace(req.Status)) {
 	case phoneRegisterOpenAPIStatusFailed:
-		currentTask, err := getAndValidatePhoneRegisterOpenAPITask(req.DeviceID, req.TaskID)
+		task, err := phoneRegisterTaskService.OpenAPIReportFailure(req.DeviceID, req.TaskID, req.Reason)
 		if err != nil {
 			response.FailWithMessage(err.Error(), c)
 			return
-		}
-		task, err := phoneRegisterTaskService.DeviceReport(systemReq.PhoneRegisterDeviceReport{
-			DeviceID:   req.DeviceID,
-			Action:     system.PhoneRegisterDeviceActionFail,
-			Message:    req.Reason,
-			StatusCode: intPtr(system.PhoneRegisterStatusCodeOpenAPIFeedback),
-		})
-		if err != nil {
-			response.FailWithMessage(err.Error(), c)
-			return
-		}
-		if task.ID == 0 {
-			task.ID = currentTask.ID
 		}
 		response.OkWithDetailed(systemRes.PhoneRegisterOpenAPIReportResponse{OK: true, TaskID: task.ID}, "上报成功", c)
 	case phoneRegisterOpenAPIStatusSuccess:
@@ -504,8 +491,9 @@ func getPhoneRegisterOpenAPICacheUploadTask(deviceID string, taskID uint) (syste
 	if task.HolderDeviceID == nil || strings.TrimSpace(*task.HolderDeviceID) != deviceID {
 		return system.SysPhoneRegisterTask{}, errors.New("taskId与当前设备任务不一致")
 	}
-	if task.Status != system.PhoneRegisterStatusSucceeded || task.FinishedAt == nil {
-		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于成功待补充缓存状态")
+	if task.FinishedAt == nil ||
+		(task.Status != system.PhoneRegisterStatusSucceeded && task.Status != system.PhoneRegisterStatusFailed) {
+		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于可上传缓存状态")
 	}
 	return task, nil
 }
