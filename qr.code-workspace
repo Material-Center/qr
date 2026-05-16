@@ -25,6 +25,10 @@
       "name": "cache-extractor-service"
     },
     {
+      "path": "internal-tool",
+      "name": "internal-tool"
+    },
+    {
       "path": "test",
       "name": "test"
     },

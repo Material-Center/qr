@@ -11,6 +11,15 @@ type QQCacheUpload struct {
 	DeviceID string `json:"deviceId" form:"deviceId"`
 }
 
+type InternalToolQQCacheImport struct {
+	Phone    string `json:"phone" form:"phone"`
+	QQNum    string `json:"qqNum" form:"qqNum"`
+	QQPwd    string `json:"qqPwd" form:"qqPwd"`
+	INI      string `json:"ini" form:"ini"`
+	DeviceID string `json:"deviceId" form:"deviceId"`
+	Force    bool   `json:"force" form:"force"`
+}
+
 type QQCacheExtract struct {
 	QQNum string `json:"qqNum" form:"qqNum"`
 }

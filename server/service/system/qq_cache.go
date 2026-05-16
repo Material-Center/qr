@@ -25,6 +25,12 @@ const (
 	qqCacheServiceRoleAdmin      = uint(100)
 )
 
+const (
+	qqCacheInternalToolActionCreated = "created"
+	qqCacheInternalToolActionSkipped = "skipped"
+	qqCacheInternalToolActionUpdated = "updated"
+)
+
 type QQCacheService struct{}
 type qqCacheBillingSettleResult struct {
 	SettledAt    time.Time
@@ -36,6 +42,83 @@ var QQCacheServiceApp = new(QQCacheService)
 func (s *QQCacheService) UploadByApp(userID uint, req systemReq.QQCacheUpload) (system.SysQQCacheRecord, error) {
 	_ = userID
 	return s.uploadRecord(req)
+}
+
+func (s *QQCacheService) InternalToolFindQQCacheByQQNum(qqNum string) (system.SysQQCacheRecord, bool, error) {
+	qqNum = strings.TrimSpace(qqNum)
+	if qqNum == "" {
+		return system.SysQQCacheRecord{}, false, errors.New("qq账号不能为空")
+	}
+	var record system.SysQQCacheRecord
+	if err := global.GVA_DB.Unscoped().Where("qq_num = ?", qqNum).First(&record).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return system.SysQQCacheRecord{}, false, nil
+		}
+		return system.SysQQCacheRecord{}, false, err
+	}
+	return record, true, nil
+}
+
+func (s *QQCacheService) InternalToolImportQQCache(req systemReq.InternalToolQQCacheImport) (system.SysQQCacheRecord, string, error) {
+	qqNum := strings.TrimSpace(req.QQNum)
+	iniText := strings.TrimSpace(req.INI)
+	if qqNum == "" {
+		return system.SysQQCacheRecord{}, "", errors.New("qq账号不能为空")
+	}
+	if iniText == "" {
+		return system.SysQQCacheRecord{}, "", errors.New("缓存内容不能为空")
+	}
+
+	var record system.SysQQCacheRecord
+	action := qqCacheInternalToolActionSkipped
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		err := tx.Unscoped().Where("qq_num = ?", qqNum).First(&record).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if err == nil {
+			if !req.Force {
+				return nil
+			}
+			updates := map[string]any{
+				"qq_pwd":     strings.TrimSpace(req.QQPwd),
+				"ini":        iniText,
+				"deleted_at": nil,
+				"updated_at": time.Now(),
+			}
+			if phone := strings.TrimSpace(req.Phone); phone != "" {
+				updates["phone"] = phone
+			}
+			if deviceID := strings.TrimSpace(req.DeviceID); deviceID != "" {
+				updates["device_id"] = deviceID
+			}
+			if err := tx.Unscoped().Model(&record).Updates(updates).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("qq_num = ?", qqNum).First(&record).Error; err != nil {
+				return err
+			}
+			action = qqCacheInternalToolActionUpdated
+			return nil
+		}
+
+		record = system.SysQQCacheRecord{
+			Phone:    trimToPtr(req.Phone),
+			QQNum:    qqNum,
+			QQPwd:    strings.TrimSpace(req.QQPwd),
+			INI:      stringPtr(iniText),
+			DeviceID: trimToPtr(req.DeviceID),
+		}
+		if err := tx.Create(&record).Error; err != nil {
+			return err
+		}
+		action = qqCacheInternalToolActionCreated
+		return nil
+	})
+	if err != nil {
+		return system.SysQQCacheRecord{}, "", err
+	}
+	return record, action, nil
 }
 
 func (s *QQCacheService) UploadPhoneRegister(req systemReq.QQCacheUpload) (systemRes system.SysQQCacheRecord, task system.SysPhoneRegisterTask, err error) {

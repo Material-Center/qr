@@ -9,6 +9,7 @@ import (
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -69,6 +70,77 @@ func TestNormalizeQQCacheExportINIKeepDeviceInfoWhenJSONInvalid(t *testing.T) {
 	if !strings.Contains(got, "deviceInfo={bad json}\r\n") {
 		t.Fatalf("expected invalid json line kept as-is, got: %q", got)
 	}
+}
+
+func TestInternalToolImportQQCacheSkipsExistingByDefault(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	oldINI := "old ini"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum: "10001",
+		QQPwd: "oldpwd",
+		INI:   &oldINI,
+	}).Error)
+
+	record, action, err := (&QQCacheService{}).InternalToolImportQQCache(systemReq.InternalToolQQCacheImport{
+		QQNum: "10001",
+		QQPwd: "newpwd",
+		INI:   "new ini",
+	})
+	require.NoError(t, err)
+	require.Equal(t, qqCacheInternalToolActionSkipped, action)
+	require.Equal(t, "oldpwd", record.QQPwd)
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "10001").First(&stored).Error)
+	require.Equal(t, "oldpwd", stored.QQPwd)
+	require.NotNil(t, stored.INI)
+	require.Equal(t, oldINI, *stored.INI)
+}
+
+func TestInternalToolImportQQCacheForceUpdatesOnlyCacheFields(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	oldINI := "old ini"
+	extractor := uint(88)
+	extractRecordID := uint(99)
+	extractionAt := time.Now().Add(-time.Hour)
+	billingSettledBy := uint(100)
+	billingSettledAt := time.Now().Add(-time.Minute)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum:            "10002",
+		QQPwd:            "oldpwd",
+		INI:              &oldINI,
+		Extractor:        &extractor,
+		ExtractRecordID:  &extractRecordID,
+		ExtractionAt:     &extractionAt,
+		BillingSettledAt: &billingSettledAt,
+		BillingSettledBy: &billingSettledBy,
+	}).Error)
+
+	record, action, err := (&QQCacheService{}).InternalToolImportQQCache(systemReq.InternalToolQQCacheImport{
+		QQNum: "10002",
+		QQPwd: "newpwd",
+		INI:   "new ini",
+		Force: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, qqCacheInternalToolActionUpdated, action)
+	require.Equal(t, "newpwd", record.QQPwd)
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "10002").First(&stored).Error)
+	require.Equal(t, "newpwd", stored.QQPwd)
+	require.NotNil(t, stored.INI)
+	require.Equal(t, "new ini", *stored.INI)
+	require.NotNil(t, stored.Extractor)
+	require.Equal(t, extractor, *stored.Extractor)
+	require.NotNil(t, stored.ExtractRecordID)
+	require.Equal(t, extractRecordID, *stored.ExtractRecordID)
+	require.NotNil(t, stored.ExtractionAt)
+	require.NotNil(t, stored.BillingSettledAt)
+	require.NotNil(t, stored.BillingSettledBy)
+	require.Equal(t, billingSettledBy, *stored.BillingSettledBy)
 }
 
 func TestExtractQQCacheGUID(t *testing.T) {

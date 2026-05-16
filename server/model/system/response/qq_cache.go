@@ -22,6 +22,19 @@ type QQCacheExtractStats struct {
 	BillingSettled   int64 `json:"billingSettled"`
 }
 
+type InternalToolQQCacheImportResponse struct {
+	QQCacheRecordID uint   `json:"qqCacheRecordId"`
+	QQNum           string `json:"qqNum"`
+	Action          string `json:"action"`
+	Force           bool   `json:"force"`
+}
+
+type InternalToolQQCacheExistsResponse struct {
+	QQCacheRecordID uint   `json:"qqCacheRecordId"`
+	QQNum           string `json:"qqNum"`
+	Exists          bool   `json:"exists"`
+}
+
 type QQCacheBillingSettlementHistoryItem struct {
 	SettledAt    time.Time `json:"settledAt"`
 	SettledCount int64     `json:"settledCount"`

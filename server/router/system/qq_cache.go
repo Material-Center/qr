@@ -11,10 +11,13 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 	qqCacheRouter := Router.Group("qqCache").Use(middleware.OperationRecord())
 	qqCacheRouterWithoutRecord := Router.Group("qqCache")
 	publicQQCacheRouter := PublicGroup.Group("qqCache")
+	publicInternalToolRouter := PublicGroup.Group("internalTool")
 	{
 		// upload/extract/exportIniZip 请求体或响应中含敏感缓存内容，不进入操作日志
 		qqCacheRouterWithoutRecord.POST("upload", qqCacheApi.Upload)
 		publicQQCacheRouter.POST("uploadPhoneRegister", qqCacheApi.UploadPhoneRegister)
+		publicInternalToolRouter.POST("qqCache/importZip", qqCacheApi.InternalToolImportQQCacheZip)
+		publicInternalToolRouter.GET("qqCache/exists", qqCacheApi.InternalToolCheckQQCache)
 		qqCacheRouterWithoutRecord.POST("extract", qqCacheApi.Extract)
 		qqCacheRouterWithoutRecord.POST("exportIniZip", qqCacheApi.ExportIniZip)
 		qqCacheRouterWithoutRecord.POST("exportPendingIniZip", qqCacheApi.ExportPendingIniZip)
