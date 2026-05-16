@@ -163,7 +163,7 @@ func (a *PhoneRegisterTaskApi) GetPhoneRegisterTaskList(c *gin.Context) {
 		page = 1
 	}
 	pageSize := req.PageSize
-	if pageSize <= 0 || pageSize > 100 {
+	if pageSize <= 0 || pageSize > 120 {
 		pageSize = 10
 	}
 	response.OkWithDetailed(systemRes.PhoneRegisterTaskListResponse{

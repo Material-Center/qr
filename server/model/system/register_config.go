@@ -31,9 +31,10 @@ type SysRegisterConfig struct {
 	CaptchaPassword string `json:"captchaPassword" gorm:"size:128;comment:验证码密码"`
 	CaptchaToken    string `json:"captchaToken" gorm:"size:256;comment:验证码token"`
 
-	PhoneImageProvider          string `json:"phoneImageProvider" gorm:"size:32;comment:手机号注册图片识别供应商"`
-	PhoneImageProviderUsername  string `json:"phoneImageProviderUsername" gorm:"size:128;comment:手机号注册图片识别账号"`
-	PhoneImageProviderPassword  string `json:"phoneImageProviderPassword" gorm:"size:128;comment:手机号注册图片识别密码"`
-	PhoneImageProviderSecretKey string `json:"phoneImageProviderSecretKey" gorm:"size:256;comment:手机号注册图片识别密钥"`
-	PhoneRegisterEnabled        *bool  `json:"phoneRegisterEnabled" gorm:"comment:是否允许地推提交手机号注册"`
+	PhoneImageProvider           string `json:"phoneImageProvider" gorm:"size:32;comment:手机号注册图片识别供应商"`
+	PhoneImageProviderUsername   string `json:"phoneImageProviderUsername" gorm:"size:128;comment:手机号注册图片识别账号"`
+	PhoneImageProviderPassword   string `json:"phoneImageProviderPassword" gorm:"size:128;comment:手机号注册图片识别密码"`
+	PhoneImageProviderSecretKey  string `json:"phoneImageProviderSecretKey" gorm:"size:256;comment:手机号注册图片识别密钥"`
+	PhoneRegisterEnabled         *bool  `json:"phoneRegisterEnabled" gorm:"comment:是否允许地推提交手机号注册"`
+	PhoneRegisterBlockedPrefixes string `json:"phoneRegisterBlockedPrefixes" gorm:"size:256;comment:手机号注册禁用手机号前缀，逗号分隔"`
 }

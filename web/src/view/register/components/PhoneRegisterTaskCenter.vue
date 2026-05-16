@@ -60,91 +60,6 @@
         </el-form-item>
       </el-form>
 
-      <div v-if="activeTasks.length">
-        <el-divider class="my-2">当前任务</el-divider>
-        <div class="table-wrap">
-          <el-table
-            :data="activeTasks"
-            row-key="id"
-            size="small"
-            class="my-task-table"
-            :row-class-name="activeTaskRowClassName"
-          >
-            <el-table-column
-              label="任务ID"
-              prop="id"
-              :width="taskColumnWidth.id"
-            />
-            <el-table-column
-              label="创建时间"
-              :min-width="taskColumnWidth.createdAt"
-            >
-              <template #default="scope">
-                <span class="task-time-cell">{{ safeFormatDate(scope.row.createdAt) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="手机号"
-              prop="phone"
-              :min-width="taskColumnWidth.phone"
-            />
-            <el-table-column
-              label="验证码"
-              :min-width="taskColumnWidth.verifyCode"
-            >
-              <template #default="scope">
-                <div
-                  v-if="scope.row.needPromoterCode"
-                  class="verify-inline"
-                >
-                  <el-input
-                    v-model="verifyCodeMap[scope.row.id]"
-                    size="small"
-                    :disabled="isVerifyCodeInputDisabled(scope.row)"
-                    :placeholder="verifyCodeInputPlaceholder(scope.row)"
-                  />
-                  <el-button
-                    size="small"
-                    :type="isVerifyCodeSubmitted(scope.row) ? 'warning' : 'primary'"
-                    :disabled="isVerifyCodeInputDisabled(scope.row)"
-                    @click="submitCode(scope.row)"
-                  >
-                    {{ isVerifyCodeSubmitted(scope.row) ? '已提交' : '提交' }}
-                  </el-button>
-                </div>
-                <span v-else>-</span>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="收码方式"
-              :min-width="taskColumnWidth.smsMode"
-            >
-              <template #default="scope">
-                {{ smsModeText(scope.row.smsReceiveMode) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="状态"
-              :min-width="taskColumnWidth.status"
-            >
-              <template #default="scope">
-                <el-tag :type="statusTagType(scope.row.status, scope.row.finishedAt)">
-                  {{ statusText(scope.row.status) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column
-              label="号码反馈"
-              :min-width="taskColumnWidth.error"
-              show-overflow-tooltip
-            >
-              <template #default="scope">
-                {{ promoterErrorText(scope.row) }}
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </div>
     </el-card>
 
     <el-card shadow="never">
@@ -168,10 +83,11 @@
       </el-row>
       <div class="table-wrap">
         <el-table
-          :data="myTasks"
+          :data="displayTaskRows"
           row-key="ID"
           size="small"
           class="my-task-table"
+          :row-class-name="activeTaskRowClassName"
         >
           <el-table-column
             label="任务ID"
@@ -183,7 +99,7 @@
             :min-width="taskColumnWidth.createdAt"
           >
             <template #default="scope">
-              <span class="task-time-cell">{{ safeFormatDate(scope.row.CreatedAt) }}</span>
+              <span class="task-time-cell">{{ safeFormatDate(taskCreatedAt(scope.row)) }}</span>
             </template>
           </el-table-column>
           <el-table-column
@@ -192,11 +108,30 @@
             :min-width="taskColumnWidth.phone"
           />
           <el-table-column
-            label="收码方式"
-            :min-width="taskColumnWidth.smsMode"
+            label="验证码"
+            :min-width="taskColumnWidth.verifyCode"
           >
             <template #default="scope">
-              {{ smsModeText(scope.row.smsReceiveMode) }}
+              <div
+                v-if="hasPromoterCodeInput(scope.row)"
+                class="verify-inline"
+              >
+                <el-input
+                  v-model="verifyCodeMap[taskRowId(scope.row)]"
+                  size="small"
+                  :disabled="isVerifyCodeInputDisabled(scope.row)"
+                  :placeholder="verifyCodeInputPlaceholder(scope.row)"
+                />
+                <el-button
+                  size="small"
+                  :type="isVerifyCodeSubmitted(scope.row) ? 'warning' : 'primary'"
+                  :disabled="isVerifyCodeInputDisabled(scope.row)"
+                  @click="submitCode(scope.row)"
+                >
+                  {{ isVerifyCodeSubmitted(scope.row) ? '已提交' : '提交' }}
+                </el-button>
+              </div>
+              <span v-else>-</span>
             </template>
           </el-table-column>
           <el-table-column
@@ -232,7 +167,7 @@
         <el-pagination
           v-model:current-page="taskPage"
           v-model:page-size="taskPageSize"
-          :page-sizes="[10, 20, 50]"
+          :page-sizes="[40, 80, 120]"
           :total="taskTotal"
           size="small"
           layout="total, sizes, prev, pager, next"
@@ -268,7 +203,7 @@ const activeTasks = ref([])
 const myTasks = ref([])
 const taskListStatus = ref('')
 const taskPage = ref(1)
-const taskPageSize = ref(10)
+const taskPageSize = ref(40)
 const taskTotal = ref(0)
 const verifyCodeMap = ref({})
 const submittedVerifyCodeMap = ref({})
@@ -296,7 +231,6 @@ const taskColumnWidth = computed(() => {
       id: 64,
       createdAt: 104,
       phone: 96,
-      smsMode: 76,
       status: 88,
       qqNum: 92,
       verifyCode: 154,
@@ -308,13 +242,37 @@ const taskColumnWidth = computed(() => {
     id: 90,
     createdAt: 170,
     phone: 130,
-    smsMode: 120,
     status: 130,
     qqNum: 120,
     verifyCode: 200,
     error: 160,
     finishedAt: 170
   }
+})
+const displayTaskRows = computed(() => {
+  const activeMap = new Map()
+  activeTasks.value.forEach((task) => {
+    const row = normalizeTaskRow(task)
+    activeMap.set(row.ID, row)
+  })
+
+  if (taskListStatus.value) {
+    return myTasks.value.map((task) => normalizeTaskRow(task, activeMap.get(taskRowId(task))))
+  }
+
+  const rows = []
+  const seen = new Set()
+  activeMap.forEach((task) => {
+    rows.push(task)
+    seen.add(task.ID)
+  })
+  myTasks.value.forEach((task) => {
+    const id = taskRowId(task)
+    if (seen.has(id)) return
+    rows.push(normalizeTaskRow(task, activeMap.get(id)))
+    seen.add(id)
+  })
+  return rows
 })
 
 const dayStart = (base = new Date()) => {
@@ -383,16 +341,47 @@ const safeFormatDate = (value) => {
   return formatDate(value)
 }
 
+const taskRowId = (task) => task?.ID || task?.id
+
+const taskCreatedAt = (task) => task?.CreatedAt || task?.createdAt
+
+const taskFinishedAt = (task) => task?.finishedAt || task?.FinishedAt
+
+const hasPromoterCodeInput = (task) => {
+  if (task?.needPromoterCode) return true
+  return task?.smsReceiveMode === 'PLATFORM_SEND' &&
+    task?.status === 'waiting_promoter_code' &&
+    !taskFinishedAt(task)
+}
+
+const normalizeTaskRow = (task, activeTask) => {
+  const row = {
+    ...(task || {}),
+    ...(activeTask || {})
+  }
+  const id = taskRowId(row)
+  const createdAt = taskCreatedAt(row)
+  return {
+    ...row,
+    ID: id,
+    id,
+    CreatedAt: createdAt,
+    createdAt,
+    finishedAt: taskFinishedAt(row),
+    needPromoterCode: hasPromoterCodeInput(row)
+  }
+}
+
 const codeSubmitRemainSeconds = (task) => {
-  if (!task?.codeSubmitExpiresAt || task?.finishedAt) return null
+  if (!task?.codeSubmitExpiresAt || taskFinishedAt(task)) return null
   const diff = Math.floor((new Date(task.codeSubmitExpiresAt).getTime() - nowTs.value) / 1000)
   return diff > 0 ? diff : 0
 }
 
 const isVerifyCodeInputDisabled = (task) => {
-  if (!task?.needPromoterCode) return true
+  if (!hasPromoterCodeInput(task)) return true
   if (task.status !== 'waiting_promoter_code') return true
-  if (task.finishedAt) return true
+  if (taskFinishedAt(task)) return true
   const seconds = codeSubmitRemainSeconds(task)
   return seconds !== null && seconds <= 0
 }
@@ -402,19 +391,14 @@ const verifyCodeInputPlaceholder = (task) => {
 }
 
 const isVerifyCodeSubmitted = (task) => {
-  if (!task?.id) return false
-  if (submittedVerifyCodeMap.value?.[task.id]) return true
+  const id = taskRowId(task)
+  if (!id) return false
+  if (submittedVerifyCodeMap.value?.[id]) return true
   return String(task?.lastError || '').includes('地推已提交验证码')
 }
 
 const activeTaskRowClassName = ({ row }) => {
-  return row?.needPromoterCode && !isVerifyCodeInputDisabled(row) ? 'verify-code-row' : ''
-}
-
-const smsModeText = (mode) => {
-  if (mode === 'PLATFORM_SEND') return '平台发码'
-  if (mode === 'USER_SENT_TO_TX') return '我已发码'
-  return mode || '-'
+  return hasPromoterCodeInput(row) && !isVerifyCodeInputDisabled(row) ? 'verify-code-row' : ''
 }
 
 const statusText = (status) => {
@@ -471,9 +455,10 @@ const loadActiveTasks = async () => {
   const nextMap = {}
   const nextSubmittedMap = {}
   activeTasks.value.forEach((task) => {
-    nextMap[task.id] = verifyCodeMap.value?.[task.id] || ''
-    if (submittedVerifyCodeMap.value?.[task.id] || isVerifyCodeSubmitted(task)) {
-      nextSubmittedMap[task.id] = true
+    const id = taskRowId(task)
+    nextMap[id] = verifyCodeMap.value?.[id] || ''
+    if (submittedVerifyCodeMap.value?.[id] || isVerifyCodeSubmitted(task)) {
+      nextSubmittedMap[id] = true
     }
   })
   verifyCodeMap.value = nextMap
@@ -552,17 +537,18 @@ const submitCode = async (task) => {
     ElMessage.warning('验证码已超时，请等待任务重试或失败')
     return
   }
-  const verifyCode = String(verifyCodeMap.value?.[task.id] || '').trim()
+  const id = taskRowId(task)
+  const verifyCode = String(verifyCodeMap.value?.[id] || '').trim()
   if (!verifyCode) {
     ElMessage.warning('验证码不能为空')
     return
   }
   await submitPhoneRegisterTaskCode({
-    taskId: task.id,
+    taskId: id,
     verifyCode
   })
-  submittedVerifyCodeMap.value[task.id] = true
-  verifyCodeMap.value[task.id] = ''
+  submittedVerifyCodeMap.value[id] = true
+  verifyCodeMap.value[id] = ''
   ElMessage.success('验证码已提交')
   await refreshAll()
 }

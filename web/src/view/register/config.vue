@@ -18,6 +18,14 @@
                 inactive-text="关闭提交"
               />
             </el-form-item>
+            <el-form-item label="禁用号段">
+              <el-input
+                v-model="form.phoneRegisterBlockedPrefixes"
+                type="textarea"
+                :rows="3"
+                placeholder="多个前缀用逗号、空格或换行分隔，例如 133,149,190,193"
+              />
+            </el-form-item>
             <el-form-item>
               <el-button
                 type="primary"
@@ -198,7 +206,8 @@ const form = ref({
   phoneImageProviderUsername: '',
   phoneImageProviderPassword: '',
   phoneImageProviderSecretKey: '',
-  phoneRegisterEnabled: true
+  phoneRegisterEnabled: true,
+  phoneRegisterBlockedPrefixes: '133,149,153,173,177,180,181,189,190,193,199'
 })
 
 const proxyAccountLabel = computed(() => {
@@ -326,7 +335,8 @@ const loadConfig = async () => {
     phoneImageProviderUsername: data?.phoneImageProviderUsername || '',
     phoneImageProviderPassword: data?.phoneImageProviderPassword || '',
     phoneImageProviderSecretKey: data?.phoneImageProviderSecretKey || '',
-    phoneRegisterEnabled: data?.phoneRegisterEnabled !== false
+    phoneRegisterEnabled: data?.phoneRegisterEnabled !== false,
+    phoneRegisterBlockedPrefixes: data?.phoneRegisterBlockedPrefixes || '133,149,153,173,177,180,181,189,190,193,199'
   }
 }
 

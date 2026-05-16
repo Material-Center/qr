@@ -96,6 +96,31 @@ func TestCreateTaskRejectsBlockedPhonePrefix(t *testing.T) {
 	require.EqualError(t, err, "该手机号段暂不支持提交")
 }
 
+func TestCreateTaskRejectsNewBlockedPhonePrefixes(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "19000000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "该手机号段暂不支持提交")
+
+	_, err = (&PhoneRegisterTaskService{}).CreateTask(1, "19300000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "该手机号段暂不支持提交")
+}
+
+func TestCreateTaskUsesConfiguredBlockedPhonePrefixes(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                    modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                      0,
+		PhoneRegisterEnabled:         &enabled,
+		PhoneRegisterBlockedPrefixes: "188 199",
+	}).Error)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "该手机号段暂不支持提交")
+}
+
 func TestGetCurrentDeviceStatsIgnoresTaskHeartbeatWithoutDeviceHeartbeat(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 

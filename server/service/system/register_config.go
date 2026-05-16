@@ -30,7 +30,11 @@ func (s *RegisterConfigService) GetMyConfig(role uint, userID uint) (system.SysR
 	if errors.Is(findErr, gorm.ErrRecordNotFound) {
 		cfg.OwnerType = ownerType
 		cfg.OwnerID = ownerID
+		cfg.PhoneRegisterBlockedPrefixes = normalizePhoneRegisterBlockedPrefixes("")
 		return cfg, nil
+	}
+	if findErr == nil && cfg.PhoneRegisterBlockedPrefixes == "" {
+		cfg.PhoneRegisterBlockedPrefixes = normalizePhoneRegisterBlockedPrefixes("")
 	}
 	return cfg, findErr
 }
@@ -87,6 +91,7 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		data["phone_image_provider_username"] = strings.TrimSpace(req.PhoneImageProviderUsername)
 		data["phone_image_provider_password"] = strings.TrimSpace(req.PhoneImageProviderPassword)
 		data["phone_image_provider_secret_key"] = strings.TrimSpace(req.PhoneImageProviderSecretKey)
+		data["phone_register_blocked_prefixes"] = normalizePhoneRegisterBlockedPrefixes(req.PhoneRegisterBlockedPrefixes)
 		if req.PhoneRegisterEnabled != nil {
 			data["phone_register_enabled"] = *req.PhoneRegisterEnabled
 		}
@@ -125,6 +130,7 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.PhoneImageProviderUsername = strings.TrimSpace(req.PhoneImageProviderUsername)
 			cfg.PhoneImageProviderPassword = strings.TrimSpace(req.PhoneImageProviderPassword)
 			cfg.PhoneImageProviderSecretKey = strings.TrimSpace(req.PhoneImageProviderSecretKey)
+			cfg.PhoneRegisterBlockedPrefixes = normalizePhoneRegisterBlockedPrefixes(req.PhoneRegisterBlockedPrefixes)
 			enabled := true
 			if req.PhoneRegisterEnabled != nil {
 				enabled = *req.PhoneRegisterEnabled

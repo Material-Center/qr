@@ -33,7 +33,7 @@ const phoneRegisterOpenAPICacheTimeoutLog = "OpenAPI缓存上传超时未上传"
 
 const phoneRegisterDeviceBusyBusiness = "phone_register"
 
-var blockedPhoneRegisterPrefixes = []string{"133", "149", "153", "173", "177", "180", "181", "189", "199"}
+var defaultPhoneRegisterBlockedPrefixes = []string{"133", "149", "153", "173", "177", "180", "181", "189", "190", "193", "199"}
 
 type PhoneRegisterTaskService struct{}
 
@@ -82,7 +82,11 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	if phone == "" {
 		return system.SysPhoneRegisterTask{}, errors.New("手机号不能为空")
 	}
-	if isBlockedPhoneRegisterPhone(phone) {
+	blocked, err := s.IsPhoneBlocked(phone)
+	if err != nil {
+		return system.SysPhoneRegisterTask{}, err
+	}
+	if blocked {
 		return system.SysPhoneRegisterTask{}, errors.New("该手机号段暂不支持提交")
 	}
 	if !isValidPhoneRegisterSMSMode(smsReceiveMode) {
@@ -154,6 +158,20 @@ func (s *PhoneRegisterTaskService) IsSubmitEnabledForUser(userID uint) (bool, st
 		return false, "当前账号已禁用任务创建", nil
 	}
 	return true, "", nil
+}
+
+func (s *PhoneRegisterTaskService) IsPhoneBlocked(phone string) (bool, error) {
+	var cfg system.SysRegisterConfig
+	err := global.GVA_DB.Select("phone_register_blocked_prefixes").
+		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
+		First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return isBlockedPhoneRegisterPhone(phone, defaultPhoneRegisterBlockedPrefixes), nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return isBlockedPhoneRegisterPhone(phone, phoneRegisterBlockedPrefixesFromConfig(cfg.PhoneRegisterBlockedPrefixes)), nil
 }
 
 func (s *PhoneRegisterTaskService) SubmitCode(promoterID uint, req systemReq.PhoneRegisterTaskSubmitCode) (system.SysPhoneRegisterTask, error) {
@@ -247,7 +265,7 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	if page <= 0 {
 		page = 1
 	}
-	if pageSize <= 0 || pageSize > 100 {
+	if pageSize <= 0 || pageSize > 120 {
 		pageSize = 10
 	}
 
@@ -1335,14 +1353,45 @@ func isPhoneRegisterTaskTerminal(status string, finishedAt *time.Time) bool {
 	return finishedAt != nil || status == system.PhoneRegisterStatusSucceeded || status == system.PhoneRegisterStatusFailed
 }
 
-func isBlockedPhoneRegisterPhone(phone string) bool {
+func isBlockedPhoneRegisterPhone(phone string, prefixes []string) bool {
 	phone = strings.TrimSpace(phone)
-	for _, prefix := range blockedPhoneRegisterPrefixes {
+	for _, prefix := range prefixes {
 		if strings.HasPrefix(phone, prefix) {
 			return true
 		}
 	}
 	return false
+}
+
+func phoneRegisterBlockedPrefixesFromConfig(raw string) []string {
+	normalized := normalizePhoneRegisterBlockedPrefixes(raw)
+	if normalized == "" {
+		return append([]string(nil), defaultPhoneRegisterBlockedPrefixes...)
+	}
+	return strings.Split(normalized, ",")
+}
+
+func normalizePhoneRegisterBlockedPrefixes(raw string) string {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '，' || r == '\n' || r == '\r' || r == '\t' || r == ' ' || r == ';' || r == '；'
+	})
+	seen := map[string]struct{}{}
+	prefixes := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || !isDigitsOnly(part) {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		prefixes = append(prefixes, part)
+	}
+	if len(prefixes) == 0 {
+		return strings.Join(defaultPhoneRegisterBlockedPrefixes, ",")
+	}
+	return strings.Join(prefixes, ",")
 }
 
 func phoneRegisterDefaultMessageByAction(action string) string {
