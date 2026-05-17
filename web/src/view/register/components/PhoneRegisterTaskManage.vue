@@ -196,7 +196,18 @@
         <el-row :gutter="12" class="summary-row">
           <el-col :span="12">
             <el-card shadow="never">
-              <template #header>团长汇总</template>
+              <template #header>
+                <span class="header-with-tip">
+                  <span>团长汇总</span>
+                  <el-tooltip
+                    v-if="showDailyResetTip"
+                    content="当前仅展示当天数据，每天 00:00 清空历史展示数据"
+                    placement="top"
+                  >
+                    <span class="daily-reset-tip-icon">?</span>
+                  </el-tooltip>
+                </span>
+              </template>
               <el-table :data="summary.leaders" size="small">
                 <el-table-column label="团长ID" prop="leaderId" width="90" />
                 <el-table-column label="团长名称" prop="leaderName" min-width="100" />
@@ -231,7 +242,18 @@
           </el-col>
           <el-col :span="12">
             <el-card shadow="never">
-              <template #header>地推汇总</template>
+              <template #header>
+                <span class="header-with-tip">
+                  <span>地推汇总</span>
+                  <el-tooltip
+                    v-if="showDailyResetTip"
+                    content="当前仅展示当天数据，每天 00:00 清空历史展示数据"
+                    placement="top"
+                  >
+                    <span class="daily-reset-tip-icon">?</span>
+                  </el-tooltip>
+                </span>
+              </template>
               <el-table :data="summary.promoters" size="small">
                 <el-table-column label="地推ID" prop="promoterId" width="90" />
                 <el-table-column label="地推名称" prop="promoterName" min-width="100" />
@@ -355,6 +377,7 @@ const showSummary = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].include
 const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const showDailyResetTip = computed(() => currentRoleId.value === ROLE_LEADER)
 const logDialogTitle = computed(() => {
   if (!logTask.value) return '任务日志'
   return `任务日志 #${logTask.value.ID}`
@@ -861,5 +884,25 @@ onBeforeUnmount(() => {
   :deep(.el-dialog) {
     max-width: 94vw;
   }
+}
+
+.header-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-reset-tip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--el-color-info);
+  border: 1px solid var(--el-color-info-light-5);
+  font-size: 12px;
+  line-height: 1;
+  cursor: help;
 }
 </style>

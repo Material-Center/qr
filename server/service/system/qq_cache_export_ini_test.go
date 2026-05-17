@@ -287,6 +287,41 @@ func TestExportIniZipByQQText(t *testing.T) {
 	require.True(t, names["账号.txt"])
 }
 
+func TestExportAccountListTextBySelectedIDs(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "40001", ClientVersion: "9.2.70"}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "40002", ClientVersion: "8.9.80"}).Error)
+
+	var selected model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "40001").First(&selected).Error)
+	text, count, err := (&QQCacheService{}).ExportAccountListText(systemReq.QQCacheExportAccountList{
+		IDs: []uint{selected.ID},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.Equal(t, "40001----9.2.70\r\n", text)
+}
+
+func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "50001", ClientVersion: "9.2.70"}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "50002", ClientVersion: "8.9.80"}).Error)
+
+	text, count, err := (&QQCacheService{}).ExportAccountListText(systemReq.QQCacheExportAccountList{
+		ClientVersion: "9.2",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.Equal(t, "50001----9.2.70\r\n", text)
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "50001").First(&stored).Error)
+	require.Nil(t, stored.Extractor)
+	require.Nil(t, stored.ExtractionAt)
+}
+
 func TestQQCacheBillingSettlementStatsIgnoreCreatedAtFilter(t *testing.T) {
 	setupQQCacheTestDB(t)
 

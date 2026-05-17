@@ -270,32 +270,53 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 	if pageSize <= 0 || pageSize > 200 {
 		pageSize = 10
 	}
-	db := global.GVA_DB.Model(&system.SysQQCacheRecord{})
-	if qq := strings.TrimSpace(req.QQNum); qq != "" {
-		db = db.Where("qq_num LIKE ?", "%"+qq+"%")
-	}
-	if did := strings.TrimSpace(req.DeviceID); did != "" {
-		db = db.Where("device_id LIKE ?", "%"+did+"%")
-	}
-	if clientVersion := strings.TrimSpace(req.ClientVersion); clientVersion != "" {
-		db = db.Where("client_version LIKE ?", "%"+clientVersion+"%")
-	}
-	if req.ExtractorID != 0 {
-		db = db.Where("extractor = ?", req.ExtractorID)
-	}
-	if req.Extracted != nil {
-		if *req.Extracted {
-			db = db.Where("extractor IS NOT NULL")
-		} else {
-			db = db.Where("extractor IS NULL")
-		}
-	}
-	db = applyQQCacheCreatedAtRangeFilter(db, req.CreatedAtStart, req.CreatedAtEnd)
+	db := applyQQCacheListFilters(global.GVA_DB.Model(&system.SysQQCacheRecord{}), qqCacheListFilter{
+		QQNum:          req.QQNum,
+		ClientVersion:  req.ClientVersion,
+		DeviceID:       req.DeviceID,
+		ExtractorID:    req.ExtractorID,
+		Extracted:      req.Extracted,
+		CreatedAtStart: req.CreatedAtStart,
+		CreatedAtEnd:   req.CreatedAtEnd,
+	})
 	if err = db.Count(&total).Error; err != nil {
 		return
 	}
 	err = db.Order("updated_at desc").Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
 	return
+}
+
+type qqCacheListFilter struct {
+	QQNum          string
+	ClientVersion  string
+	DeviceID       string
+	ExtractorID    uint
+	Extracted      *bool
+	CreatedAtStart string
+	CreatedAtEnd   string
+}
+
+func applyQQCacheListFilters(db *gorm.DB, filter qqCacheListFilter) *gorm.DB {
+	if qq := strings.TrimSpace(filter.QQNum); qq != "" {
+		db = db.Where("qq_num LIKE ?", "%"+qq+"%")
+	}
+	if did := strings.TrimSpace(filter.DeviceID); did != "" {
+		db = db.Where("device_id LIKE ?", "%"+did+"%")
+	}
+	if clientVersion := strings.TrimSpace(filter.ClientVersion); clientVersion != "" {
+		db = db.Where("client_version LIKE ?", "%"+clientVersion+"%")
+	}
+	if filter.ExtractorID != 0 {
+		db = db.Where("extractor = ?", filter.ExtractorID)
+	}
+	if filter.Extracted != nil {
+		if *filter.Extracted {
+			db = db.Where("extractor IS NOT NULL")
+		} else {
+			db = db.Where("extractor IS NULL")
+		}
+	}
+	return applyQQCacheCreatedAtRangeFilter(db, filter.CreatedAtStart, filter.CreatedAtEnd)
 }
 
 func (s *QQCacheService) CountExtractStats() (pending int64, extracted int64, total int64, err error) {
@@ -513,6 +534,64 @@ func (s *QQCacheService) ExportIniZipByQQText(raw string) ([]byte, int, error) {
 		return nil, 0, errors.New("未找到匹配QQ缓存")
 	}
 	return buildQQCacheIniZip(ordered)
+}
+
+func (s *QQCacheService) ExportAccountListText(req systemReq.QQCacheExportAccountList) (string, int, error) {
+	var records []system.SysQQCacheRecord
+	ids := uniqueQQCacheExportIDs(req.IDs)
+	if len(ids) > 0 {
+		if err := global.GVA_DB.Where("id IN ?", ids).Order("id desc").Find(&records).Error; err != nil {
+			return "", 0, err
+		}
+	} else {
+		db := applyQQCacheListFilters(global.GVA_DB.Model(&system.SysQQCacheRecord{}), qqCacheListFilter{
+			QQNum:          req.QQNum,
+			ClientVersion:  req.ClientVersion,
+			DeviceID:       req.DeviceID,
+			ExtractorID:    req.ExtractorID,
+			Extracted:      req.Extracted,
+			CreatedAtStart: req.CreatedAtStart,
+			CreatedAtEnd:   req.CreatedAtEnd,
+		})
+		if err := db.Order("updated_at desc").Order("id desc").Find(&records).Error; err != nil {
+			return "", 0, err
+		}
+	}
+	if len(records) == 0 {
+		return "", 0, errors.New("暂无可导出的账号")
+	}
+	lines := make([]string, 0, len(records))
+	for _, record := range records {
+		qqNum := strings.TrimSpace(record.QQNum)
+		if qqNum == "" {
+			continue
+		}
+		clientVersion := strings.TrimSpace(record.ClientVersion)
+		if clientVersion == "" {
+			clientVersion = "-"
+		}
+		lines = append(lines, fmt.Sprintf("%s----%s", qqNum, clientVersion))
+	}
+	if len(lines) == 0 {
+		return "", 0, errors.New("暂无可导出的账号")
+	}
+	return strings.Join(lines, "\r\n") + "\r\n", len(lines), nil
+}
+
+func uniqueQQCacheExportIDs(ids []uint) []uint {
+	uniq := make([]uint, 0, len(ids))
+	seen := map[uint]struct{}{}
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniq = append(uniq, id)
+	}
+	return uniq
 }
 
 func parseQQCacheExportQQNums(raw string) []string {

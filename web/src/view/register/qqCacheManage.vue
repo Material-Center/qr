@@ -32,18 +32,30 @@
         <el-form-item>
           <el-button type="primary" icon="search" @click="fetchList">查询</el-button>
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
-          <el-button type="success" :disabled="!selectedRows.length" @click="onExportIniZip">下载INI(ZIP)</el-button>
-          <el-upload
-            class="qq-file-upload"
-            accept=".txt,text/plain"
-            :show-file-list="false"
-            :auto-upload="false"
-            :on-change="onExportByQQFile"
-          >
-            <el-button type="info">按TXT导出</el-button>
-          </el-upload>
         </el-form-item>
-        <el-form-item label="提取数量">
+      </el-form>
+      <div class="qq-cache-tool-row">
+        <el-button type="success" :disabled="!selectedRows.length" @click="onExportIniZip">下载INI</el-button>
+        <el-upload
+          class="qq-file-upload"
+          accept=".txt,text/plain"
+          :show-file-list="false"
+          :auto-upload="false"
+          :on-change="onExportByQQFile"
+        >
+          <el-button type="info">按TXT导出</el-button>
+        </el-upload>
+        <div class="account-list-export-tool">
+          <el-tooltip
+            effect="dark"
+            :content="accountListExportHint"
+            placement="top"
+          >
+            <el-button type="primary" plain @click="onExportAccountList">导出账号列表</el-button>
+          </el-tooltip>
+        </div>
+        <div class="extract-tool">
+          <span class="extract-label">提取数量</span>
           <el-input-number
             v-model="extractCount"
             :min="1"
@@ -53,15 +65,14 @@
             style="width: 140px"
           />
           <el-button
-            class="extract-btn"
             type="warning"
             :disabled="extractMax <= 0"
             @click="onExportPendingIniZip"
           >
             提取INI
           </el-button>
-        </el-form-item>
-      </el-form>
+        </div>
+      </div>
     </div>
 
     <div class="gva-table-box">
@@ -162,6 +173,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/format'
 import {
+  exportQQCacheAccountList,
   exportPendingQQCacheIniZip,
   exportQQCacheIniZipByQQFile,
   exportQQCacheIniZip,
@@ -220,6 +232,14 @@ const getRowTime = (row, key) => {
 }
 
 const extractMax = computed(() => Math.max(Number(extractStats.value.pending) || 0, 0))
+
+const accountListExportHint = computed(() => {
+  const selectedCount = selectedRows.value.length
+  if (selectedCount > 0) {
+    return `将导出选中的 ${selectedCount} 条记录`
+  }
+  return '未勾选时按当前筛选条件导出'
+})
 
 const dayStart = (base = new Date()) => {
   const d = new Date(base)
@@ -309,6 +329,36 @@ const handleZipDownload = async (res, fallbackName) => {
   return true
 }
 
+const handleFileDownload = async (res, fallbackName) => {
+  const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
+  const blob = res?.data instanceof Blob ? res.data : null
+  if (!blob) {
+    ElMessage.error('导出失败')
+    return false
+  }
+  if (ct.includes('application/json')) {
+    const text = await blob.text()
+    let msg = '导出失败'
+    try {
+      const j = JSON.parse(text)
+      msg = j.msg || j.message || msg
+    } catch {
+      msg = text || msg
+    }
+    ElMessage.error(msg)
+    return false
+  }
+  const name = pickZipFilename(res.headers?.['content-disposition']) || fallbackName
+  const url = window.URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  window.URL.revokeObjectURL(url)
+  ElMessage.success('已开始下载')
+  return true
+}
+
 const onExportIniZip = async () => {
   const ids = (selectedRows.value || []).map((r) => r.ID).filter(Boolean)
   if (!ids.length) {
@@ -318,6 +368,31 @@ const onExportIniZip = async () => {
   try {
     const res = await exportQQCacheIniZip(ids)
     await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+  } catch (e) {
+    ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+const buildAccountListExportPayload = () => {
+  const ids = (selectedRows.value || []).map((r) => r.ID).filter(Boolean)
+  if (ids.length) {
+    return { ids }
+  }
+  const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
+  return {
+    qqNum: searchInfo.value.qqNum || undefined,
+    clientVersion: searchInfo.value.clientVersion || undefined,
+    deviceId: searchInfo.value.deviceId || undefined,
+    extracted: searchInfo.value.extracted,
+    createdAtStart: createdAtStart || undefined,
+    createdAtEnd: createdAtEnd || undefined
+  }
+}
+
+const onExportAccountList = async () => {
+  try {
+    const res = await exportQQCacheAccountList(buildAccountListExportPayload())
+    await handleFileDownload(res, `qq_account_list_${Date.now()}.txt`)
   } catch (e) {
     ElMessage.error(e?.message || '导出失败')
   }
@@ -339,11 +414,8 @@ const onExportPendingIniZip = async () => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
     const res = await exportPendingQQCacheIniZip({
-      count,
-      createdAtStart: createdAtStart || undefined,
-      createdAtEnd: createdAtEnd || undefined
+      count
     })
     const ok = await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
     if (ok) {
@@ -472,14 +544,37 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.extract-btn {
-  margin-left: 8px;
-}
-
 .qq-file-upload {
   display: inline-flex;
-  margin-left: 8px;
   vertical-align: middle;
+}
+
+.qq-cache-tool-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--el-border-color-lighter);
+}
+
+.extract-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-list-export-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.extract-label {
+  color: var(--el-text-color-regular);
+  font-size: 14px;
+  white-space: nowrap;
 }
 
 .billing-stat-card {

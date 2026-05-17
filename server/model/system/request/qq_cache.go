@@ -50,3 +50,14 @@ type QQCacheExportPendingIniZip struct {
 	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
 	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
 }
+
+type QQCacheExportAccountList struct {
+	IDs            []uint `json:"ids" form:"ids"`
+	QQNum          string `json:"qqNum" form:"qqNum"`
+	ClientVersion  string `json:"clientVersion" form:"clientVersion"`
+	DeviceID       string `json:"deviceId" form:"deviceId"`
+	ExtractorID    uint   `json:"extractorId" form:"extractorId"`
+	Extracted      *bool  `json:"extracted" form:"extracted"`
+	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
+	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
+}

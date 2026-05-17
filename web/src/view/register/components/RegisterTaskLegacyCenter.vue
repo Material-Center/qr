@@ -103,7 +103,14 @@
     </el-card>
 
     <el-card shadow="never">
-      <template #header>我的任务记录</template>
+      <template #header>
+        <span class="header-with-tip">
+          <span>我的任务记录</span>
+          <el-tooltip content="当前仅展示当天数据，每天 00:00 清空历史展示数据" placement="top">
+            <span class="daily-reset-tip-icon">?</span>
+          </el-tooltip>
+        </span>
+      </template>
       <el-row
         :gutter="12"
         class="mb-3"
@@ -568,6 +575,26 @@ onBeforeUnmount(() => {
 
 .task-state-bar {
   margin-top: 8px;
+}
+
+.header-with-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.daily-reset-tip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--el-color-info);
+  border: 1px solid var(--el-color-info-light-5);
+  font-size: 12px;
+  line-height: 1;
+  cursor: help;
 }
 
 .table-wrap {

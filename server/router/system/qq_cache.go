@@ -21,6 +21,7 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 		qqCacheRouterWithoutRecord.POST("extract", qqCacheApi.Extract)
 		qqCacheRouterWithoutRecord.POST("exportIniZip", qqCacheApi.ExportIniZip)
 		qqCacheRouterWithoutRecord.POST("exportPendingIniZip", qqCacheApi.ExportPendingIniZip)
+		qqCacheRouterWithoutRecord.POST("exportAccountList", qqCacheApi.ExportAccountList)
 		qqCacheRouterWithoutRecord.POST("exportIniZipByQQFile", qqCacheApi.ExportIniZipByQQFile)
 		qqCacheRouter.POST("list", qqCacheApi.List)
 		qqCacheRouter.POST("resetExtract", qqCacheApi.ResetExtract)

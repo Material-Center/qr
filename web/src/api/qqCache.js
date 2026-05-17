@@ -27,6 +27,17 @@ export const exportQQCacheIniZip = (ids, config = {}) => {
   })
 }
 
+export const exportQQCacheAccountList = (payload, config = {}) => {
+  return service({
+    url: '/qqCache/exportAccountList',
+    method: 'post',
+    data: payload,
+    responseType: 'blob',
+    donNotShowLoading: true,
+    ...config
+  })
+}
+
 export const exportPendingQQCacheIniZip = (payload, config = {}) => {
   return service({
     url: '/qqCache/exportPendingIniZip',

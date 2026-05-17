@@ -416,6 +416,38 @@ func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
 	c.Data(200, "application/zip", zipBytes)
 }
 
+// ExportAccountList
+// @Tags      QQCache
+// @Summary   管理端导出QQ账号列表（txt）
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   text/plain
+// @Param     data  body      systemReq.QQCacheExportAccountList  true  "筛选条件或记录ID"
+// @Success   200   file      txt
+// @Router    /qqCache/exportAccountList [post]
+func (a *QQCacheApi) ExportAccountList(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可导出账号列表", c)
+		return
+	}
+	var req systemReq.QQCacheExportAccountList
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	text, count, err := qqCacheService.ExportAccountListText(req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	filename := fmt.Sprintf("qq_account_list_%d_%s.txt", count, time.Now().Format("20060102_150405"))
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(200, "text/plain; charset=utf-8", []byte(text))
+}
+
 // ExportIniZipByQQFile
 // @Tags      QQCache
 // @Summary   管理端按上传TXT内QQ账号导出缓存 INI（zip）
