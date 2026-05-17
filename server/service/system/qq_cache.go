@@ -68,6 +68,7 @@ func (s *QQCacheService) InternalToolImportQQCache(req systemReq.InternalToolQQC
 	if iniText == "" {
 		return system.SysQQCacheRecord{}, "", errors.New("缓存内容不能为空")
 	}
+	clientVersion := extractQQCacheINIValue(iniText, "clientVersion")
 
 	var record system.SysQQCacheRecord
 	action := qqCacheInternalToolActionSkipped
@@ -81,10 +82,11 @@ func (s *QQCacheService) InternalToolImportQQCache(req systemReq.InternalToolQQC
 				return nil
 			}
 			updates := map[string]any{
-				"qq_pwd":     strings.TrimSpace(req.QQPwd),
-				"ini":        iniText,
-				"deleted_at": nil,
-				"updated_at": time.Now(),
+				"qq_pwd":         strings.TrimSpace(req.QQPwd),
+				"ini":            iniText,
+				"client_version": clientVersion,
+				"deleted_at":     nil,
+				"updated_at":     time.Now(),
 			}
 			if phone := strings.TrimSpace(req.Phone); phone != "" {
 				updates["phone"] = phone
@@ -103,11 +105,12 @@ func (s *QQCacheService) InternalToolImportQQCache(req systemReq.InternalToolQQC
 		}
 
 		record = system.SysQQCacheRecord{
-			Phone:    trimToPtr(req.Phone),
-			QQNum:    qqNum,
-			QQPwd:    strings.TrimSpace(req.QQPwd),
-			INI:      stringPtr(iniText),
-			DeviceID: trimToPtr(req.DeviceID),
+			Phone:         trimToPtr(req.Phone),
+			QQNum:         qqNum,
+			QQPwd:         strings.TrimSpace(req.QQPwd),
+			ClientVersion: clientVersion,
+			INI:           stringPtr(iniText),
+			DeviceID:      trimToPtr(req.DeviceID),
 		}
 		if err := tx.Create(&record).Error; err != nil {
 			return err
@@ -176,18 +179,21 @@ func (s *QQCacheService) uploadRecordTx(tx *gorm.DB, req systemReq.QQCacheUpload
 	now := time.Now()
 	phone := trimToPtr(req.Phone)
 	deviceID := trimToPtr(req.DeviceID)
+	clientVersion := extractQQCacheINIValue(iniText, "clientVersion")
 	entity := system.SysQQCacheRecord{
-		Phone:    phone,
-		QQNum:    qqNum,
-		QQPwd:    strings.TrimSpace(req.QQPwd),
-		INI:      stringPtr(iniText),
-		DeviceID: deviceID,
+		Phone:         phone,
+		QQNum:         qqNum,
+		QQPwd:         strings.TrimSpace(req.QQPwd),
+		ClientVersion: clientVersion,
+		INI:           stringPtr(iniText),
+		DeviceID:      deviceID,
 	}
 	if err := tx.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "qq_num"}},
 		DoUpdates: clause.Assignments(map[string]any{
 			"phone":             phone,
 			"qq_pwd":            strings.TrimSpace(req.QQPwd),
+			"client_version":    clientVersion,
 			"ini":               iniText,
 			"device_id":         deviceID,
 			"extractor":         nil,
@@ -271,6 +277,9 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 	if did := strings.TrimSpace(req.DeviceID); did != "" {
 		db = db.Where("device_id LIKE ?", "%"+did+"%")
 	}
+	if clientVersion := strings.TrimSpace(req.ClientVersion); clientVersion != "" {
+		db = db.Where("client_version LIKE ?", "%"+clientVersion+"%")
+	}
 	if req.ExtractorID != 0 {
 		db = db.Where("extractor = ?", req.ExtractorID)
 	}
@@ -285,7 +294,7 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 	if err = db.Count(&total).Error; err != nil {
 		return
 	}
-	err = db.Order("updated_at desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
+	err = db.Order("updated_at desc").Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
 	return
 }
 
@@ -556,7 +565,7 @@ func buildQQCacheIniZip(records []system.SysQQCacheRecord) ([]byte, int, error) 
 			_ = zw.Close()
 			return nil, 0, err
 		}
-		normalizedINI := normalizeQQCacheExportINI(*rec.INI)
+		normalizedINI := normalizeQQCacheExportINI(*rec.INI, rec.QQPwd)
 		if _, err := w.Write([]byte(normalizedINI)); err != nil {
 			_ = zw.Close()
 			return nil, 0, err
@@ -599,6 +608,14 @@ func buildQQCacheAccountLine(rec system.SysQQCacheRecord, iniText string) string
 }
 
 func extractQQCacheGUID(raw string) string {
+	value := extractQQCacheINIValue(raw, "guid")
+	if value == "" {
+		return "-"
+	}
+	return value
+}
+
+func extractQQCacheINIValue(raw string, targetKey string) string {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	for _, line := range strings.Split(raw, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -610,7 +627,7 @@ func extractQQCacheGUID(raw string) string {
 			continue
 		}
 		key := strings.TrimSpace(line[:index])
-		if !strings.EqualFold(key, "guid") {
+		if !strings.EqualFold(key, targetKey) {
 			continue
 		}
 		value := strings.TrimSpace(line[index+1:])
@@ -619,7 +636,7 @@ func extractQQCacheGUID(raw string) string {
 			return value
 		}
 	}
-	return "-"
+	return ""
 }
 
 func formatQQCacheRegisterTime(t time.Time) string {
@@ -629,10 +646,11 @@ func formatQQCacheRegisterTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
-func normalizeQQCacheExportINI(raw string) string {
+func normalizeQQCacheExportINI(raw string, qqPwd string) string {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	lines := strings.Split(raw, "\n")
-	output := make([]string, 0, len(lines))
+	output := make([]string, 0, len(lines)+1)
+	hasQQPassword := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -648,6 +666,9 @@ func normalizeQQCacheExportINI(raw string) string {
 		if strings.HasPrefix(key, "_") {
 			continue
 		}
+		if strings.EqualFold(key, "qqpassword") {
+			hasQQPassword = true
+		}
 		if strings.EqualFold(key, "deviceInfo") {
 			output = append(output, normalizeQQCacheDeviceInfoLine(key, line))
 			continue
@@ -658,6 +679,13 @@ func normalizeQQCacheExportINI(raw string) string {
 	text := strings.Join(output, "\r\n")
 	if strings.TrimSpace(text) == "" {
 		return ""
+	}
+	if !hasQQPassword {
+		qqPwd = strings.TrimSpace(qqPwd)
+		if qqPwd != "" {
+			text = strings.TrimRight(text, "\r\n")
+			text += "\r\nqqpassword=" + qqPwd
+		}
 	}
 	if !strings.HasSuffix(text, "\r\n") {
 		text += "\r\n"

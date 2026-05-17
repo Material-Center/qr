@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `sys_qq_cache_records` (
   `phone` varchar(20) NULL DEFAULT NULL,
   `qq_num` varchar(64) NOT NULL,
   `qq_pwd` varchar(255) NULL DEFAULT NULL,
+  `client_version` varchar(64) NULL DEFAULT NULL,
   `extractor` bigint unsigned NULL DEFAULT NULL,
   `extract_record_id` bigint unsigned NULL DEFAULT NULL,
   `extraction_at` datetime(3) NULL DEFAULT NULL,
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS `sys_qq_cache_records` (
   PRIMARY KEY (`id`),
   KEY `idx_sys_qq_cache_records_deleted_at` (`deleted_at`),
   UNIQUE KEY `uk_qq_cache_qq_num` (`qq_num`),
+  KEY `idx_sys_qq_cache_records_client_version` (`client_version`),
   KEY `idx_sys_qq_cache_records_extractor` (`extractor`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 

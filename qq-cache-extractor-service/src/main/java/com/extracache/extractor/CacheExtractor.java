@@ -51,6 +51,8 @@ final class CacheExtractor {
         Optional<Path> qqConfig = findFirstFile(root, "mobileQQ.xml");
         Optional<Path> properties = findFirstFile(root, "Properties");
         Optional<Path> uifa = findFirstFile(root, "uifa.xml");
+        Optional<Path> buglyCommonValues = findFirstFile(root, "BUGLY_COMMON_VALUES.xml");
+        Optional<Path> tbsDownloadConfig = findFirstFile(root, "tbs_download_config.xml");
 
         SessionData sessionData = new SessionData();
         sessionData.guid = HexUtils.bytesToHex(Files.readAllBytes(guidPath));
@@ -80,10 +82,30 @@ final class CacheExtractor {
                 sessionData.putToken("q16", q36);
             }
         }
+        if (buglyCommonValues.isPresent()) {
+            String deviceId = extractXmlStringValue(readString(buglyCommonValues.get()), "deviceId");
+            if (!deviceId.isEmpty()) {
+                putTokenIfMissing(sessionData, "q16", deviceId);
+                putTokenIfMissing(sessionData, "q36", deviceId);
+            }
+        }
+        if (tbsDownloadConfig.isPresent()) {
+            String clientVersion = extractXmlStringValue(readString(tbsDownloadConfig.get()), "app_versionname");
+            if (!clientVersion.isEmpty()) {
+                sessionData.putToken("clientVersion", clientVersion);
+            }
+        }
         if (sessionData.clientId != null && !sessionData.clientId.trim().isEmpty()) {
             sessionData.putToken("clientId", sessionData.clientId.trim());
         }
         return sessionData;
+    }
+
+    private void putTokenIfMissing(SessionData sessionData, String key, String value) {
+        String existing = sessionData.getToken(key);
+        if (existing == null || existing.trim().isEmpty()) {
+            sessionData.putToken(key, value);
+        }
     }
 
     @SuppressWarnings("unchecked")

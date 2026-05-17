@@ -20,6 +20,9 @@
         <el-form-item label="设备ID">
           <el-input v-model="searchInfo.deviceId" clearable placeholder="请输入设备ID" />
         </el-form-item>
+        <el-form-item label="版本号">
+          <el-input v-model="searchInfo.clientVersion" clearable placeholder="请输入版本号" />
+        </el-form-item>
         <el-form-item label="提取状态">
           <el-select v-model="searchInfo.extracted" clearable style="width: 140px">
             <el-option :value="true" label="已提取" />
@@ -98,6 +101,7 @@
         <el-table-column type="selection" width="48" reserve-selection />
         <el-table-column label="ID" prop="ID" width="80" />
         <el-table-column label="QQ账号" prop="qqNum" min-width="140" />
+        <el-table-column label="版本号" prop="clientVersion" min-width="110" />
         <el-table-column label="设备ID" prop="deviceId" min-width="160" show-overflow-tooltip />
         <el-table-column label="提取人ID" min-width="100">
           <template #default="{ row }">
@@ -190,6 +194,7 @@ const billingHistory = ref([])
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
+  clientVersion: '',
   deviceId: '',
   extracted: undefined
 })
@@ -403,6 +408,7 @@ const fetchList = async () => {
       page: page.value,
       pageSize: pageSize.value,
       qqNum: searchInfo.value.qqNum || undefined,
+      clientVersion: searchInfo.value.clientVersion || undefined,
       deviceId: searchInfo.value.deviceId || undefined,
       extracted: searchInfo.value.extracted,
       createdAtStart: createdAtStart || undefined,
@@ -429,6 +435,7 @@ const resetSearch = () => {
   searchInfo.value = {
     createdAtRange: [],
     qqNum: '',
+    clientVersion: '',
     deviceId: '',
     extracted: undefined
   }

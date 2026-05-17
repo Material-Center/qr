@@ -3,11 +3,13 @@ package system
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	commonReq "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	"github.com/glebarez/sqlite"
@@ -36,7 +38,7 @@ func TestNormalizeQQCacheExportINI(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := normalizeQQCacheExportINI(raw)
+	got := normalizeQQCacheExportINI(raw, "abc123")
 
 	if strings.Contains(got, "_device_token=") {
 		t.Fatalf("expected _device_token removed, got: %q", got)
@@ -49,6 +51,9 @@ func TestNormalizeQQCacheExportINI(t *testing.T) {
 	}
 	if !strings.Contains(got, "guid=2D2F4073897A69E82FA8124BB4293162\r\n") {
 		t.Fatalf("expected guid preserved, got: %q", got)
+	}
+	if !strings.Contains(got, "qqpassword=abc123\r\n") {
+		t.Fatalf("expected missing qqpassword filled, got: %q", got)
 	}
 	if !strings.Contains(got, "\"model\":\"XiaoMi 17\"") {
 		t.Fatalf("expected deviceInfo model normalized, got: %q", got)
@@ -65,11 +70,24 @@ func TestNormalizeQQCacheExportINIKeepDeviceInfoWhenJSONInvalid(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := normalizeQQCacheExportINI(raw)
+	got := normalizeQQCacheExportINI(raw, "")
 
 	if !strings.Contains(got, "deviceInfo={bad json}\r\n") {
 		t.Fatalf("expected invalid json line kept as-is, got: %q", got)
 	}
+}
+
+func TestNormalizeQQCacheExportINIKeepsExistingQQPassword(t *testing.T) {
+	raw := strings.Join([]string{
+		"[3896349451]",
+		"qqpassword=oldpwd",
+		"",
+	}, "\n")
+
+	got := normalizeQQCacheExportINI(raw, "newpwd")
+
+	require.Contains(t, got, "qqpassword=oldpwd\r\n")
+	require.NotContains(t, got, "qqpassword=newpwd")
 }
 
 func TestInternalToolImportQQCacheSkipsExistingByDefault(t *testing.T) {
@@ -141,6 +159,72 @@ func TestInternalToolImportQQCacheForceUpdatesOnlyCacheFields(t *testing.T) {
 	require.NotNil(t, stored.BillingSettledAt)
 	require.NotNil(t, stored.BillingSettledBy)
 	require.Equal(t, billingSettledBy, *stored.BillingSettledBy)
+}
+
+func TestInternalToolImportQQCacheStoresClientVersion(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	_, action, err := (&QQCacheService{}).InternalToolImportQQCache(systemReq.InternalToolQQCacheImport{
+		QQNum: "10003",
+		QQPwd: "pwd",
+		INI: strings.Join([]string{
+			"[10003]",
+			"clientVersion=9.2.70",
+			"",
+		}, "\n"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, qqCacheInternalToolActionCreated, action)
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "10003").First(&stored).Error)
+	require.Equal(t, "9.2.70", stored.ClientVersion)
+}
+
+func TestQQCacheListForAdminFiltersClientVersion(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "10004", ClientVersion: "9.2.70"}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "10005", ClientVersion: "8.9.80"}).Error)
+
+	list, total, err := (&QQCacheService{}).ListForAdmin(systemReq.QQCacheList{
+		ClientVersion: "9.2",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, list, 1)
+	require.Equal(t, "10004", list[0].QQNum)
+}
+
+func TestQQCacheListForAdminUsesStablePaginationOrder(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	now := time.Now()
+	for i := 1; i <= 3; i++ {
+		require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+			GVA_MODEL: global.GVA_MODEL{
+				CreatedAt: now,
+				UpdatedAt: now,
+			},
+			QQNum: fmt.Sprintf("1000%d", i),
+		}).Error)
+	}
+
+	firstPage, total, err := (&QQCacheService{}).ListForAdmin(systemReq.QQCacheList{
+		PageInfo: commonReq.PageInfo{Page: 1, PageSize: 2},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 3, total)
+	require.Len(t, firstPage, 2)
+
+	secondPage, total, err := (&QQCacheService{}).ListForAdmin(systemReq.QQCacheList{
+		PageInfo: commonReq.PageInfo{Page: 2, PageSize: 2},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 3, total)
+	require.Len(t, secondPage, 1)
+	require.Greater(t, firstPage[0].ID, firstPage[1].ID)
+	require.Greater(t, firstPage[1].ID, secondPage[0].ID)
 }
 
 func TestExtractQQCacheGUID(t *testing.T) {

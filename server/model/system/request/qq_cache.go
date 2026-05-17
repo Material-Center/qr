@@ -27,6 +27,7 @@ type QQCacheExtract struct {
 type QQCacheList struct {
 	request.PageInfo
 	QQNum          string `json:"qqNum" form:"qqNum"`
+	ClientVersion  string `json:"clientVersion" form:"clientVersion"`
 	DeviceID       string `json:"deviceId" form:"deviceId"`
 	ExtractorID    uint   `json:"extractorId" form:"extractorId"`
 	Extracted      *bool  `json:"extracted" form:"extracted"`
