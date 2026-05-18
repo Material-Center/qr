@@ -345,9 +345,21 @@ const todayRangeParams = () => {
   }
 }
 
+const todayDateTimeRange = () => {
+  const now = new Date()
+  return [formatQueryDateTime(dayStart(now)), formatQueryDateTime(dayEnd(now))]
+}
+
+const defaultFinishedAtRange = () => {
+  return [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value) ? todayDateTimeRange() : []
+}
+
 const summaryQueryParams = () => {
+  const [finishedAtStart, finishedAtEnd] = searchInfo.value.finishedAtRange || []
   const params = {
-    leaderId: searchInfo.value.leaderId || undefined
+    leaderId: searchInfo.value.leaderId || undefined,
+    finishedAtStart: finishedAtStart || undefined,
+    finishedAtEnd: finishedAtEnd || undefined
   }
   if (currentRoleId.value === ROLE_LEADER) {
     Object.assign(params, todayRangeParams())
@@ -528,7 +540,7 @@ const resetSearch = () => {
     leaderId: currentRoleId.value === ROLE_LEADER ? currentUserId.value : undefined,
     status: 'success',
     exported: false,
-    finishedAtRange: [],
+    finishedAtRange: defaultFinishedAtRange(),
     phone: ''
   }
   page.value = 1
@@ -633,6 +645,8 @@ const confirmDownloadZip = async () => {
 onMounted(async () => {
   if (currentRoleId.value === ROLE_LEADER) {
     searchInfo.value.leaderId = currentUserId.value
+  } else if ([ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value)) {
+    searchInfo.value.finishedAtRange = todayDateTimeRange()
   }
   await Promise.all([loadLeaderOptions(), loadPromoterOptions()])
   await fetchAll()

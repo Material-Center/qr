@@ -253,6 +253,16 @@ const dayEnd = (base = new Date()) => {
   return d
 }
 
+const formatQueryDateTime = (date) => {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+const todayDateTimeRange = () => {
+  const now = new Date()
+  return [formatQueryDateTime(dayStart(now)), formatQueryDateTime(dayEnd(now))]
+}
+
 const shiftDay = (base, days) => {
   const d = new Date(base)
   d.setDate(d.getDate() + days)
@@ -505,7 +515,7 @@ const fetchList = async () => {
 
 const resetSearch = () => {
   searchInfo.value = {
-    createdAtRange: [],
+    createdAtRange: todayDateTimeRange(),
     qqNum: '',
     clientVersion: '',
     deviceId: '',
@@ -539,6 +549,7 @@ const onResetExtract = async (row) => {
 }
 
 onMounted(() => {
+  searchInfo.value.createdAtRange = todayDateTimeRange()
   fetchList()
 })
 </script>

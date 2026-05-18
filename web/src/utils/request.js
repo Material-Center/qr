@@ -5,7 +5,7 @@ import { emitter } from '@/utils/bus'
 import router from '@/router/index'
 
 const service = axios.create({
-  timeout: 99999
+  timeout: 180000
 })
 let activeAxios = 0
 let timer
@@ -124,6 +124,12 @@ service.interceptors.request.use(
 )
 
 function getErrorMessage(error) {
+  if (!error.response) {
+    if (error.message === 'Network Error') {
+      return '网络连接异常，请检查网络或服务状态'
+    }
+    return error.message || '网络连接异常，请检查网络或服务状态'
+  }
   // 优先级： 响应体中的 msg > statusText > 默认消息
   return error.response?.data?.msg || error.response?.statusText || '请求失败'
 }

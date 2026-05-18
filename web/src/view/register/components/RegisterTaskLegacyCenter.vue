@@ -251,6 +251,7 @@ const refreshTimer = ref(null)
 const countdownTimer = ref(null)
 const refreshing = ref(false)
 const nowTs = ref(Date.now())
+let lastMyTasksRefreshAt = 0
 const counters = ref({
   success: 0,
   fail: 0,
@@ -383,6 +384,7 @@ const loadActiveTask = async () => {
 }
 
 const loadMyTasks = async () => {
+  lastMyTasksRefreshAt = Date.now()
   const { data } = await getRegisterTaskList({
     page: 1,
     pageSize: 20,
@@ -414,11 +416,21 @@ const openQQListDialog = (row) => {
   qqDialogVisible.value = true
 }
 
-const refreshAll = async () => {
+const refreshAll = async (options = {}) => {
   if (refreshing.value) return
   refreshing.value = true
   try {
-    await Promise.all([loadActiveTask(), loadMyTasks()])
+    const forceList = options.forceList !== false
+    if (forceList) {
+      await Promise.all([loadActiveTask(), loadMyTasks()])
+    } else {
+      const hadActiveTasks = activeTasks.value.length > 0
+      await loadActiveTask()
+      const activeTasksJustFinished = hadActiveTasks && activeTasks.value.length === 0
+      if (activeTasksJustFinished || Date.now() - lastMyTasksRefreshAt > 15000) {
+        await loadMyTasks()
+      }
+    }
   } finally {
     refreshing.value = false
     syncAutoRefreshByActiveTasks()
@@ -486,7 +498,7 @@ const markFail = async (task) => {
 const startAutoRefresh = () => {
   stopAutoRefresh()
   refreshTimer.value = window.setInterval(async () => {
-    await refreshAll()
+    await refreshAll({ forceList: false })
   }, 5000)
 }
 

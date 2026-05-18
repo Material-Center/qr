@@ -432,6 +432,15 @@ const todayRangeParams = () => {
   }
 }
 
+const todayDateTimeRange = () => {
+  const now = new Date()
+  return [formatQueryDateTime(dayStart(now)), formatQueryDateTime(dayEnd(now))]
+}
+
+const defaultFinishedAtRange = () => {
+  return [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value) ? todayDateTimeRange() : []
+}
+
 const summaryQueryParams = () => {
   const [finishedAtStart, finishedAtEnd] = searchInfo.value.finishedAtRange || []
   const params = {
@@ -712,7 +721,7 @@ const resetSearch = () => {
     leaderId: currentRoleId.value === ROLE_LEADER ? currentUserId.value : undefined,
     status: undefined,
     smsReceiveMode: undefined,
-    finishedAtRange: [],
+    finishedAtRange: defaultFinishedAtRange(),
     phone: '',
     qqNum: ''
   }
@@ -735,6 +744,8 @@ const handleSizeChange = (val) => {
 onMounted(async () => {
   if (currentRoleId.value === ROLE_LEADER) {
     searchInfo.value.leaderId = currentUserId.value
+  } else if ([ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value)) {
+    searchInfo.value.finishedAtRange = todayDateTimeRange()
   }
   await Promise.all([loadLeaderOptions(), loadPromoterOptions()])
   await fetchAll()

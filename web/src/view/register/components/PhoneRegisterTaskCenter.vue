@@ -221,6 +221,8 @@ const submitStatus = ref({
   enabled: true,
   message: ''
 })
+let lastSubmitStatusRefreshAt = 0
+let lastMyTasksRefreshAt = 0
 const nowTs = ref(Date.now())
 const windowWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth)
 const counters = ref({
@@ -473,6 +475,7 @@ const loadActiveTasks = async () => {
 }
 
 const loadSubmitStatus = async () => {
+  lastSubmitStatusRefreshAt = Date.now()
   const { data } = await getPhoneRegisterSubmitStatus()
   submitStatus.value = {
     enabled: data?.enabled !== false,
@@ -481,6 +484,7 @@ const loadSubmitStatus = async () => {
 }
 
 const loadMyTasks = async () => {
+  lastMyTasksRefreshAt = Date.now()
   const { data } = await getPhoneRegisterTaskList({
     page: taskPage.value,
     pageSize: taskPageSize.value,
@@ -498,11 +502,26 @@ const loadMyTasks = async () => {
   }
 }
 
-const refreshAll = async () => {
+const refreshAll = async (options = {}) => {
   if (refreshing.value) return
   refreshing.value = true
   try {
-    await Promise.all([loadSubmitStatus(), loadActiveTasks(), loadMyTasks()])
+    const force = options.force !== false
+    const now = Date.now()
+    if (force) {
+      await Promise.all([loadSubmitStatus(), loadActiveTasks(), loadMyTasks()])
+    } else {
+      const hadActiveTasks = activeTasks.value.length > 0
+      const jobs = [loadActiveTasks()]
+      if (now - lastSubmitStatusRefreshAt > 30000) {
+        jobs.push(loadSubmitStatus())
+      }
+      await Promise.all(jobs)
+      const activeTasksJustFinished = hadActiveTasks && activeTasks.value.length === 0
+      if (activeTasksJustFinished || Date.now() - lastMyTasksRefreshAt > 12000) {
+        await loadMyTasks()
+      }
+    }
   } finally {
     refreshing.value = false
     syncAutoRefresh()
@@ -563,7 +582,7 @@ const submitCode = async (task) => {
 const startAutoRefresh = () => {
   stopAutoRefresh()
   refreshTimer.value = window.setInterval(async () => {
-    await refreshAll()
+    await refreshAll({ force: false })
   }, 5000)
 }
 
