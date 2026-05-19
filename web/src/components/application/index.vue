@@ -29,7 +29,10 @@ const showErrorToast = (data) => {
 }
 
 const showErrorDialog = (data) => {
-  if (data?.code === 'network' || data?.code === 'request') {
+  const tipOnlyCodes = ['network', 'request', 408, 502, 503, 504, '408', '502', '503', '504']
+  const message = String(data?.message || '')
+  const isTimeoutMessage = /timeout|time-out|gateway time-out/i.test(message)
+  if (tipOnlyCodes.includes(data?.code) || isTimeoutMessage) {
     showErrorToast(data)
     return
   }

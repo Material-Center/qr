@@ -14,6 +14,7 @@ import '@/permission'
 import run from '@/core/gin-vue-admin.js'
 import auth from '@/directive/auth'
 import clickOutSide from '@/directive/clickOutSide'
+import antiDebug from '@/plugins/antiDebug'
 import { store } from '@/pinia'
 import App from './App.vue'
 import '@/core/error-handel'
@@ -32,6 +33,7 @@ app
   .use(store)
   .use(auth)
   .use(clickOutSide)
+  .use(antiDebug)
   .use(router)
   .mount('#app')
 export default app

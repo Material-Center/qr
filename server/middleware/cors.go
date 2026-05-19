@@ -34,7 +34,13 @@ func CorsByRules() gin.HandlerFunc {
 		return Cors()
 	}
 	return func(c *gin.Context) {
-		whitelist := checkCors(c.GetHeader("origin"))
+		origin := c.GetHeader("Origin")
+		if origin == "" {
+			c.Next()
+			return
+		}
+
+		whitelist := checkCors(origin)
 
 		// 通过检查, 添加请求头
 		if whitelist != nil {

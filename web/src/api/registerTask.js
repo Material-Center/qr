@@ -8,17 +8,19 @@ export const createRegisterTask = (data) => {
   })
 }
 
-export const getActiveRegisterTask = () => {
+export const getActiveRegisterTask = (config = {}) => {
   return service({
     url: '/registerTask/active',
-    method: 'get'
+    method: 'get',
+    ...config
   })
 }
 
-export const getActiveRegisterTasks = () => {
+export const getActiveRegisterTasks = (config = {}) => {
   return service({
     url: '/registerTask/actives',
-    method: 'get'
+    method: 'get',
+    ...config
   })
 }
 
@@ -30,11 +32,12 @@ export const submitRegisterTaskStep = (data) => {
   })
 }
 
-export const getRegisterTaskList = (data) => {
+export const getRegisterTaskList = (data, config = {}) => {
   return service({
     url: '/registerTask/list',
     method: 'post',
-    data
+    data,
+    ...config
   })
 }
 

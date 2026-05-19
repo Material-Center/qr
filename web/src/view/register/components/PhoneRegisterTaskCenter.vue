@@ -55,7 +55,8 @@
           >提交</el-button>
           <el-button
             size="small"
-            @click="refreshAll"
+            :loading="refreshing"
+            @click="manualRefresh"
           >刷新</el-button>
         </el-form-item>
       </el-form>
@@ -178,7 +179,7 @@
           :total="taskTotal"
           size="small"
           layout="total, sizes, prev, pager, next"
-          @current-change="loadMyTasks"
+          @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
         />
       </div>
@@ -458,8 +459,12 @@ const promoterErrorText = (task) => {
   return raw
 }
 
-const loadActiveTasks = async () => {
-  const res = await getActivePhoneRegisterTasks()
+const silentRequestConfig = { donNotShowLoading: true }
+
+const requestConfig = (silent = false) => silent ? silentRequestConfig : {}
+
+const loadActiveTasks = async (options = {}) => {
+  const res = await getActivePhoneRegisterTasks(requestConfig(options.silent))
   activeTasks.value = Array.isArray(res.data) ? res.data : []
   const nextMap = {}
   const nextSubmittedMap = {}
@@ -474,23 +479,23 @@ const loadActiveTasks = async () => {
   submittedVerifyCodeMap.value = nextSubmittedMap
 }
 
-const loadSubmitStatus = async () => {
+const loadSubmitStatus = async (options = {}) => {
   lastSubmitStatusRefreshAt = Date.now()
-  const { data } = await getPhoneRegisterSubmitStatus()
+  const { data } = await getPhoneRegisterSubmitStatus(requestConfig(options.silent))
   submitStatus.value = {
     enabled: data?.enabled !== false,
     message: data?.message || ''
   }
 }
 
-const loadMyTasks = async () => {
+const loadMyTasks = async (options = {}) => {
   lastMyTasksRefreshAt = Date.now()
   const { data } = await getPhoneRegisterTaskList({
     page: taskPage.value,
     pageSize: taskPageSize.value,
     status: taskListStatus.value,
     ...todayRangeParams()
-  })
+  }, requestConfig(options.silent))
   myTasks.value = data?.list || []
   taskTotal.value = data?.total || 0
   counters.value = {
@@ -507,19 +512,24 @@ const refreshAll = async (options = {}) => {
   refreshing.value = true
   try {
     const force = options.force !== false
+    const childOptions = { silent: options.silent === true }
     const now = Date.now()
     if (force) {
-      await Promise.all([loadSubmitStatus(), loadActiveTasks(), loadMyTasks()])
+      await Promise.all([
+        loadSubmitStatus(childOptions),
+        loadActiveTasks(childOptions),
+        loadMyTasks(childOptions)
+      ])
     } else {
       const hadActiveTasks = activeTasks.value.length > 0
-      const jobs = [loadActiveTasks()]
+      const jobs = [loadActiveTasks(childOptions)]
       if (now - lastSubmitStatusRefreshAt > 30000) {
-        jobs.push(loadSubmitStatus())
+        jobs.push(loadSubmitStatus(childOptions))
       }
       await Promise.all(jobs)
       const activeTasksJustFinished = hadActiveTasks && activeTasks.value.length === 0
       if (activeTasksJustFinished || Date.now() - lastMyTasksRefreshAt > 12000) {
-        await loadMyTasks()
+        await loadMyTasks(childOptions)
       }
     }
   } finally {
@@ -528,14 +538,22 @@ const refreshAll = async (options = {}) => {
   }
 }
 
+const manualRefresh = async () => {
+  await refreshAll({ silent: true })
+}
+
 const handleStatusChange = async () => {
   taskPage.value = 1
-  await loadMyTasks()
+  await loadMyTasks({ silent: true })
+}
+
+const handlePageChange = async () => {
+  await loadMyTasks({ silent: true })
 }
 
 const handlePageSizeChange = async () => {
   taskPage.value = 1
-  await loadMyTasks()
+  await loadMyTasks({ silent: true })
 }
 
 const createTask = async () => {
@@ -555,7 +573,7 @@ const createTask = async () => {
   persistSmsReceiveMode(smsReceiveMode.value)
   ElMessage.success('手机号已提交')
   phoneInput.value = ''
-  await refreshAll()
+  await refreshAll({ silent: true })
 }
 
 const submitCode = async (task) => {
@@ -576,13 +594,13 @@ const submitCode = async (task) => {
   submittedVerifyCodeMap.value[id] = true
   verifyCodeMap.value[id] = ''
   ElMessage.success('验证码已提交')
-  await refreshAll()
+  await refreshAll({ silent: true })
 }
 
 const startAutoRefresh = () => {
   stopAutoRefresh()
   refreshTimer.value = window.setInterval(async () => {
-    await refreshAll({ force: false })
+    await refreshAll({ force: false, silent: true })
   }, 5000)
 }
 

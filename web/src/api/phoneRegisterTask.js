@@ -16,32 +16,36 @@ export const submitPhoneRegisterTaskCode = (data) => {
   })
 }
 
-export const getActivePhoneRegisterTask = () => {
+export const getActivePhoneRegisterTask = (config = {}) => {
   return service({
     url: '/phoneRegisterTask/active',
-    method: 'get'
+    method: 'get',
+    ...config
   })
 }
 
-export const getActivePhoneRegisterTasks = () => {
+export const getActivePhoneRegisterTasks = (config = {}) => {
   return service({
     url: '/phoneRegisterTask/actives',
-    method: 'get'
+    method: 'get',
+    ...config
   })
 }
 
-export const getPhoneRegisterSubmitStatus = () => {
+export const getPhoneRegisterSubmitStatus = (config = {}) => {
   return service({
     url: '/phoneRegisterTask/submitStatus',
-    method: 'get'
+    method: 'get',
+    ...config
   })
 }
 
-export const getPhoneRegisterTaskList = (data) => {
+export const getPhoneRegisterTaskList = (data, config = {}) => {
   return service({
     url: '/phoneRegisterTask/list',
     method: 'post',
-    data
+    data,
+    ...config
   })
 }
 

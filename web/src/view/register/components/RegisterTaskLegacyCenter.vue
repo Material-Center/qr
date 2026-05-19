@@ -365,8 +365,12 @@ const isSubmitDisabled = (task) => {
   return task.currentStep !== 'login' && task.needVerifyCode === false
 }
 
-const loadActiveTask = async () => {
-  const res = await getActiveRegisterTasks()
+const silentRequestConfig = { donNotShowLoading: true }
+
+const requestConfig = (silent = false) => silent ? silentRequestConfig : {}
+
+const loadActiveTask = async (options = {}) => {
+  const res = await getActiveRegisterTasks(requestConfig(options.silent))
   activeTasks.value = Array.isArray(res.data) ? res.data : []
   const nextMap = {}
   const nextStateMap = {}
@@ -383,13 +387,13 @@ const loadActiveTask = async () => {
   verifyCodeMap.value = nextMap
 }
 
-const loadMyTasks = async () => {
+const loadMyTasks = async (options = {}) => {
   lastMyTasksRefreshAt = Date.now()
   const { data } = await getRegisterTaskList({
     page: 1,
     pageSize: 20,
     ...todayRangeParams()
-  })
+  }, requestConfig(options.silent))
   const rawList = data.list || []
   myTasks.value = rawList.map((item) => {
     const maskedList = Array.isArray(item?.loggedQQMaskedList) ? item.loggedQQMaskedList : []
@@ -421,14 +425,18 @@ const refreshAll = async (options = {}) => {
   refreshing.value = true
   try {
     const forceList = options.forceList !== false
+    const childOptions = { silent: options.silent === true }
     if (forceList) {
-      await Promise.all([loadActiveTask(), loadMyTasks()])
+      await Promise.all([
+        loadActiveTask(childOptions),
+        loadMyTasks(childOptions)
+      ])
     } else {
       const hadActiveTasks = activeTasks.value.length > 0
-      await loadActiveTask()
+      await loadActiveTask(childOptions)
       const activeTasksJustFinished = hadActiveTasks && activeTasks.value.length === 0
       if (activeTasksJustFinished || Date.now() - lastMyTasksRefreshAt > 15000) {
-        await loadMyTasks()
+        await loadMyTasks(childOptions)
       }
     }
   } finally {
@@ -450,7 +458,7 @@ const createTask = async () => {
   }
   ElMessage.success('任务创建成功')
   phoneInput.value = ''
-  await refreshAll()
+  await refreshAll({ silent: true })
 }
 
 const submitStepCommon = async (task, payload) => {
@@ -461,7 +469,7 @@ const submitStepCommon = async (task, payload) => {
     ...payload
   })
   verifyCodeMap.value[task.id] = ''
-  await refreshAll()
+  await refreshAll({ silent: true })
 }
 
 const submitStep = async (task) => {
@@ -498,7 +506,7 @@ const markFail = async (task) => {
 const startAutoRefresh = () => {
   stopAutoRefresh()
   refreshTimer.value = window.setInterval(async () => {
-    await refreshAll({ forceList: false })
+    await refreshAll({ forceList: false, silent: true })
   }, 5000)
 }
 
