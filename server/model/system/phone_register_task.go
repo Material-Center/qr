@@ -34,6 +34,8 @@ const (
 	PhoneRegisterStatusCodeRecoverTimeout          = 1007
 	PhoneRegisterStatusCodePromoterManualTerminate = 1008
 	PhoneRegisterStatusCodeOpenAPIFeedback         = 1009
+	PhoneRegisterStatusCodeRiskFace                = 1010
+	PhoneRegisterStatusCodeRiskQuota               = 1011
 	PhoneRegisterStatusCodeUnknown                 = 1099
 
 	PhoneRegisterDeviceActionEnterWaitingCode = "enter_waiting_code"
@@ -79,4 +81,17 @@ type SysPhoneRegisterTaskLog struct {
 	Message    string     `json:"message" gorm:"type:text;comment:日志内容"`
 
 	Task SysPhoneRegisterTask `json:"task" gorm:"foreignKey:TaskID"`
+}
+
+type SysPhoneRegisterRiskDailyStat struct {
+	global.GVA_MODEL
+	PromoterID         uint   `json:"promoterId" gorm:"uniqueIndex:uk_phone_register_risk_day;index;comment:地推账号ID"`
+	BizDate            string `json:"bizDate" gorm:"uniqueIndex:uk_phone_register_risk_day;size:10;comment:业务日期YYYY-MM-DD"`
+	SuccessReportCount int64  `json:"successReportCount" gorm:"comment:当天成功上报口径总数"`
+	RiskFailCount      int64  `json:"riskFailCount" gorm:"comment:当天风控失败数"`
+	LastRiskSuccessSeq int64  `json:"lastRiskSuccessSeq" gorm:"comment:最近一次风控所在成功上报序号"`
+	LastRiskReason     string `json:"lastRiskReason" gorm:"size:32;comment:最近一次风控原因"`
+	LastRiskGap        int64  `json:"lastRiskGap" gorm:"comment:最近一次风控间隔"`
+	PreviousRiskGap    int64  `json:"previousRiskGap" gorm:"comment:上上次风控间隔"`
+	PreviousRiskReason string `json:"previousRiskReason" gorm:"size:32;comment:上上次风控原因"`
 }

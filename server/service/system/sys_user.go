@@ -3,6 +3,7 @@ package system
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common"
@@ -24,6 +25,14 @@ import (
 type UserService struct{}
 
 var UserServiceApp = new(UserService)
+
+const (
+	userRoleLeader         = uint(200)
+	userRolePromoter       = uint(300)
+	cacheSampleRatioKey    = "cacheSampleRatio"
+	maxCacheSampleRatio    = 80
+	defaultCacheSampleRate = 0
+)
 
 func (userService *UserService) Register(u system.SysUser) (userInter system.SysUser, err error) {
 	var user system.SysUser
@@ -100,7 +109,7 @@ func (userService *UserService) ChangePassword(u *system.SysUser, newPassword st
 //@param: info request.PageInfo
 //@return: err error, list interface{}, total int64
 
-func (userService *UserService) GetUserInfoList(info systemReq.GetUserList) (list interface{}, total int64, err error) {
+func (userService *UserService) GetUserInfoList(info systemReq.GetUserList, includeCacheSampleRatio bool) (list interface{}, total int64, err error) {
 	limit := info.PageSize
 	offset := info.PageSize * (info.Page - 1)
 	db := global.GVA_DB.Model(&system.SysUser{})
@@ -191,7 +200,133 @@ func (userService *UserService) GetUserInfoList(info systemReq.GetUserList) (lis
 		}
 	}
 
+	if err = userService.fillUserRelationInfo(userList, includeCacheSampleRatio); err != nil {
+		return userList, total, err
+	}
+
 	return userList, total, nil
+}
+
+func (userService *UserService) fillUserRelationInfo(userList []system.SysUser, includeCacheSampleRatio bool) error {
+	leaderIDSet := make(map[uint]struct{})
+	leaderRowIDs := make([]uint, 0)
+	for _, u := range userList {
+		if u.LeaderID != nil && *u.LeaderID != 0 {
+			leaderIDSet[*u.LeaderID] = struct{}{}
+		}
+		if u.AuthorityId == userRoleLeader {
+			leaderRowIDs = append(leaderRowIDs, u.ID)
+		}
+	}
+
+	type leaderBrief struct {
+		ID            uint           `gorm:"column:id"`
+		Username      string         `gorm:"column:username"`
+		NickName      string         `gorm:"column:nick_name"`
+		OriginSetting common.JSONMap `gorm:"column:origin_setting"`
+	}
+	leaderMap := make(map[uint]leaderBrief)
+	if len(leaderIDSet) > 0 {
+		leaderIDs := make([]uint, 0, len(leaderIDSet))
+		for id := range leaderIDSet {
+			leaderIDs = append(leaderIDs, id)
+		}
+		var leaders []leaderBrief
+		leaderSelect := "id, username, nick_name"
+		if includeCacheSampleRatio {
+			leaderSelect += ", origin_setting"
+		}
+		if err := global.GVA_DB.Model(&system.SysUser{}).
+			Select(leaderSelect).
+			Where("id IN ?", leaderIDs).
+			Scan(&leaders).Error; err != nil {
+			return err
+		}
+		for _, leader := range leaders {
+			leaderMap[leader.ID] = leader
+		}
+	}
+
+	type promoterCountRow struct {
+		LeaderID      uint  `gorm:"column:leader_id"`
+		PromoterCount int64 `gorm:"column:promoter_count"`
+	}
+	countMap := make(map[uint]int64)
+	if len(leaderRowIDs) > 0 {
+		var countRows []promoterCountRow
+		if err := global.GVA_DB.Model(&system.SysUser{}).
+			Select("leader_id, COUNT(*) AS promoter_count").
+			Where("leader_id IN ? AND authority_id = ?", leaderRowIDs, userRolePromoter).
+			Group("leader_id").
+			Scan(&countRows).Error; err != nil {
+			return err
+		}
+		for _, row := range countRows {
+			countMap[row.LeaderID] = row.PromoterCount
+		}
+	}
+
+	for i := range userList {
+		var ownCacheSampleRatio *int
+		if includeCacheSampleRatio {
+			ownCacheSampleRatio = getCacheSampleRatio(userList[i].OriginSetting)
+			if ownCacheSampleRatio != nil {
+				userList[i].CacheSampleRatio = ownCacheSampleRatio
+				userList[i].EffectiveCacheSampleRatio = *ownCacheSampleRatio
+			} else {
+				userList[i].EffectiveCacheSampleRatio = defaultCacheSampleRate
+			}
+		}
+		if userList[i].LeaderID != nil {
+			if leader, ok := leaderMap[*userList[i].LeaderID]; ok {
+				userList[i].LeaderName = leader.NickName
+				userList[i].LeaderUserName = leader.Username
+				if includeCacheSampleRatio && ownCacheSampleRatio == nil {
+					if leaderCacheSampleRatio := getCacheSampleRatio(leader.OriginSetting); leaderCacheSampleRatio != nil {
+						userList[i].EffectiveCacheSampleRatio = *leaderCacheSampleRatio
+						userList[i].CacheSampleRatioInherited = true
+					}
+				}
+			}
+		}
+		if userList[i].AuthorityId == userRoleLeader {
+			userList[i].PromoterCount = countMap[userList[i].ID]
+		}
+	}
+	return nil
+}
+
+func getCacheSampleRatio(setting common.JSONMap) *int {
+	if setting == nil {
+		return nil
+	}
+	raw, ok := setting[cacheSampleRatioKey]
+	if !ok || raw == nil {
+		return nil
+	}
+	var ratio int
+	switch value := raw.(type) {
+	case int:
+		ratio = value
+	case int64:
+		ratio = int(value)
+	case float64:
+		ratio = int(value)
+	case float32:
+		ratio = int(value)
+	case string:
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return nil
+		}
+		ratio = parsed
+	default:
+		return nil
+	}
+	if ratio < 0 || ratio > maxCacheSampleRatio {
+		return nil
+	}
+	return &ratio
 }
 
 //@author: [piexlmax](https://github.com/piexlmax)
@@ -320,6 +455,34 @@ func (userService *UserService) SetUserInfo(req system.SysUser) error {
 			"email":                        req.Email,
 			"enable":                       req.Enable,
 			"phone_register_task_disabled": req.PhoneRegisterTaskDisabled,
+		}).Error
+}
+
+func (userService *UserService) SetUserCacheSampleRatio(userID uint, ratio *int, configured bool) error {
+	var user system.SysUser
+	if err := global.GVA_DB.Select("id, origin_setting").Where("id = ?", userID).First(&user).Error; err != nil {
+		return err
+	}
+	setting := user.OriginSetting
+	if setting == nil {
+		setting = common.JSONMap{}
+	}
+	if configured {
+		if ratio == nil {
+			return errors.New("缓存抽检比例不能为空")
+		}
+		if *ratio < 0 || *ratio > maxCacheSampleRatio {
+			return errors.New("缓存抽检比例必须在0-80之间")
+		}
+		setting[cacheSampleRatioKey] = *ratio
+	} else {
+		delete(setting, cacheSampleRatioKey)
+	}
+	return global.GVA_DB.Model(&system.SysUser{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"updated_at":     time.Now(),
+			"origin_setting": setting,
 		}).Error
 }
 

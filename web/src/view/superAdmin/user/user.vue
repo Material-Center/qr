@@ -89,6 +89,11 @@
             />
           </template>
         </el-table-column>
+        <el-table-column align="left" label="从属关系" min-width="170">
+          <template #default="scope">
+            <span>{{ relationText(scope.row) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column align="left" label="启用" min-width="150">
           <template #default="scope">
             <el-switch
@@ -294,6 +299,9 @@
 
   const appStore = useAppStore()
 
+  const ROLE_LEADER = 200
+  const ROLE_PROMOTER = 300
+
   const searchInfo = ref({
     username: '',
     nickname: '',
@@ -395,6 +403,27 @@
   const setOptions = (authData) => {
     authOptions.value = []
     setAuthorityOptions(authData, authOptions.value)
+  }
+
+  const hasRole = (row, roleId) => {
+    return row.authorityId === roleId || (row.authorityIds || []).includes(roleId)
+  }
+
+  const leaderDisplayText = (row) => {
+    const name = row.leaderName || ''
+    const username = row.leaderUserName || ''
+    if (name && username && name !== username) return `${name}(${username})`
+    return name || username || (row.leaderId ? `ID ${row.leaderId}` : '')
+  }
+
+  const relationText = (row) => {
+    if (hasRole(row, ROLE_PROMOTER)) {
+      return leaderDisplayText(row) ? `所属团长：${leaderDisplayText(row)}` : '未分配团长'
+    }
+    if (hasRole(row, ROLE_LEADER)) {
+      return `下属地推：${row.promoterCount || 0}`
+    }
+    return '-'
   }
 
   const initPage = async () => {

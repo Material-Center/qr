@@ -1,17 +1,35 @@
 package system
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	modelSystem "github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	modelSystemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
 func setupPhoneRegisterTaskTestDB(t *testing.T) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		DisableForeignKeyConstraintWhenMigrating: true,
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&modelSystem.SysUser{},
+		&modelSystem.SysPhoneRegisterTask{},
+		&modelSystem.SysPhoneRegisterTaskLog{},
+		&modelSystem.SysPhoneRegisterRiskDailyStat{},
+		&modelSystem.SysRegisterConfig{},
+	))
+	global.GVA_DB = db
+}
+
+func setupPhoneRegisterTaskTestDBWithoutRiskStat(t *testing.T) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
@@ -212,4 +230,404 @@ func TestGetCurrentDeviceStatsIgnoresTaskHeartbeatWithoutDeviceHeartbeat(t *test
 	require.NoError(t, err)
 	require.EqualValues(t, 0, stats.Online)
 	require.EqualValues(t, 0, stats.Idle)
+}
+
+func TestOpenAPIReportSuccessDoesNotRiskBeforeWarmup(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	restore := stubPhoneRegisterRiskRandom(0)
+	defer restore()
+
+	createPhoneRegisterRiskUser(t, 1, 45)
+	now := time.Now()
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	for i := 0; i < phoneRegisterRiskWarmupSuccessCount-1; i++ {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+			Phone:          "18800000000",
+			PromoterID:     1,
+			SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+			TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+			Status:         modelSystem.PhoneRegisterStatusSucceeded,
+			StatusCode:     &successCode,
+			FinishedAt:     &now,
+			ExpiresAt:      now.Add(time.Hour),
+		}).Error)
+	}
+
+	holderDeviceID := "openapi-warmup-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000099",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(holderDeviceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusSucceeded, got.Status)
+	require.NotNil(t, got.StatusCode)
+	require.Equal(t, modelSystem.PhoneRegisterStatusCodeSucceeded, *got.StatusCode)
+}
+
+func TestGetSummaryIncludesRiskFailCountForPromoters(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	leaderID := uint(2)
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	riskFaceCode := modelSystem.PhoneRegisterStatusCodeRiskFace
+	riskQuotaCode := modelSystem.PhoneRegisterStatusCodeRiskQuota
+	realFailCode := modelSystem.PhoneRegisterStatusCodeDeviceExecFail
+
+	tasks := []modelSystem.SysPhoneRegisterTask{
+		{Phone: "18800000001", PromoterID: 1, LeaderID: &leaderID, Status: modelSystem.PhoneRegisterStatusSucceeded, StatusCode: &successCode, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "18800000002", PromoterID: 1, LeaderID: &leaderID, Status: modelSystem.PhoneRegisterStatusFailed, StatusCode: &riskFaceCode, LastError: phoneRegisterRiskReasonFace, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "18800000003", PromoterID: 1, LeaderID: &leaderID, Status: modelSystem.PhoneRegisterStatusFailed, StatusCode: &riskQuotaCode, LastError: phoneRegisterRiskReasonQuota, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "18800000004", PromoterID: 1, LeaderID: &leaderID, Status: modelSystem.PhoneRegisterStatusFailed, StatusCode: &realFailCode, LastError: "真实失败", FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+	}
+	require.NoError(t, global.GVA_DB.Create(&tasks).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).GetSummary(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskSummaryFilter{})
+	require.NoError(t, err)
+	require.Len(t, got.Promoters, 1)
+	require.EqualValues(t, 1, got.Promoters[0].SuccessCount)
+	require.EqualValues(t, 3, got.Promoters[0].FailCount)
+	require.NotNil(t, got.Promoters[0].RiskFailCount)
+	require.EqualValues(t, 2, *got.Promoters[0].RiskFailCount)
+	require.Len(t, got.Leaders, 1)
+	require.NotNil(t, got.Leaders[0].RiskFailCount)
+	require.EqualValues(t, 2, *got.Leaders[0].RiskFailCount)
+}
+
+func TestGetSummaryHidesRiskFailCountForLeaderRole(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	leaderID := uint(2)
+	riskFaceCode := modelSystem.PhoneRegisterStatusCodeRiskFace
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:      "18800000002",
+		PromoterID: 1,
+		LeaderID:   &leaderID,
+		Status:     modelSystem.PhoneRegisterStatusFailed,
+		StatusCode: &riskFaceCode,
+		LastError:  phoneRegisterRiskReasonFace,
+		FinishedAt: &now,
+		ExpiresAt:  now.Add(time.Hour),
+	}).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).GetSummary(phoneRoleLeader, leaderID, modelSystemReq.PhoneRegisterTaskSummaryFilter{})
+	require.NoError(t, err)
+	require.Len(t, got.Promoters, 1)
+	require.EqualValues(t, 1, got.Promoters[0].FailCount)
+	require.Nil(t, got.Promoters[0].RiskFailCount)
+	require.Len(t, got.Leaders, 1)
+	require.Nil(t, got.Leaders[0].RiskFailCount)
+	payload, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.NotContains(t, string(payload), "riskFailCount")
+}
+
+func TestOpenAPIReportSuccessWithZeroRatioDoesNotRequireRiskStatTable(t *testing.T) {
+	setupPhoneRegisterTaskTestDBWithoutRiskStat(t)
+
+	createPhoneRegisterRiskUser(t, 1, 0)
+	now := time.Now()
+	holderDeviceID := "openapi-zero-ratio-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000099",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(holderDeviceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusSucceeded, got.Status)
+	require.NotNil(t, got.StatusCode)
+	require.Equal(t, modelSystem.PhoneRegisterStatusCodeSucceeded, *got.StatusCode)
+}
+
+func TestOpenAPIReportSuccessSkipsRiskWhenRiskStatTableMissing(t *testing.T) {
+	setupPhoneRegisterTaskTestDBWithoutRiskStat(t)
+	restore := stubPhoneRegisterRiskRandom(0)
+	defer restore()
+
+	createPhoneRegisterRiskUser(t, 1, 45)
+	now := time.Now()
+	holderDeviceID := "openapi-missing-risk-table-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000099",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(holderDeviceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusSucceeded, got.Status)
+	require.NotNil(t, got.StatusCode)
+	require.Equal(t, modelSystem.PhoneRegisterStatusCodeSucceeded, *got.StatusCode)
+}
+
+func TestOpenAPIReportSuccessRiskFailureStillAllowsCacheUpload(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	restore := stubPhoneRegisterRiskRandom(0)
+	defer restore()
+
+	createPhoneRegisterRiskUser(t, 1, 45)
+	now := time.Now()
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	for i := 0; i < phoneRegisterRiskWarmupSuccessCount; i++ {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+			Phone:          "18800000000",
+			PromoterID:     1,
+			SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+			TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+			Status:         modelSystem.PhoneRegisterStatusSucceeded,
+			StatusCode:     &successCode,
+			FinishedAt:     &now,
+			ExpiresAt:      now.Add(time.Hour),
+		}).Error)
+	}
+
+	holderDeviceID := "openapi-risk-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000099",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(holderDeviceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, got.Status)
+	require.True(t, isPhoneRegisterRiskStatusCode(got.StatusCode))
+	require.Contains(t, []string{phoneRegisterRiskReasonFace, phoneRegisterRiskReasonQuota}, got.LastError)
+	require.Equal(t, modelSystem.PhoneRegisterCacheStatusPending, got.CacheStatus)
+	require.NotNil(t, got.HolderDeviceID)
+	require.Equal(t, holderDeviceID, *got.HolderDeviceID)
+
+	var attached modelSystem.SysPhoneRegisterTask
+	err = global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		var attachErr error
+		attached, attachErr = (&PhoneRegisterTaskService{}).AttachOpenAPICacheTx(tx, holderDeviceID, task.ID, 123, "3995613452")
+		return attachErr
+	})
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, attached.Status)
+	require.True(t, isPhoneRegisterRiskStatusCode(attached.StatusCode))
+	require.Contains(t, []string{phoneRegisterRiskReasonFace, phoneRegisterRiskReasonQuota}, attached.LastError)
+	require.Equal(t, modelSystem.PhoneRegisterCacheStatusUploaded, attached.CacheStatus)
+	require.Equal(t, "3995613452", attached.QQNum)
+}
+
+func TestRealFailuresDoNotCountTowardRiskWarmup(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	restore := stubPhoneRegisterRiskRandom(0)
+	defer restore()
+
+	createPhoneRegisterRiskUser(t, 1, 45)
+	now := time.Now()
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	for i := 0; i < phoneRegisterRiskWarmupSuccessCount-1; i++ {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+			Phone:          "18800000000",
+			PromoterID:     1,
+			SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+			TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+			Status:         modelSystem.PhoneRegisterStatusSucceeded,
+			StatusCode:     &successCode,
+			FinishedAt:     &now,
+			ExpiresAt:      now.Add(time.Hour),
+		}).Error)
+	}
+	realFailCode := modelSystem.PhoneRegisterStatusCodeDeviceExecFail
+	for i := 0; i < 20; i++ {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+			Phone:          "18800000001",
+			PromoterID:     1,
+			SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+			TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+			Status:         modelSystem.PhoneRegisterStatusFailed,
+			StatusCode:     &realFailCode,
+			LastError:      "真实失败",
+			FinishedAt:     &now,
+			ExpiresAt:      now.Add(time.Hour),
+		}).Error)
+	}
+
+	holderDeviceID := "openapi-real-fail-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000099",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(holderDeviceID, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusSucceeded, got.Status)
+	require.NotNil(t, got.StatusCode)
+	require.Equal(t, modelSystem.PhoneRegisterStatusCodeSucceeded, *got.StatusCode)
+}
+
+func TestRiskRatioChangeTakesEffectOnNextSuccessReport(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	restore := stubPhoneRegisterRiskRandom(0)
+	defer restore()
+
+	createPhoneRegisterRiskUser(t, 1, 0)
+	now := time.Now()
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	for i := 0; i < phoneRegisterRiskWarmupSuccessCount; i++ {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+			Phone:          "18800000000",
+			PromoterID:     1,
+			SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+			TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+			Status:         modelSystem.PhoneRegisterStatusSucceeded,
+			StatusCode:     &successCode,
+			FinishedAt:     &now,
+			ExpiresAt:      now.Add(time.Hour),
+		}).Error)
+	}
+
+	firstDeviceID := "openapi-dynamic-first"
+	firstTask := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000091",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &firstDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&firstTask).Error)
+	first, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(firstDeviceID, firstTask.ID)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusSucceeded, first.Status)
+
+	require.NoError(t, (&UserService{}).SetUserCacheSampleRatio(1, intPtr(45), true))
+
+	secondDeviceID := "openapi-dynamic-second"
+	secondTask := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000092",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &secondDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&secondTask).Error)
+	second, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(secondDeviceID, secondTask.ID)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, second.Status)
+	require.True(t, isPhoneRegisterRiskStatusCode(second.StatusCode))
+}
+
+func TestDeviceRegisterSuccessRiskFailureStillAllowsDeviceCacheUpload(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	restore := stubPhoneRegisterRiskRandom(0)
+	defer restore()
+
+	createPhoneRegisterRiskUser(t, 1, 45)
+	now := time.Now()
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	for i := 0; i < phoneRegisterRiskWarmupSuccessCount; i++ {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+			Phone:          "18800000000",
+			PromoterID:     1,
+			SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+			TaskSource:     modelSystem.PhoneRegisterTaskSourceScript,
+			Status:         modelSystem.PhoneRegisterStatusSucceeded,
+			StatusCode:     &successCode,
+			FinishedAt:     &now,
+			ExpiresAt:      now.Add(time.Hour),
+		}).Error)
+	}
+
+	holderDeviceID := "autox-risk-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000099",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceScript,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).DeviceReport(modelSystemReq.PhoneRegisterDeviceReport{
+		DeviceID: holderDeviceID,
+		Action:   modelSystem.PhoneRegisterDeviceActionRegisterSuccess,
+		Message:  "注册成功，等待上传缓存",
+	})
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, got.Status)
+	require.True(t, isPhoneRegisterRiskStatusCode(got.StatusCode))
+	require.Equal(t, modelSystem.PhoneRegisterCacheStatusPending, got.CacheStatus)
+
+	var completed modelSystem.SysPhoneRegisterTask
+	err = global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		var completeErr error
+		completed, completeErr = (&PhoneRegisterTaskService{}).CompleteTaskAfterQQCacheUploadTx(tx, holderDeviceID, 123, "3995613452")
+		return completeErr
+	})
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, completed.Status)
+	require.True(t, isPhoneRegisterRiskStatusCode(completed.StatusCode))
+	require.Contains(t, []string{phoneRegisterRiskReasonFace, phoneRegisterRiskReasonQuota}, completed.LastError)
+	require.Equal(t, modelSystem.PhoneRegisterCacheStatusUploaded, completed.CacheStatus)
+	require.Equal(t, "3995613452", completed.QQNum)
+	require.Nil(t, completed.HolderDeviceID)
+}
+
+func createPhoneRegisterRiskUser(t *testing.T, id uint, ratio int) {
+	t.Helper()
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: id},
+		Username:    "promoter",
+		NickName:    "地推",
+		AuthorityId: 300,
+		Enable:      1,
+		OriginSetting: map[string]interface{}{
+			cacheSampleRatioKey: ratio,
+		},
+	}).Error)
+}
+
+func stubPhoneRegisterRiskRandom(value float64) func() {
+	original := phoneRegisterRiskRandomFloat
+	phoneRegisterRiskRandomFloat = func(string) float64 {
+		return value
+	}
+	return func() {
+		phoneRegisterRiskRandomFloat = original
+	}
+}
+
+func intPtr(v int) *int {
+	return &v
 }

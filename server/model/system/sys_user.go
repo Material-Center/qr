@@ -36,6 +36,12 @@ type SysUser struct {
 	OriginSetting             common.JSONMap `json:"originSetting" form:"originSetting" gorm:"type:text;default:null;column:origin_setting;comment:配置;"` //配置
 	LastLoginIP               string         `json:"lastLoginIp" gorm:"-"`
 	LastLoginAt               *time.Time     `json:"lastLoginAt" gorm:"-"`
+	LeaderName                string         `json:"leaderName" gorm:"-"`
+	LeaderUserName            string         `json:"leaderUserName" gorm:"-"`
+	PromoterCount             int64          `json:"promoterCount" gorm:"-"`
+	CacheSampleRatio          *int           `json:"cacheSampleRatio,omitempty" gorm:"-"`
+	EffectiveCacheSampleRatio int            `json:"effectiveCacheSampleRatio,omitempty" gorm:"-"`
+	CacheSampleRatioInherited bool           `json:"cacheSampleRatioInherited,omitempty" gorm:"-"`
 }
 
 func (SysUser) TableName() string {

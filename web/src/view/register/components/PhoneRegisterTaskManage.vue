@@ -259,6 +259,7 @@
                 <el-table-column label="地推名称" prop="promoterName" min-width="100" />
                 <el-table-column label="成功" prop="successCount" width="80" />
                 <el-table-column label="失败" prop="failCount" width="80" />
+                <el-table-column v-if="canSettle" label="风控数" prop="riskFailCount" width="90" />
                 <el-table-column label="处理中" prop="processingCount" width="90" />
                 <el-table-column v-if="canSettle" label="已结算" prop="settledCount" width="90" />
                 <el-table-column v-if="canSettle" label="待结算" prop="unsettledCount" width="90" />

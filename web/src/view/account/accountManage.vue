@@ -28,14 +28,28 @@
         </el-button>
       </div>
 
-      <el-table :data="tableData" row-key="ID" class="account-table">
+      <el-table
+        :data="tableData"
+        :row-key="accountRowKey"
+        class="account-table"
+        :tree-props="{ children: 'children' }"
+        :row-class-name="accountRowClassName"
+      >
+        <el-table-column v-if="useLeaderTree" width="44" />
         <el-table-column align="left" label="头像" min-width="75">
           <template #default="scope">
             <CustomPic style="margin-top: 8px" :pic-src="scope.row.headerImg" />
           </template>
         </el-table-column>
         <el-table-column align="left" label="ID" min-width="60" prop="ID" />
-        <el-table-column align="left" label="用户名" min-width="140" prop="userName" />
+        <el-table-column align="left" label="用户名" min-width="140" prop="userName">
+          <template #default="scope">
+            <div :class="['account-name-cell', { 'is-child': scope.row._relationChild }]">
+              <span v-if="scope.row._relationChild" class="child-branch" />
+              <span>{{ scope.row.userName }}</span>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column align="left" label="昵称" min-width="140" prop="nickName" />
         <el-table-column align="left" label="手机号" min-width="160" prop="phone" />
         <el-table-column align="left" label="邮箱" min-width="180" prop="email" />
@@ -48,6 +62,22 @@
         <el-table-column align="left" label="角色" min-width="120">
           <template #default="scope">
             <el-tag>{{ roleText(scope.row.authorityId) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column align="left" label="从属关系" min-width="170">
+          <template #default="scope">
+            <span>{{ relationText(scope.row) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column v-if="useLeaderTree" align="left" label="缓存抽检比例" min-width="190">
+          <template #default="scope">
+            <div v-if="canConfigureCacheSample(scope.row)" class="cache-sample-cell">
+              <span>{{ cacheSampleText(scope.row) }}</span>
+              <el-button type="primary" link @click="openCacheSampleDialog(scope.row)">
+                配置
+              </el-button>
+            </div>
+            <span v-else>-</span>
           </template>
         </el-table-column>
         <el-table-column align="left" label="启用" min-width="110">
@@ -123,6 +153,50 @@
       <template #footer>
         <el-button @click="resetPwdDialog = false">取消</el-button>
         <el-button type="primary" @click="confirmResetPassword">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="cacheSampleDialog"
+      title="缓存抽检比例"
+      width="420px"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
+      <el-form label-width="90px">
+        <el-form-item label="账号">
+          <span>{{ cacheSampleForm.nickName || cacheSampleForm.userName }}</span>
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-tag>{{ roleText(cacheSampleForm.authorityId) }}</el-tag>
+        </el-form-item>
+        <el-form-item label="配置方式">
+          <el-radio-group v-model="cacheSampleForm.configured">
+            <el-radio-button :label="false">
+              不配置
+            </el-radio-button>
+            <el-radio-button :label="true">
+              自定义
+            </el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="cacheSampleForm.configured" label="比例">
+          <el-input-number
+            v-model="cacheSampleForm.ratio"
+            :min="0"
+            :max="80"
+            :step="1"
+            controls-position="right"
+          />
+          <span class="cache-sample-percent">%</span>
+        </el-form-item>
+        <el-form-item label="生效说明">
+          <span class="cache-sample-tip">{{ cacheSampleFormTip }}</span>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="cacheSampleDialog = false">取消</el-button>
+        <el-button type="primary" @click="submitCacheSampleConfig">确定</el-button>
       </template>
     </el-dialog>
 
@@ -220,6 +294,7 @@ const userStore = useUserStore()
 
 const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const canManage = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].includes(currentRoleId.value))
+const useLeaderTree = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 
 const roleOptions = computed(() => {
   if (currentRoleId.value === ROLE_SUPER) {
@@ -256,6 +331,134 @@ const roleText = (authorityId) => {
   return '未知'
 }
 
+const leaderDisplayText = (row) => {
+  const name = row.leaderName || ''
+  const username = row.leaderUserName || ''
+  if (name && username && name !== username) return `${name}(${username})`
+  return name || username || (row.leaderId ? `ID ${row.leaderId}` : '')
+}
+
+const relationText = (row) => {
+  if (row.authorityId === ROLE_PROMOTER) {
+    return leaderDisplayText(row) ? `所属团长：${leaderDisplayText(row)}` : '未分配团长'
+  }
+  if (row.authorityId === ROLE_LEADER) {
+    return `下属地推：${row.promoterCount || 0}`
+  }
+  return '-'
+}
+
+const canConfigureCacheSample = (row) => {
+  return [ROLE_LEADER, ROLE_PROMOTER].includes(row.authorityId)
+}
+
+const cacheSampleText = (row) => {
+  if (row.cacheSampleRatio !== undefined && row.cacheSampleRatio !== null) {
+    return `自定义 ${row.cacheSampleRatio}%`
+  }
+  if (row.cacheSampleRatioInherited) {
+    return `继承 ${row.effectiveCacheSampleRatio || 0}%`
+  }
+  return '未配置(0%)'
+}
+
+const accountRowKey = (row) => `${row.authorityId || 'role'}-${row.ID}`
+
+const accountRowClassName = ({ row }) => {
+  return row._relationChild ? 'account-relation-child' : ''
+}
+
+const clearTreeFields = (row) => {
+  const { children, _relationChild, ...rest } = row
+  return rest
+}
+
+const textIncludes = (value, keyword) => {
+  if (!keyword) return true
+  return String(value || '').toLowerCase().includes(String(keyword).toLowerCase())
+}
+
+const hasSearchCondition = () => {
+  return Boolean(searchInfo.value.username || searchInfo.value.nickname || searchInfo.value.phone || searchInfo.value.email)
+}
+
+const matchSearchInfo = (item) => {
+  return (
+    textIncludes(item.userName, searchInfo.value.username) &&
+    textIncludes(item.nickName, searchInfo.value.nickname) &&
+    textIncludes(item.phone, searchInfo.value.phone) &&
+    textIncludes(item.email, searchInfo.value.email)
+  )
+}
+
+const filterTreeBySearch = (roots) => {
+  if (!hasSearchCondition()) return roots
+  return roots.reduce((result, item) => {
+    if (item.authorityId !== ROLE_LEADER) {
+      if (matchSearchInfo(item)) result.push(item)
+      return result
+    }
+
+    const children = item.children || []
+    const leaderMatched = matchSearchInfo(item)
+    const matchedChildren = children.filter(matchSearchInfo)
+    if (!leaderMatched && matchedChildren.length === 0) {
+      return result
+    }
+
+    const nextItem = {
+      ...item,
+      children: leaderMatched ? children : matchedChildren
+    }
+    if (nextItem.children.length === 0) {
+      delete nextItem.children
+    }
+    result.push(nextItem)
+    return result
+  }, [])
+}
+
+const buildLeaderTree = (list) => {
+  const visibleList = filterByRole(list).map((item) => ({ ...item }))
+  const leaderMap = new Map()
+  const roots = []
+  const promoters = []
+
+  visibleList.forEach((item) => {
+    if (item.authorityId === ROLE_LEADER) {
+      item.children = []
+      leaderMap.set(item.ID, item)
+      roots.push(item)
+      return
+    }
+    if (item.authorityId === ROLE_PROMOTER) {
+      promoters.push(item)
+      return
+    }
+    roots.push(item)
+  })
+
+  promoters.forEach((item) => {
+    const leader = item.leaderId ? leaderMap.get(item.leaderId) : null
+    if (leader) {
+      leader.children.push({
+        ...item,
+        _relationChild: true
+      })
+      return
+    }
+    roots.push(item)
+  })
+
+  roots.forEach((item) => {
+    if (Array.isArray(item.children) && item.children.length === 0) {
+      delete item.children
+    }
+  })
+
+  return filterTreeBySearch(roots)
+}
+
 const formatDateText = (val) => {
   if (!val) return '-'
   return formatDate(val)
@@ -274,6 +477,25 @@ const total = ref(0)
 const tableData = ref([])
 const leaderOptions = ref([])
 const currentUserId = computed(() => userStore.userInfo?.ID)
+const cacheSampleDialog = ref(false)
+const cacheSampleForm = ref({
+  row: null,
+  ID: 0,
+  userName: '',
+  nickName: '',
+  authorityId: undefined,
+  configured: false,
+  ratio: 0
+})
+const cacheSampleFormTip = computed(() => {
+  if (cacheSampleForm.value.configured) {
+    return '当前账号使用自定义缓存抽检比例，范围 0-80%。'
+  }
+  if (cacheSampleForm.value.authorityId === ROLE_PROMOTER) {
+    return '地推不单独配置时，优先继承所属团长；团长未配置则按 0% 生效。'
+  }
+  return '团长不配置时默认按 0% 生效，下属地推可继承该配置。'
+})
 
 const filterByRole = (list) => {
   if (currentRoleId.value === ROLE_SUPER) {
@@ -292,9 +514,11 @@ const filterByRole = (list) => {
 
 const fetchUsers = async () => {
   const query = {
-    page: page.value,
-    pageSize: pageSize.value,
-    ...searchInfo.value
+    page: useLeaderTree.value ? 1 : page.value,
+    pageSize: useLeaderTree.value ? 10000 : pageSize.value
+  }
+  if (!useLeaderTree.value) {
+    Object.assign(query, searchInfo.value)
   }
   if (currentRoleId.value === ROLE_LEADER) {
     query.authorityId = ROLE_PROMOTER
@@ -307,9 +531,15 @@ const fetchUsers = async () => {
       phoneRegisterTaskDisabled: item.phoneRegisterTaskDisabled === true
     }))
     leaderOptions.value = list.filter((item) => item.authorityId === ROLE_LEADER)
-    const filtered = filterByRole(list)
-    tableData.value = filtered
-    total.value = filtered.length
+    if (useLeaderTree.value) {
+      const roots = buildLeaderTree(list)
+      const start = (page.value - 1) * pageSize.value
+      tableData.value = roots.slice(start, start + pageSize.value)
+      total.value = roots.length
+      return
+    }
+    tableData.value = filterByRole(list)
+    total.value = res.data.total
   }
 }
 
@@ -385,7 +615,7 @@ const openAdd = () => {
 
 const openEdit = (row) => {
   drawerMode.value = 'edit'
-  userForm.value = JSON.parse(JSON.stringify(row))
+  userForm.value = clearTreeFields(JSON.parse(JSON.stringify(row)))
   userForm.value.phoneRegisterTaskDisabled = userForm.value.phoneRegisterTaskDisabled === true
   showDrawer.value = true
 }
@@ -404,7 +634,7 @@ const submitDrawer = async () => {
         return
       }
       const payload = {
-        ...userForm.value,
+        ...clearTreeFields(userForm.value),
         authorityIds: [userForm.value.authorityId]
       }
       if (currentRoleId.value === ROLE_LEADER && payload.authorityId === ROLE_PROMOTER) {
@@ -420,7 +650,7 @@ const submitDrawer = async () => {
     }
 
     const payload = {
-      ...userForm.value,
+      ...clearTreeFields(userForm.value),
       authorityIds: [userForm.value.authorityId]
     }
     const res = await setUserInfo(payload)
@@ -447,7 +677,7 @@ const deleteUserFunc = async (row) => {
 
 const switchEnable = async (row) => {
   const res = await setUserInfo({
-    ...row,
+    ...clearTreeFields(row),
     authorityIds: [row.authorityId]
   })
   if (res.code === 0) {
@@ -459,12 +689,47 @@ const switchEnable = async (row) => {
 
 const switchTaskCreate = async (row) => {
   const res = await setUserInfo({
-    ...row,
+    ...clearTreeFields(row),
     authorityIds: [row.authorityId]
   })
   if (res.code === 0) {
     ElMessage.success(`${row.phoneRegisterTaskDisabled ? '禁用' : '恢复'}成功`)
     await nextTick()
+    await fetchUsers()
+  }
+}
+
+const openCacheSampleDialog = (row) => {
+  const hasCustomRatio = row.cacheSampleRatio !== undefined && row.cacheSampleRatio !== null
+  cacheSampleForm.value = {
+    row,
+    ID: row.ID,
+    userName: row.userName,
+    nickName: row.nickName,
+    authorityId: row.authorityId,
+    configured: hasCustomRatio,
+    ratio: hasCustomRatio ? row.cacheSampleRatio : (row.effectiveCacheSampleRatio || 0)
+  }
+  cacheSampleDialog.value = true
+}
+
+const submitCacheSampleConfig = async () => {
+  const row = cacheSampleForm.value.row
+  if (!row) return
+  const ratio = Number(cacheSampleForm.value.ratio || 0)
+  if (cacheSampleForm.value.configured && (ratio < 0 || ratio > 80)) {
+    ElMessage.warning('缓存抽检比例必须在0-80之间')
+    return
+  }
+  const res = await setUserInfo({
+    ...clearTreeFields(row),
+    authorityIds: [row.authorityId],
+    cacheSampleRatioConfigured: cacheSampleForm.value.configured,
+    cacheSampleRatio: cacheSampleForm.value.configured ? ratio : null
+  })
+  if (res.code === 0) {
+    ElMessage.success('缓存抽检比例已保存')
+    cacheSampleDialog.value = false
     await fetchUsers()
   }
 }
@@ -506,6 +771,53 @@ fetchUsers()
 </script>
 
 <style scoped>
+.account-name-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.account-name-cell.is-child {
+  padding-left: 18px;
+  color: #475569;
+}
+
+.child-branch {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 1px;
+  background: #94a3b8;
+}
+
+.child-branch::before {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 14px;
+  content: '';
+  background: #cbd5e1;
+}
+
+.cache-sample-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.cache-sample-percent {
+  margin-left: 6px;
+}
+
+.cache-sample-tip {
+  line-height: 1.4;
+  color: #64748b;
+}
+
 @media (max-width: 768px) {
   .account-manage-page :deep(.gva-search-box .el-form) {
     display: block;

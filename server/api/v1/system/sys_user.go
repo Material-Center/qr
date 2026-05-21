@@ -24,6 +24,8 @@ const (
 	rolePromoter   = uint(300)
 	roleAppExtract = uint(400)
 	roleAppUpload  = uint(500)
+
+	userCacheSampleRatioKey = "cacheSampleRatio"
 )
 
 func canManageTarget(operatorAuthorityID, targetAuthorityID uint) bool {
@@ -40,6 +42,21 @@ func canManageTarget(operatorAuthorityID, targetAuthorityID uint) bool {
 	default:
 		return false
 	}
+}
+
+func hideCacheSampleRatioForNonAdmin(user *system.SysUser) {
+	if user == nil {
+		return
+	}
+	if user.AuthorityId != roleLeader && user.AuthorityId != rolePromoter {
+		return
+	}
+	if user.OriginSetting != nil {
+		delete(user.OriginSetting, userCacheSampleRatioKey)
+	}
+	user.CacheSampleRatio = nil
+	user.EffectiveCacheSampleRatio = 0
+	user.CacheSampleRatioInherited = false
 }
 
 // Login
@@ -202,6 +219,7 @@ func (b *BaseApi) TokenNext(c *gin.Context, user system.SysUser) {
 		UserID:       user.ID,
 		ErrorMessage: "登录成功",
 	})
+	hideCacheSampleRatioForNonAdmin(&user)
 	if !global.GVA_CONFIG.System.UseMultipoint {
 		utils.SetToken(c, token, int(claims.RegisteredClaims.ExpiresAt.Unix()-time.Now().Unix()))
 		response.OkWithDetailed(systemRes.LoginResponse{
@@ -392,7 +410,9 @@ func (b *BaseApi) GetUserList(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	list, total, err := userService.GetUserInfoList(pageInfo)
+	operatorAuthorityID := utils.GetUserAuthorityId(c)
+	includeCacheSampleRatio := operatorAuthorityID == roleSuperAdmin || operatorAuthorityID == roleAdmin
+	list, total, err := userService.GetUserInfoList(pageInfo, includeCacheSampleRatio)
 	if err != nil {
 		global.GVA_LOG.Error("获取失败!", zap.Error(err))
 		response.FailWithMessage("获取失败", c)
@@ -545,6 +565,22 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
 	}
+	if user.CacheSampleRatioConfigured != nil {
+		if targetUser.AuthorityId != roleLeader && targetUser.AuthorityId != rolePromoter {
+			response.FailWithMessage("仅团长和地推账号支持配置缓存抽检比例", c)
+			return
+		}
+		if *user.CacheSampleRatioConfigured {
+			if user.CacheSampleRatio == nil {
+				response.FailWithMessage("请输入缓存抽检比例", c)
+				return
+			}
+			if *user.CacheSampleRatio < 0 || *user.CacheSampleRatio > 80 {
+				response.FailWithMessage("缓存抽检比例必须在0-80之间", c)
+				return
+			}
+		}
+	}
 	if len(user.AuthorityIds) != 0 {
 		err = userService.SetUserAuthorities(operatorAuthorityID, user.ID, user.AuthorityIds)
 		if err != nil {
@@ -575,6 +611,14 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 		global.GVA_LOG.Error("设置失败!", zap.Error(err))
 		response.FailWithMessage("设置失败", c)
 		return
+	}
+	if user.CacheSampleRatioConfigured != nil {
+		err = userService.SetUserCacheSampleRatio(user.ID, user.CacheSampleRatio, *user.CacheSampleRatioConfigured)
+		if err != nil {
+			global.GVA_LOG.Error("设置缓存抽检比例失败!", zap.Error(err))
+			response.FailWithMessage(err.Error(), c)
+			return
+		}
 	}
 	response.OkWithMessage("设置成功", c)
 }
@@ -630,6 +674,10 @@ func (b *BaseApi) SetSelfSetting(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	authorityID := utils.GetUserAuthorityId(c)
+	if authorityID == roleLeader || authorityID == rolePromoter {
+		delete(req, userCacheSampleRatioKey)
+	}
 
 	err = userService.SetSelfSetting(req, utils.GetUserID(c))
 	if err != nil {
@@ -656,6 +704,7 @@ func (b *BaseApi) GetUserInfo(c *gin.Context) {
 		response.FailWithMessage("获取失败", c)
 		return
 	}
+	hideCacheSampleRatioForNonAdmin(&ReqUser)
 	response.OkWithDetailed(gin.H{"userInfo": ReqUser}, "获取成功", c)
 }
 

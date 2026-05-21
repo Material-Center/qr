@@ -79,6 +79,7 @@ type PhoneRegisterTaskSummaryItem struct {
 	PromoterName    string `json:"promoterName"`
 	SuccessCount    int64  `json:"successCount"`
 	FailCount       int64  `json:"failCount"`
+	RiskFailCount   *int64 `json:"riskFailCount,omitempty"`
 	ProcessingCount int64  `json:"processingCount"`
 	SettledCount    int64  `json:"settledCount"`
 	UnsettledCount  int64  `json:"unsettledCount"`

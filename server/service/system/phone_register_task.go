@@ -1,8 +1,11 @@
 package system
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +34,13 @@ const (
 
 const phoneRegisterOpenAPICacheTimeoutLog = "OpenAPI缓存上传超时未上传"
 
+const (
+	phoneRegisterRiskWarmupSuccessCount = 10
+	phoneRegisterRiskMaxRatio           = 45
+	phoneRegisterRiskReasonFace         = "人脸"
+	phoneRegisterRiskReasonQuota        = "满额"
+)
+
 const phoneRegisterDeviceBusyBusiness = "phone_register"
 
 var defaultPhoneRegisterBlockedPrefixes = []string{"133", "149", "153", "173", "177", "180", "181", "189", "190", "193", "199"}
@@ -57,6 +67,16 @@ type phoneRegisterDeviceStats struct {
 }
 
 var phoneRegisterTaskDaemonOnce sync.Once
+
+var phoneRegisterRiskRandomFloat = defaultPhoneRegisterRiskRandomFloat
+
+type phoneRegisterRiskDecision struct {
+	Hit        bool
+	Ratio      int
+	Seq        int64
+	StatusCode int
+	Reason     string
+}
 
 func init() {
 	startPhoneRegisterTaskDaemon()
@@ -393,6 +413,7 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 		return systemRes.PhoneRegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
 	}
 	_ = s.timeoutUnfinishedTasks()
+	includeRiskFailCount := operatorRole == phoneRoleSuperAdmin || operatorRole == phoneRoleAdmin
 
 	type row struct {
 		LeaderID        *uint  `gorm:"column:leader_id"`
@@ -401,6 +422,7 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 		PromoterName    string `gorm:"column:promoter_name"`
 		SuccessCount    int64  `gorm:"column:success_count"`
 		FailCount       int64  `gorm:"column:fail_count"`
+		RiskFailCount   int64  `gorm:"column:risk_fail_count"`
 		ProcessingCount int64  `gorm:"column:processing_count"`
 		SettledCount    int64  `gorm:"column:settled_count"`
 		UnsettledCount  int64  `gorm:"column:unsettled_count"`
@@ -414,9 +436,10 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			promoter.nick_name AS promoter_name,
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' THEN 1 ELSE 0 END), 0) AS success_count,
 			COALESCE(SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END), 0) AS fail_count,
+			COALESCE(SUM(CASE WHEN t.status_code IN ? THEN 1 ELSE 0 END), 0) AS risk_fail_count,
 			COALESCE(SUM(CASE WHEN t.status NOT IN ('succeeded', 'failed') THEN 1 ELSE 0 END), 0) AS processing_count,
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS settled_count,
-			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NULL THEN 1 ELSE 0 END), 0) AS unsettled_count`).
+			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NULL THEN 1 ELSE 0 END), 0) AS unsettled_count`, phoneRegisterRiskStatusCodes()).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
 		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id")
 
@@ -449,6 +472,10 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			SettledCount:    row.SettledCount,
 			UnsettledCount:  row.UnsettledCount,
 		}
+		if includeRiskFailCount {
+			riskFailCount := row.RiskFailCount
+			item.RiskFailCount = &riskFailCount
+		}
 		if row.LeaderID != nil {
 			item.LeaderID = *row.LeaderID
 		}
@@ -459,6 +486,13 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			leader.LeaderName = item.LeaderName
 			leader.SuccessCount += item.SuccessCount
 			leader.FailCount += item.FailCount
+			if includeRiskFailCount {
+				riskFailCount := row.RiskFailCount
+				if leader.RiskFailCount != nil {
+					riskFailCount += *leader.RiskFailCount
+				}
+				leader.RiskFailCount = &riskFailCount
+			}
 			leader.ProcessingCount += item.ProcessingCount
 			leader.SettledCount += item.SettledCount
 			leader.UnsettledCount += item.UnsettledCount
@@ -794,11 +828,19 @@ func (s *PhoneRegisterTaskService) DeviceReport(req systemReq.PhoneRegisterDevic
 				Select("status", "pending_code", "code_requested_at", "last_error", "last_heartbeat_at", "updated_at").
 				Updates(task).Error
 		case system.PhoneRegisterDeviceActionRegisterSuccess:
+			decision, riskErr := s.evaluatePhoneRegisterRiskOnSuccessTx(tx, &task, now)
+			if riskErr != nil {
+				return riskErr
+			}
+			if decision.Hit {
+				return s.riskFailTaskTx(tx, &task, decision, now)
+			}
 			task.Status = system.PhoneRegisterStatusRegisteredWaitUpload
+			task.CacheStatus = system.PhoneRegisterCacheStatusPending
 			task.LastError = message
 			task.LastHeartbeatAt = &now
 			return tx.Model(&task).
-				Select("status", "last_error", "last_heartbeat_at", "updated_at").
+				Select("status", "cache_status", "last_error", "last_heartbeat_at", "updated_at").
 				Updates(task).Error
 		case system.PhoneRegisterDeviceActionFail:
 			code := system.PhoneRegisterStatusCodeDeviceExecFail
@@ -845,7 +887,7 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 			return errors.New("taskId与当前设备任务不一致")
 		}
 		if isPhoneRegisterTaskTerminal(task.Status, task.FinishedAt) {
-			if task.Status == system.PhoneRegisterStatusSucceeded {
+			if task.Status == system.PhoneRegisterStatusSucceeded || isPhoneRegisterRiskStatusCode(task.StatusCode) {
 				return nil
 			}
 			return errors.New("任务已完成")
@@ -858,6 +900,13 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 		}
 		now := time.Now()
 		successCode := system.PhoneRegisterStatusCodeSucceeded
+		decision, riskErr := s.evaluatePhoneRegisterRiskOnSuccessTx(tx, &task, now)
+		if riskErr != nil {
+			return riskErr
+		}
+		if decision.Hit {
+			return s.riskFailTaskTx(tx, &task, decision, now)
+		}
 		task.Status = system.PhoneRegisterStatusSucceeded
 		task.StatusCode = &successCode
 		task.CacheStatus = system.PhoneRegisterCacheStatusPending
@@ -1001,29 +1050,355 @@ func (s *PhoneRegisterTaskService) GetDeviceConfig() (systemRes.PhoneRegisterDev
 	}, nil
 }
 
+func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm.DB, task *system.SysPhoneRegisterTask, now time.Time) (phoneRegisterRiskDecision, error) {
+	if task == nil {
+		return phoneRegisterRiskDecision{}, errors.New("任务不存在")
+	}
+	ratio, err := s.effectivePhoneRegisterRiskRatioTx(tx, task.PromoterID)
+	if err != nil {
+		return phoneRegisterRiskDecision{}, err
+	}
+	decision := phoneRegisterRiskDecision{Ratio: ratio}
+	if ratio <= 0 {
+		return decision, nil
+	}
+
+	stat, err := s.loadPhoneRegisterRiskDailyStatTx(tx, task.PromoterID, now)
+	if err != nil {
+		if isPhoneRegisterRiskStatTableMissingError(err) {
+			if global.GVA_LOG != nil {
+				global.GVA_LOG.Warn("手机号注册风控统计表不存在，跳过本次风控", zap.Error(err))
+			}
+			return decision, nil
+		}
+		return phoneRegisterRiskDecision{}, err
+	}
+	seq := stat.SuccessReportCount + 1
+	decision.Seq = seq
+	targetRiskCount := int64(math.Floor(float64(seq*int64(ratio)) / 100))
+
+	shouldHit := false
+	if seq > phoneRegisterRiskWarmupSuccessCount && targetRiskCount > stat.RiskFailCount {
+		gap := seq - stat.LastRiskSuccessSeq
+		minGap := phoneRegisterRiskMinGap(ratio, task.PromoterID, stat.BizDate, seq)
+		if stat.LastRiskSuccessSeq == 0 || gap > minGap {
+			probability := phoneRegisterRiskHitProbability(ratio, seq, stat.RiskFailCount, targetRiskCount, gap)
+			shouldHit = phoneRegisterRiskRandomFloat(fmt.Sprintf("hit:%d:%s:%d:%d", task.PromoterID, stat.BizDate, seq, task.ID)) < probability
+			if shouldHit && stat.LastRiskGap > 0 && gap == stat.LastRiskGap && gap == stat.PreviousRiskGap {
+				shouldHit = false
+			}
+		}
+	}
+
+	updates := map[string]any{
+		"success_report_count": seq,
+		"updated_at":           now,
+	}
+	if shouldHit {
+		reason := phoneRegisterRiskReason(task.PromoterID, stat.BizDate, seq, stat.LastRiskReason, stat.PreviousRiskReason)
+		statusCode := system.PhoneRegisterStatusCodeRiskFace
+		if reason == phoneRegisterRiskReasonQuota {
+			statusCode = system.PhoneRegisterStatusCodeRiskQuota
+		}
+		decision.Hit = true
+		decision.StatusCode = statusCode
+		decision.Reason = reason
+		gap := seq - stat.LastRiskSuccessSeq
+		updates["risk_fail_count"] = stat.RiskFailCount + 1
+		updates["last_risk_success_seq"] = seq
+		updates["last_risk_reason"] = reason
+		updates["last_risk_gap"] = gap
+		updates["previous_risk_gap"] = stat.LastRiskGap
+		updates["previous_risk_reason"] = stat.LastRiskReason
+	}
+	if err := tx.Model(&system.SysPhoneRegisterRiskDailyStat{}).
+		Where("id = ?", stat.ID).
+		Updates(updates).Error; err != nil {
+		return phoneRegisterRiskDecision{}, err
+	}
+	return decision, nil
+}
+
+func (s *PhoneRegisterTaskService) effectivePhoneRegisterRiskRatioTx(tx *gorm.DB, promoterID uint) (int, error) {
+	if promoterID == 0 {
+		return 0, nil
+	}
+	var promoter system.SysUser
+	if err := tx.Select("id, leader_id, origin_setting").Where("id = ?", promoterID).First(&promoter).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if ratio := getCacheSampleRatio(promoter.OriginSetting); ratio != nil {
+		return clampPhoneRegisterRiskRatio(*ratio), nil
+	}
+	if promoter.LeaderID == nil || *promoter.LeaderID == 0 {
+		return 0, nil
+	}
+	var leader system.SysUser
+	if err := tx.Select("id, origin_setting").Where("id = ?", *promoter.LeaderID).First(&leader).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if ratio := getCacheSampleRatio(leader.OriginSetting); ratio != nil {
+		return clampPhoneRegisterRiskRatio(*ratio), nil
+	}
+	return 0, nil
+}
+
+func clampPhoneRegisterRiskRatio(ratio int) int {
+	if ratio < 0 {
+		return 0
+	}
+	if ratio > phoneRegisterRiskMaxRatio {
+		return phoneRegisterRiskMaxRatio
+	}
+	return ratio
+}
+
+func (s *PhoneRegisterTaskService) loadPhoneRegisterRiskDailyStatTx(tx *gorm.DB, promoterID uint, now time.Time) (system.SysPhoneRegisterRiskDailyStat, error) {
+	bizDate, start, end := phoneRegisterRiskDayRange(now)
+	var stat system.SysPhoneRegisterRiskDailyStat
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("promoter_id = ? AND biz_date = ?", promoterID, bizDate).
+		First(&stat).Error
+	if err == nil {
+		return stat, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return system.SysPhoneRegisterRiskDailyStat{}, err
+	}
+
+	successCount, riskCount, err := countPhoneRegisterRiskDayTasksTx(tx, promoterID, start, end)
+	if err != nil {
+		return system.SysPhoneRegisterRiskDailyStat{}, err
+	}
+	stat = system.SysPhoneRegisterRiskDailyStat{
+		PromoterID:         promoterID,
+		BizDate:            bizDate,
+		SuccessReportCount: successCount,
+		RiskFailCount:      riskCount,
+		LastRiskSuccessSeq: successCount,
+	}
+	if riskCount == 0 {
+		stat.LastRiskSuccessSeq = 0
+	}
+	if err := tx.Create(&stat).Error; err != nil {
+		if isPhoneRegisterDuplicateKeyError(err) {
+			if loadErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("promoter_id = ? AND biz_date = ?", promoterID, bizDate).
+				First(&stat).Error; loadErr != nil {
+				return system.SysPhoneRegisterRiskDailyStat{}, loadErr
+			}
+			return stat, nil
+		}
+		return system.SysPhoneRegisterRiskDailyStat{}, err
+	}
+	return stat, nil
+}
+
+func countPhoneRegisterRiskDayTasksTx(tx *gorm.DB, promoterID uint, start time.Time, end time.Time) (int64, int64, error) {
+	var successCount int64
+	if err := tx.Model(&system.SysPhoneRegisterTask{}).
+		Where("promoter_id = ?", promoterID).
+		Where("finished_at >= ? AND finished_at < ?", start, end).
+		Where("status_code IN ?", phoneRegisterRiskSuccessStatusCodes()).
+		Count(&successCount).Error; err != nil {
+		return 0, 0, err
+	}
+	var riskCount int64
+	if err := tx.Model(&system.SysPhoneRegisterTask{}).
+		Where("promoter_id = ?", promoterID).
+		Where("finished_at >= ? AND finished_at < ?", start, end).
+		Where("status_code IN ?", phoneRegisterRiskStatusCodes()).
+		Count(&riskCount).Error; err != nil {
+		return 0, 0, err
+	}
+	return successCount, riskCount, nil
+}
+
+func isPhoneRegisterRiskStatTableMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "sys_phone_register_risk_daily_stats") &&
+		(strings.Contains(msg, "no such table") ||
+			strings.Contains(msg, "doesn't exist") ||
+			strings.Contains(msg, "does not exist") ||
+			strings.Contains(msg, "unknown table"))
+}
+
+func isPhoneRegisterDuplicateKeyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate") ||
+		strings.Contains(msg, "unique constraint") ||
+		strings.Contains(msg, "unique index")
+}
+
+func phoneRegisterRiskDayRange(now time.Time) (string, time.Time, time.Time) {
+	local := now.Local()
+	start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, local.Location())
+	return start.Format("2006-01-02"), start, start.AddDate(0, 0, 1)
+}
+
+func phoneRegisterRiskSuccessStatusCodes() []int {
+	return []int{
+		system.PhoneRegisterStatusCodeSucceeded,
+		system.PhoneRegisterStatusCodeRiskFace,
+		system.PhoneRegisterStatusCodeRiskQuota,
+	}
+}
+
+func phoneRegisterRiskStatusCodes() []int {
+	return []int{
+		system.PhoneRegisterStatusCodeRiskFace,
+		system.PhoneRegisterStatusCodeRiskQuota,
+	}
+}
+
+func isPhoneRegisterRiskStatusCode(statusCode *int) bool {
+	if statusCode == nil {
+		return false
+	}
+	return *statusCode == system.PhoneRegisterStatusCodeRiskFace || *statusCode == system.PhoneRegisterStatusCodeRiskQuota
+}
+
+func phoneRegisterRiskMinGap(ratio int, promoterID uint, bizDate string, seq int64) int64 {
+	var low, high int64
+	switch {
+	case ratio <= 10:
+		low, high = 5, 12
+	case ratio <= 20:
+		low, high = 3, 8
+	case ratio <= 35:
+		low, high = 2, 6
+	default:
+		low, high = 1, 4
+	}
+	value := int64(phoneRegisterRiskRandomFloat(fmt.Sprintf("gap:%d:%s:%d", promoterID, bizDate, seq)) * float64(high-low+1))
+	return low + value
+}
+
+func phoneRegisterRiskHitProbability(ratio int, seq int64, currentRiskCount int64, targetRiskCount int64, gap int64) float64 {
+	debt := targetRiskCount - currentRiskCount
+	expectedGap := float64(100) / float64(ratio)
+	base := 0.25
+	debtBoost := math.Min(float64(debt)*0.22, 0.45)
+	gapBoost := math.Min((float64(gap)/expectedGap)*0.18, 0.25)
+	return math.Max(0.15, math.Min(base+debtBoost+gapBoost, 0.88))
+}
+
+func phoneRegisterRiskReason(promoterID uint, bizDate string, seq int64, lastReason string, previousReason string) string {
+	if lastReason != "" && lastReason == previousReason {
+		if lastReason == phoneRegisterRiskReasonFace {
+			return phoneRegisterRiskReasonQuota
+		}
+		return phoneRegisterRiskReasonFace
+	}
+	if phoneRegisterRiskRandomFloat(fmt.Sprintf("reason:%d:%s:%d", promoterID, bizDate, seq)) < 0.65 {
+		return phoneRegisterRiskReasonFace
+	}
+	return phoneRegisterRiskReasonQuota
+}
+
+func defaultPhoneRegisterRiskRandomFloat(seed string) float64 {
+	sum := sha256.Sum256([]byte(seed))
+	n := binary.BigEndian.Uint64(sum[:8])
+	return float64(n) / float64(^uint64(0))
+}
+
+func (s *PhoneRegisterTaskService) riskFailTaskTx(tx *gorm.DB, task *system.SysPhoneRegisterTask, decision phoneRegisterRiskDecision, now time.Time) error {
+	if task == nil {
+		return errors.New("任务不存在")
+	}
+	task.Status = system.PhoneRegisterStatusFailed
+	task.StatusCode = &decision.StatusCode
+	task.LastError = decision.Reason
+	task.CacheStatus = system.PhoneRegisterCacheStatusPending
+	task.FinishedAt = &now
+	task.LastHeartbeatAt = &now
+	task.PendingCode = ""
+	task.CodeRequestedAt = nil
+	if err := tx.Model(task).
+		Select("status", "status_code", "last_error", "cache_status", "finished_at", "last_heartbeat_at", "pending_code", "code_requested_at", "updated_at").
+		Updates(task).Error; err != nil {
+		return err
+	}
+	return tx.Create(&system.SysPhoneRegisterTaskLog{
+		TaskID:   task.ID,
+		DeviceID: stringValue(task.HolderDeviceID),
+		Message:  fmt.Sprintf("系统判定失败：%s，配置比例%d%%，当天成功上报序号%d", decision.Reason, decision.Ratio, decision.Seq),
+	}).Error
+}
+
+func (s *PhoneRegisterTaskService) findRiskCacheUploadTaskByDeviceTx(tx *gorm.DB, deviceID string) (system.SysPhoneRegisterTask, bool, error) {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return system.SysPhoneRegisterTask{}, false, errors.New("deviceId不能为空")
+	}
+	var task system.SysPhoneRegisterTask
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("holder_device_id = ?", deviceID).
+		Where("finished_at IS NOT NULL").
+		Where("status = ?", system.PhoneRegisterStatusFailed).
+		Where("status_code IN ?", phoneRegisterRiskStatusCodes()).
+		Where("(cache_status = ? OR cache_status = '')", system.PhoneRegisterCacheStatusPending).
+		Order("id desc").
+		First(&task).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return system.SysPhoneRegisterTask{}, false, nil
+		}
+		return system.SysPhoneRegisterTask{}, false, err
+	}
+	return task, true, nil
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
 func (s *PhoneRegisterTaskService) CompleteTaskAfterQQCacheUploadTx(tx *gorm.DB, deviceID string, qqCacheRecordID uint, qqNum string) (system.SysPhoneRegisterTask, error) {
 	task, found, err := s.findUniqueOpenTaskByDeviceTx(tx, deviceID, true)
 	if err != nil {
 		return system.SysPhoneRegisterTask{}, err
 	}
 	if !found {
-		return system.SysPhoneRegisterTask{}, errors.New("当前设备暂无待上传缓存的手机号注册任务")
+		task, found, err = s.findRiskCacheUploadTaskByDeviceTx(tx, deviceID)
+		if err != nil {
+			return system.SysPhoneRegisterTask{}, err
+		}
+		if !found {
+			return system.SysPhoneRegisterTask{}, errors.New("当前设备暂无待上传缓存的手机号注册任务")
+		}
 	}
-	if task.Status != system.PhoneRegisterStatusRegisteredWaitUpload {
+	if task.Status != system.PhoneRegisterStatusRegisteredWaitUpload && !isPhoneRegisterRiskStatusCode(task.StatusCode) {
 		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于待上传缓存状态")
 	}
 	now := time.Now()
 	successCode := system.PhoneRegisterStatusCodeSucceeded
-	task.Status = system.PhoneRegisterStatusSucceeded
-	task.StatusCode = &successCode
+	riskTask := isPhoneRegisterRiskStatusCode(task.StatusCode)
+	if !riskTask {
+		task.Status = system.PhoneRegisterStatusSucceeded
+		task.StatusCode = &successCode
+		task.LastError = ""
+		task.FinishedAt = &now
+	}
 	task.QQNum = strings.TrimSpace(qqNum)
 	task.QQCacheRecordID = &qqCacheRecordID
 	task.CacheStatus = system.PhoneRegisterCacheStatusUploaded
-	task.FinishedAt = &now
 	task.HolderDeviceID = nil
 	task.PendingCode = ""
 	task.CodeRequestedAt = nil
-	task.LastError = ""
 	if err := tx.Model(&task).
 		Select("status", "status_code", "qq_num", "qq_cache_record_id", "cache_status", "finished_at", "holder_device_id", "pending_code", "code_requested_at", "last_error", "updated_at").
 		Updates(task).Error; err != nil {
@@ -1068,9 +1443,11 @@ func (s *PhoneRegisterTaskService) AttachOpenAPICacheTx(tx *gorm.DB, deviceID st
 		task.LastError = ""
 		updates["last_error"] = ""
 	}
+	updates["holder_device_id"] = nil
 	if err := tx.Model(&task).Updates(updates).Error; err != nil {
 		return system.SysPhoneRegisterTask{}, err
 	}
+	task.HolderDeviceID = nil
 	return task, nil
 }
 
