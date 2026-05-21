@@ -51,8 +51,8 @@
           </template>
         </el-table-column>
         <el-table-column align="left" label="昵称" min-width="140" prop="nickName" />
-        <el-table-column align="left" label="手机号" min-width="160" prop="phone" />
-        <el-table-column align="left" label="邮箱" min-width="180" prop="email" />
+        <!-- <el-table-column align="left" label="手机号" min-width="160" prop="phone" /> -->
+        <!-- <el-table-column align="left" label="邮箱" min-width="180" prop="email" /> -->
         <el-table-column align="left" label="最近登录IP" min-width="150" prop="lastLoginIp" />
         <el-table-column align="left" label="最近登录时间" min-width="190">
           <template #default="scope">
@@ -69,7 +69,7 @@
             <span>{{ relationText(scope.row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="useLeaderTree" align="left" label="缓存抽检比例" min-width="190">
+        <el-table-column v-if="useLeaderTree" align="left" label="风控比例" min-width="190">
           <template #default="scope">
             <div v-if="canConfigureCacheSample(scope.row)" class="cache-sample-cell">
               <span>{{ cacheSampleText(scope.row) }}</span>
@@ -158,7 +158,7 @@
 
     <el-dialog
       v-model="cacheSampleDialog"
-      title="缓存抽检比例"
+      title="风控比例"
       width="420px"
       destroy-on-close
       :close-on-click-modal="false"
@@ -489,7 +489,7 @@ const cacheSampleForm = ref({
 })
 const cacheSampleFormTip = computed(() => {
   if (cacheSampleForm.value.configured) {
-    return '当前账号使用自定义缓存抽检比例，范围 0-80%。'
+    return '当前账号使用自定义风控比例，范围 0-80%。'
   }
   if (cacheSampleForm.value.authorityId === ROLE_PROMOTER) {
     return '地推不单独配置时，优先继承所属团长；团长未配置则按 0% 生效。'
@@ -718,7 +718,7 @@ const submitCacheSampleConfig = async () => {
   if (!row) return
   const ratio = Number(cacheSampleForm.value.ratio || 0)
   if (cacheSampleForm.value.configured && (ratio < 0 || ratio > 80)) {
-    ElMessage.warning('缓存抽检比例必须在0-80之间')
+    ElMessage.warning('风控比例必须在0-80之间')
     return
   }
   const res = await setUserInfo({
@@ -728,7 +728,7 @@ const submitCacheSampleConfig = async () => {
     cacheSampleRatio: cacheSampleForm.value.configured ? ratio : null
   })
   if (res.code === 0) {
-    ElMessage.success('缓存抽检比例已保存')
+    ElMessage.success('风控比例已保存')
     cacheSampleDialog.value = false
     await fetchUsers()
   }
