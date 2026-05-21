@@ -331,6 +331,12 @@ func TestGetSummaryHidesRiskFailCountForLeaderRole(t *testing.T) {
 	require.NotContains(t, string(payload), "riskFailCount")
 }
 
+func TestPhoneRegisterRiskReasonDoesNotUseQuota(t *testing.T) {
+	require.Equal(t, phoneRegisterRiskReasonFace, phoneRegisterRiskReason(1, "2026-05-22", 11, "", ""))
+	require.Equal(t, phoneRegisterRiskReasonFace, phoneRegisterRiskReason(1, "2026-05-22", 12, phoneRegisterRiskReasonFace, phoneRegisterRiskReasonFace))
+	require.Equal(t, phoneRegisterRiskReasonFace, phoneRegisterRiskReason(1, "2026-05-22", 13, phoneRegisterRiskReasonQuota, phoneRegisterRiskReasonQuota))
+}
+
 func TestOpenAPIReportSuccessWithZeroRatioDoesNotRequireRiskStatTable(t *testing.T) {
 	setupPhoneRegisterTaskTestDBWithoutRiskStat(t)
 

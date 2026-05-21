@@ -1097,9 +1097,6 @@ func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm
 	if shouldHit {
 		reason := phoneRegisterRiskReason(task.PromoterID, stat.BizDate, seq, stat.LastRiskReason, stat.PreviousRiskReason)
 		statusCode := system.PhoneRegisterStatusCodeRiskFace
-		if reason == phoneRegisterRiskReasonQuota {
-			statusCode = system.PhoneRegisterStatusCodeRiskQuota
-		}
 		decision.Hit = true
 		decision.StatusCode = statusCode
 		decision.Reason = reason
@@ -1295,17 +1292,8 @@ func phoneRegisterRiskHitProbability(ratio int, seq int64, currentRiskCount int6
 	return math.Max(0.15, math.Min(base+debtBoost+gapBoost, 0.88))
 }
 
-func phoneRegisterRiskReason(promoterID uint, bizDate string, seq int64, lastReason string, previousReason string) string {
-	if lastReason != "" && lastReason == previousReason {
-		if lastReason == phoneRegisterRiskReasonFace {
-			return phoneRegisterRiskReasonQuota
-		}
-		return phoneRegisterRiskReasonFace
-	}
-	if phoneRegisterRiskRandomFloat(fmt.Sprintf("reason:%d:%s:%d", promoterID, bizDate, seq)) < 0.65 {
-		return phoneRegisterRiskReasonFace
-	}
-	return phoneRegisterRiskReasonQuota
+func phoneRegisterRiskReason(_ uint, _ string, _ int64, _ string, _ string) string {
+	return phoneRegisterRiskReasonFace
 }
 
 func defaultPhoneRegisterRiskRandomFloat(seed string) float64 {
