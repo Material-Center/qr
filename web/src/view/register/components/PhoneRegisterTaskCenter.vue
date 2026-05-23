@@ -17,7 +17,7 @@
       >
         <el-alert
           v-if="!submitStatus.enabled"
-          class="mb-2"
+          class="submit-disabled-alert"
           type="warning"
           show-icon
           :closable="false"
@@ -26,18 +26,18 @@
         <el-form-item label="手机号">
           <el-input
             v-model="phoneInput"
-            placeholder="请输入11位手机号"
-            maxlength="11"
-            show-word-limit
-            :disabled="!submitStatus.enabled"
+            type="textarea"
+            placeholder="请输入11位手机号，多个用换行、逗号或空格分隔"
+            :autosize="{ minRows: 3, maxRows: 8 }"
+            :disabled="!submitStatus.enabled || creatingTask"
           />
         </el-form-item>
         <el-form-item label="验证方式">
           <div class="sms-switch-row">
             <el-radio-group
               v-model="smsReceiveMode"
-              size="small"
-              :disabled="!submitStatus.enabled"
+              :size="actionButtonSize"
+              :disabled="!submitStatus.enabled || creatingTask"
               @change="persistSmsReceiveMode"
             >
               <el-radio-button label="PLATFORM_SEND">收码</el-radio-button>
@@ -50,14 +50,16 @@
         </el-form-item>
         <el-form-item>
           <el-button
-            size="small"
+            :size="actionButtonSize"
             type="primary"
-            :disabled="!submitStatus.enabled"
+            :loading="creatingTask"
+            :disabled="!submitStatus.enabled || creatingTask"
             @click="createTask"
           >提交</el-button>
           <el-button
-            size="small"
+            :size="actionButtonSize"
             :loading="refreshing"
+            :disabled="creatingTask"
             @click="manualRefresh"
           >刷新</el-button>
         </el-form-item>
@@ -77,7 +79,7 @@
       <div class="task-list-toolbar">
         <el-select
           v-model="taskListStatus"
-          size="small"
+          :size="actionButtonSize"
           class="status-filter"
           placeholder="注册状态"
           @change="handleStatusChange"
@@ -87,7 +89,7 @@
           <el-option label="失败" value="failed" />
         </el-select>
       </div>
-      <el-row :gutter="12" class="mb-3" style="font-size: 12px;">
+      <el-row :gutter="12" class="task-counter-row">
         <el-col :span="12">成功：{{ counters.success }}</el-col>
         <el-col :span="12">失败：{{ counters.fail }}</el-col>
       </el-row>
@@ -95,7 +97,7 @@
         <el-table
           :data="displayTaskRows"
           row-key="ID"
-          size="small"
+          :size="taskTableSize"
           class="my-task-table"
           :row-class-name="activeTaskRowClassName"
         >
@@ -128,12 +130,12 @@
               >
                 <el-input
                   v-model="verifyCodeMap[taskRowId(scope.row)]"
-                  size="small"
+                  :size="actionButtonSize"
                   :disabled="isVerifyCodeInputDisabled(scope.row)"
                   :placeholder="verifyCodeInputPlaceholder(scope.row)"
                 />
                 <el-button
-                  size="small"
+                  :size="actionButtonSize"
                   :type="isVerifyCodeSubmitted(scope.row) ? 'warning' : 'primary'"
                   :disabled="isVerifyCodeInputDisabled(scope.row)"
                   @click="submitCode(scope.row)"
@@ -179,7 +181,7 @@
           v-model:page-size="taskPageSize"
           :page-sizes="[40, 80, 120]"
           :total="taskTotal"
-          size="small"
+          :size="actionButtonSize"
           layout="total, sizes, prev, pager, next"
           @current-change="handlePageChange"
           @size-change="handlePageSizeChange"
@@ -220,6 +222,7 @@ const submittedVerifyCodeMap = ref({})
 const refreshTimer = ref(null)
 const countdownTimer = ref(null)
 const refreshing = ref(false)
+const creatingTask = ref(false)
 const submitStatus = ref({
   enabled: true,
   message: ''
@@ -237,6 +240,8 @@ const counters = ref({
 })
 
 const isMobile = computed(() => windowWidth.value <= 768)
+const actionButtonSize = computed(() => (isMobile.value ? 'small' : 'default'))
+const taskTableSize = computed(() => (isMobile.value ? 'small' : 'default'))
 const taskColumnWidth = computed(() => {
   if (isMobile.value) {
     return {
@@ -343,6 +348,45 @@ const persistSmsReceiveMode = (value) => {
     )
   } catch (_error) {
     // ignore storage write failures and keep page usable
+  }
+}
+
+const parsePhoneList = (value) => {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    return {
+      phones: [],
+      invalidPhones: [],
+      duplicateCount: 0
+    }
+  }
+
+  const parts = raw
+    .split(/[\s,，;；、]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const seen = new Set()
+  const phones = []
+  const invalidPhones = []
+  let duplicateCount = 0
+
+  parts.forEach((item) => {
+    if (!/^\d{11}$/.test(item)) {
+      invalidPhones.push(item)
+      return
+    }
+    if (seen.has(item)) {
+      duplicateCount++
+      return
+    }
+    seen.add(item)
+    phones.push(item)
+  })
+
+  return {
+    phones,
+    invalidPhones,
+    duplicateCount
   }
 }
 
@@ -559,27 +603,64 @@ const handlePageSizeChange = async () => {
 }
 
 const createTask = async () => {
+  if (creatingTask.value) return
   if (!submitStatus.value.enabled) {
     ElMessage.warning(submitStatus.value.message || '手机号注册已关闭')
     return
   }
-  const phone = String(phoneInput.value || '').trim()
-  if (!phone) {
+  const { phones, invalidPhones, duplicateCount } = parsePhoneList(phoneInput.value)
+  if (!phones.length && !invalidPhones.length) {
     ElMessage.warning('请先输入手机号')
     return
   }
-  if (!/^\d{11}$/.test(phone)) {
-    ElMessage.warning('手机号必须为11位数字')
+  if (invalidPhones.length) {
+    const sample = invalidPhones.slice(0, 3).join('、')
+    ElMessage.warning(`手机号必须为11位数字：${sample}`)
     return
   }
-  await createPhoneRegisterTask({
-    phone,
-    smsReceiveMode: smsReceiveMode.value
-  })
-  persistSmsReceiveMode(smsReceiveMode.value)
-  ElMessage.success('手机号已提交')
-  phoneInput.value = ''
-  await refreshAll({ silent: true })
+
+  creatingTask.value = true
+  const failedPhones = []
+  let successCount = 0
+  try {
+    for (const phone of phones) {
+      try {
+        const res = await createPhoneRegisterTask({
+          phone,
+          smsReceiveMode: smsReceiveMode.value
+        })
+        if (res?.code === 0) {
+          successCount++
+        } else {
+          failedPhones.push({
+            phone,
+            message: res?.msg || '提交失败'
+          })
+        }
+      } catch (e) {
+        failedPhones.push({
+          phone,
+          message: e?.message || '提交失败'
+        })
+      }
+    }
+
+    persistSmsReceiveMode(smsReceiveMode.value)
+    if (failedPhones.length) {
+      phoneInput.value = failedPhones.map((item) => item.phone).join('\n')
+      const duplicateText = duplicateCount > 0 ? `，已去重${duplicateCount}个` : ''
+      ElMessage.warning(`已提交${successCount}个，失败${failedPhones.length}个${duplicateText}：${failedPhones[0].message}`)
+    } else {
+      phoneInput.value = ''
+      const duplicateText = duplicateCount > 0 ? `，已去重${duplicateCount}个` : ''
+      ElMessage.success(successCount > 1 ? `已提交${successCount}个手机号${duplicateText}` : `手机号已提交${duplicateText}`)
+    }
+    if (successCount > 0) {
+      await refreshAll({ silent: true })
+    }
+  } finally {
+    creatingTask.value = false
+  }
 }
 
 const submitCode = async (task) => {
@@ -677,6 +758,10 @@ onBeforeUnmount(() => {
   padding: 10px;
 }
 
+.submit-disabled-alert {
+  margin-bottom: 12px;
+}
+
 .submit-card-title {
   display: flex;
   align-items: center;
@@ -712,6 +797,11 @@ onBeforeUnmount(() => {
   width: 140px;
 }
 
+.task-counter-row {
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+
 .table-wrap {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -737,6 +827,64 @@ onBeforeUnmount(() => {
 
 .verify-inline :deep(.el-input) {
   width: 112px;
+}
+
+@media (min-width: 769px) {
+  .phone-center :deep(.el-button) {
+    min-height: 36px;
+    padding: 0 16px;
+    font-size: 15px;
+  }
+
+  .sms-switch-row :deep(.el-radio-button__inner) {
+    min-height: 36px;
+    padding: 9px 16px;
+    font-size: 15px;
+  }
+
+  .status-filter {
+    width: 168px;
+  }
+
+  .task-counter-row {
+    margin-bottom: 14px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  .my-task-table {
+    font-size: 15px;
+  }
+
+  .my-task-table :deep(.el-table__cell) {
+    padding: 10px 0;
+  }
+
+  .my-task-table :deep(.cell) {
+    line-height: 1.5;
+  }
+
+  .my-task-table :deep(.el-tag) {
+    min-height: 28px;
+    padding: 0 10px;
+    font-size: 14px;
+  }
+
+  .verify-inline {
+    min-width: 220px;
+  }
+
+  .verify-inline :deep(.el-input) {
+    width: 138px;
+  }
+
+  .verify-inline :deep(.el-button) {
+    min-width: 76px;
+  }
+
+  .task-pagination :deep(.el-pagination) {
+    font-size: 14px;
+  }
 }
 
 .my-task-table :deep(.verify-code-row) {
