@@ -87,6 +87,16 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="缓存上报">
+          <el-select
+            v-model="searchInfo.cacheStatus"
+            clearable
+            style="width: 180px"
+          >
+            <el-option label="已上传" value="uploaded" />
+            <el-option label="未上传" value="not_uploaded" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="search" @click="fetchAll">查询</el-button>
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
@@ -392,6 +402,7 @@ const searchInfo = ref({
   promoterId: undefined,
   leaderId: undefined,
   status: undefined,
+  cacheStatus: undefined,
   smsReceiveMode: undefined,
   finishedAtRange: [],
   phone: '',
@@ -590,6 +601,7 @@ const fetchList = async () => {
     promoterId: searchInfo.value.promoterId,
     leaderId: searchInfo.value.leaderId,
     status: searchInfo.value.status || undefined,
+    cacheStatus: searchInfo.value.cacheStatus || undefined,
     smsReceiveMode: searchInfo.value.smsReceiveMode || undefined,
     phone: String(searchInfo.value.phone || '').trim() || undefined,
     qqNum: String(searchInfo.value.qqNum || '').trim() || undefined,
@@ -721,6 +733,7 @@ const resetSearch = () => {
     promoterId: undefined,
     leaderId: currentRoleId.value === ROLE_LEADER ? currentUserId.value : undefined,
     status: undefined,
+    cacheStatus: undefined,
     smsReceiveMode: undefined,
     finishedAtRange: defaultFinishedAtRange(),
     phone: '',

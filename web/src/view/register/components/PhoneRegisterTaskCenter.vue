@@ -26,7 +26,9 @@
         <el-form-item label="手机号">
           <el-input
             v-model="phoneInput"
-            placeholder="请输入手机号"
+            placeholder="请输入11位手机号"
+            maxlength="11"
+            show-word-limit
             :disabled="!submitStatus.enabled"
           />
         </el-form-item>
@@ -564,6 +566,10 @@ const createTask = async () => {
   const phone = String(phoneInput.value || '').trim()
   if (!phone) {
     ElMessage.warning('请先输入手机号')
+    return
+  }
+  if (!/^\d{11}$/.test(phone)) {
+    ElMessage.warning('手机号必须为11位数字')
     return
   }
   await createPhoneRegisterTask({

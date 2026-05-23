@@ -18,6 +18,7 @@ type PhoneRegisterTaskList struct {
 	LeaderID        uint   `json:"leaderId" form:"leaderId"`
 	Status          string `json:"status" form:"status"`
 	StatusCode      *int   `json:"statusCode" form:"statusCode"`
+	CacheStatus     string `json:"cacheStatus" form:"cacheStatus"`
 	Phone           string `json:"phone" form:"phone"`
 	QQNum           string `json:"qqNum" form:"qqNum"`
 	DeviceID        string `json:"deviceId" form:"deviceId"`

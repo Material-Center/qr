@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	modelCommonReq "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 	modelSystem "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	modelSystemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	"github.com/glebarez/sqlite"
@@ -89,6 +90,20 @@ func TestCreateTaskRejectsWhenPhoneRegisterDisabled(t *testing.T) {
 
 	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModePlatformSend)
 	require.EqualError(t, err, "手机号注册已关闭")
+}
+
+func TestCreateTaskRejectsInvalidPhoneFormat(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	cases := []string{
+		"1880000000",
+		"188000000000",
+		"1880000000a",
+	}
+	for _, phone := range cases {
+		_, err := (&PhoneRegisterTaskService{}).CreateTask(1, phone, modelSystem.PhoneRegisterSMSModePlatformSend)
+		require.EqualError(t, err, "手机号必须为11位数字")
+	}
 }
 
 func TestCreateTaskRejectsWhenPromoterTaskCreationDisabled(t *testing.T) {
@@ -179,6 +194,40 @@ func TestAttachOpenAPICacheAllowsFailedTaskAndKeepsFailure(t *testing.T) {
 	require.Equal(t, "注册失败", stored.LastError)
 	require.Equal(t, modelSystem.PhoneRegisterCacheStatusUploaded, stored.CacheStatus)
 	require.Equal(t, "3995613452", stored.QQNum)
+}
+
+func TestGetTaskListFiltersByCacheUploadStatus(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	tasks := []modelSystem.SysPhoneRegisterTask{
+		{Phone: "1880000000001", PromoterID: 1, CacheStatus: modelSystem.PhoneRegisterCacheStatusUploaded, Status: modelSystem.PhoneRegisterStatusSucceeded, StatusCode: &successCode, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "1880000000002", PromoterID: 1, CacheStatus: modelSystem.PhoneRegisterCacheStatusPending, Status: modelSystem.PhoneRegisterStatusSucceeded, StatusCode: &successCode, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "1880000000003", PromoterID: 1, CacheStatus: modelSystem.PhoneRegisterCacheStatusTimeout, Status: modelSystem.PhoneRegisterStatusSucceeded, StatusCode: &successCode, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "1880000000004", PromoterID: 1, CacheStatus: "", Status: modelSystem.PhoneRegisterStatusSucceeded, StatusCode: &successCode, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+	}
+	require.NoError(t, global.GVA_DB.Create(&tasks).Error)
+
+	uploaded, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskList{
+		PageInfo:    modelCommonReq.PageInfo{Page: 1, PageSize: 20},
+		CacheStatus: "uploaded",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, uploaded.Total)
+	require.Len(t, uploaded.List, 1)
+	require.Equal(t, modelSystem.PhoneRegisterCacheStatusUploaded, uploaded.List[0].CacheStatus)
+
+	notUploaded, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskList{
+		PageInfo:    modelCommonReq.PageInfo{Page: 1, PageSize: 20},
+		CacheStatus: "not_uploaded",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 3, notUploaded.Total)
+	require.Len(t, notUploaded.List, 3)
+	for _, item := range notUploaded.List {
+		require.NotEqual(t, modelSystem.PhoneRegisterCacheStatusUploaded, item.CacheStatus)
+	}
 }
 
 func TestOpenAPIReportFailureKeepsHolderForCacheUpload(t *testing.T) {

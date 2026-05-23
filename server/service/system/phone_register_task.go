@@ -102,6 +102,9 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	if phone == "" {
 		return system.SysPhoneRegisterTask{}, errors.New("手机号不能为空")
 	}
+	if !isValidPhoneRegisterTaskPhone(phone) {
+		return system.SysPhoneRegisterTask{}, errors.New("手机号必须为11位数字")
+	}
 	blocked, err := s.IsPhoneBlocked(phone)
 	if err != nil {
 		return system.SysPhoneRegisterTask{}, err
@@ -143,6 +146,18 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		return system.SysPhoneRegisterTask{}, err
 	}
 	return task, nil
+}
+
+func isValidPhoneRegisterTaskPhone(phone string) bool {
+	if len(phone) != 11 {
+		return false
+	}
+	for _, ch := range phone {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *PhoneRegisterTaskService) IsSubmitEnabled() (bool, error) {
@@ -1708,6 +1723,12 @@ func applyPhoneRegisterTaskQueryFilters(db *gorm.DB, req systemReq.PhoneRegister
 	}
 	if req.StatusCode != nil {
 		db = db.Where("status_code = ?", *req.StatusCode)
+	}
+	switch cacheStatus := strings.TrimSpace(req.CacheStatus); cacheStatus {
+	case system.PhoneRegisterCacheStatusUploaded:
+		db = db.Where("cache_status = ?", system.PhoneRegisterCacheStatusUploaded)
+	case "not_uploaded":
+		db = db.Where("(cache_status IS NULL OR cache_status = '' OR cache_status <> ?)", system.PhoneRegisterCacheStatusUploaded)
 	}
 	if phone := strings.TrimSpace(req.Phone); phone != "" {
 		db = db.Where("phone LIKE ?", "%"+phone+"%")
