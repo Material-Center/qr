@@ -34,6 +34,7 @@
         class="account-table"
         :tree-props="{ children: 'children' }"
         :row-class-name="accountRowClassName"
+        :expand-row-keys="expandedAccountRowKeys"
       >
         <el-table-column v-if="useLeaderTree" width="44" />
         <el-table-column align="left" label="头像" min-width="75">
@@ -475,6 +476,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
+const expandedAccountRowKeys = ref([])
 const leaderOptions = ref([])
 const currentUserId = computed(() => userStore.userInfo?.ID)
 const cacheSampleDialog = ref(false)
@@ -534,11 +536,16 @@ const fetchUsers = async () => {
     if (useLeaderTree.value) {
       const roots = buildLeaderTree(list)
       const start = (page.value - 1) * pageSize.value
-      tableData.value = roots.slice(start, start + pageSize.value)
+      const pageRoots = roots.slice(start, start + pageSize.value)
+      tableData.value = pageRoots
+      expandedAccountRowKeys.value = pageRoots
+        .filter((item) => Array.isArray(item.children) && item.children.length > 0)
+        .map(accountRowKey)
       total.value = roots.length
       return
     }
     tableData.value = filterByRole(list)
+    expandedAccountRowKeys.value = []
     total.value = res.data.total
   }
 }
