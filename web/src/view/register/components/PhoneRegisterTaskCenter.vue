@@ -261,7 +261,7 @@ const taskColumnWidth = computed(() => {
     phone: 130,
     status: 130,
     qqNum: 120,
-    verifyCode: 200,
+    verifyCode: 260,
     error: 160,
     finishedAt: 170
   }
@@ -875,10 +875,12 @@ onBeforeUnmount(() => {
   }
 
   .verify-inline :deep(.el-input) {
+    flex: 0 0 138px;
     width: 138px;
   }
 
   .verify-inline :deep(.el-button) {
+    flex: 0 0 auto;
     min-width: 76px;
   }
 
