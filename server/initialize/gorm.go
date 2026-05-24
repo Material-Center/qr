@@ -68,6 +68,7 @@ func RegisterTables() {
 		system.SysRegisterTask{},
 		system.SysPhoneRegisterTask{},
 		system.SysPhoneRegisterTaskLog{},
+		system.SysPhoneRegisterRiskDailyStat{},
 		system.SysRegisterConfig{},
 		system.SysQQCacheRecord{},
 
