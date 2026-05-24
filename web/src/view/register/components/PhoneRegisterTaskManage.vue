@@ -267,6 +267,11 @@
               <el-table :data="summary.promoters" size="small">
                 <el-table-column label="地推ID" prop="promoterId" width="90" />
                 <el-table-column label="地推名称" prop="promoterName" min-width="100" />
+                <el-table-column v-if="showPromoterLeaderColumn" label="所属团长" min-width="110">
+                  <template #default="scope">
+                    <span>{{ scope.row.leaderName || '-' }}</span>
+                  </template>
+                </el-table-column>
                 <el-table-column label="成功" prop="successCount" width="80" />
                 <el-table-column label="失败" prop="failCount" width="80" />
                 <el-table-column v-if="canSettle" label="风控数" prop="riskFailCount" width="90" />
@@ -388,6 +393,7 @@ const showSummary = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].include
 const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const showPromoterLeaderColumn = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showDailyResetTip = computed(() => currentRoleId.value === ROLE_LEADER)
 const logDialogTitle = computed(() => {
   if (!logTask.value) return '任务日志'

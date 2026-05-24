@@ -21,6 +21,7 @@ import (
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -32,6 +33,21 @@ const (
 
 var phoneRegisterOpenAPIKeys = []string{
 	"pr_openapi_4be963e4c074492ecfbd563d4445609e34e1067222831d03",
+}
+
+func logPhoneRegisterOpenAPIRequest(c *gin.Context, action string, fields ...zap.Field) {
+	if global.GVA_LOG == nil {
+		return
+	}
+	baseFields := []zap.Field{
+		zap.String("action", action),
+		zap.String("method", c.Request.Method),
+		zap.String("path", c.FullPath()),
+		zap.String("clientIP", c.ClientIP()),
+		zap.String("contentType", c.ContentType()),
+		zap.String("userAgent", c.Request.UserAgent()),
+	}
+	global.GVA_LOG.Info("手机号注册OpenAPI入参", append(baseFields, fields...)...)
 }
 
 // OpenAPIPollPhoneRegisterTask
@@ -51,6 +67,11 @@ func (a *PhoneRegisterTaskApi) OpenAPIPollPhoneRegisterTask(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	logPhoneRegisterOpenAPIRequest(c, "poll",
+		zap.String("deviceId", strings.TrimSpace(req.DeviceID)),
+		zap.Uint("taskId", req.TaskID),
+		zap.String("verifyMode", strings.TrimSpace(c.Query("verifyMode"))),
+	)
 	task, found, err := phoneRegisterTaskService.OpenAPIPoll(req, c.Query("verifyMode"))
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
@@ -82,6 +103,10 @@ func (a *PhoneRegisterTaskApi) OpenAPIGetPhoneRegisterTask(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	logPhoneRegisterOpenAPIRequest(c, "get_task",
+		zap.String("deviceId", strings.TrimSpace(req.DeviceID)),
+		zap.Uint("taskId", req.TaskID),
+	)
 	task, found, err := phoneRegisterTaskService.DeviceTask(systemReq.PhoneRegisterDeviceTask{DeviceID: req.DeviceID})
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
@@ -108,6 +133,10 @@ func (a *PhoneRegisterTaskApi) OpenAPIGetVerifyCode(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	logPhoneRegisterOpenAPIRequest(c, "verify_code",
+		zap.String("deviceId", strings.TrimSpace(req.DeviceID)),
+		zap.Uint("taskId", req.TaskID),
+	)
 	task, err := getAndValidatePhoneRegisterOpenAPITask(req.DeviceID, req.TaskID)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
@@ -154,6 +183,12 @@ func (a *PhoneRegisterTaskApi) OpenAPIReportPhoneRegisterTask(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	logPhoneRegisterOpenAPIRequest(c, "report",
+		zap.String("deviceId", strings.TrimSpace(req.DeviceID)),
+		zap.Uint("taskId", req.TaskID),
+		zap.String("status", strings.TrimSpace(req.Status)),
+		zap.String("reason", strings.TrimSpace(req.Reason)),
+	)
 
 	switch strings.ToLower(strings.TrimSpace(req.Status)) {
 	case phoneRegisterOpenAPIStatusFailed:
@@ -197,6 +232,13 @@ func (a *PhoneRegisterTaskApi) OpenAPIUploadPhoneRegisterCache(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	logPhoneRegisterOpenAPIRequest(c, "cache_upload",
+		zap.String("deviceId", strings.TrimSpace(req.DeviceID)),
+		zap.Uint("taskId", req.TaskID),
+		zap.String("clientId", strings.TrimSpace(req.ClientID)),
+		zap.String("deviceInfo", strings.TrimSpace(req.DeviceInfo)),
+		zap.Bool("qqPwdProvided", strings.TrimSpace(req.QQPwd) != ""),
+	)
 	data, err := extractPhoneRegisterZipFromRequest(c, req)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
