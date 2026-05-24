@@ -133,6 +133,7 @@
                   :size="actionButtonSize"
                   :disabled="isVerifyCodeInputDisabled(scope.row)"
                   :placeholder="verifyCodeInputPlaceholder(scope.row)"
+                  inputmode="numeric"
                 />
                 <el-button
                   :size="actionButtonSize"
@@ -202,6 +203,7 @@ import {
   submitPhoneRegisterTaskCode
 } from '@/api/phoneRegisterTask'
 import { formatDate } from '@/utils/format'
+import { isPromoterVerifyCodeValid } from '../utils/phoneRegisterTask'
 
 defineOptions({
   name: 'PhoneRegisterTaskCenter'
@@ -672,6 +674,10 @@ const submitCode = async (task) => {
   const verifyCode = String(verifyCodeMap.value?.[id] || '').trim()
   if (!verifyCode) {
     ElMessage.warning('验证码不能为空')
+    return
+  }
+  if (!isPromoterVerifyCodeValid(verifyCode)) {
+    ElMessage.warning('验证码必须为6位数字')
     return
   }
   await submitPhoneRegisterTaskCode({
