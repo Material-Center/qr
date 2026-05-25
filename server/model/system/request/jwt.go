@@ -5,10 +5,13 @@ import (
 	"github.com/google/uuid"
 )
 
+const TokenTypeOpenAPI = "openapi"
+
 // CustomClaims structure
 type CustomClaims struct {
 	BaseClaims
 	BufferTime int64
+	TokenType  string `json:"tokenType,omitempty"`
 	jwt.RegisteredClaims
 }
 

@@ -145,6 +145,14 @@
               @click="resetPasswordFunc(scope.row)"
               >重置密码</el-button
             >
+            <el-button
+              v-if="hasRole(scope.row, ROLE_PROMOTER)"
+              type="primary"
+              link
+              icon="key"
+              @click="createPromoterToken(scope.row)"
+              >生成Token</el-button
+            >
           </template>
         </el-table-column>
       </el-table>
@@ -188,6 +196,26 @@
         <div class="dialog-footer">
           <el-button @click="closeResetPwdDialog">取 消</el-button>
           <el-button type="primary" @click="confirmResetPassword">确 定</el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="tokenDialogVisible"
+      title="OpenAPI Token"
+      width="720px"
+      :close-on-click-modal="false"
+    >
+      <el-input
+        v-model="tokenResult"
+        type="textarea"
+        :rows="6"
+        readonly
+      />
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="tokenDialogVisible = false">关 闭</el-button>
+          <el-button type="primary" @click="copyToken">复制Token</el-button>
         </div>
       </template>
     </el-dialog>
@@ -282,6 +310,7 @@
     deleteUser
   } from '@/api/user'
 
+  import { createApiToken } from '@/api/sysApiToken'
   import { getAuthorityList } from '@/api/authority'
   import CustomPic from '@/components/customPic/index.vue'
   import WarningBar from '@/components/warningBar/warningBar.vue'
@@ -443,6 +472,34 @@
     nickName: '',
     password: ''
   })
+  const tokenDialogVisible = ref(false)
+  const tokenResult = ref('')
+
+  const createPromoterToken = async(row) => {
+    if (!hasRole(row, ROLE_PROMOTER)) {
+      ElMessage.warning('仅支持为地推账号生成Token')
+      return
+    }
+    const res = await createApiToken({
+      userId: row.ID,
+      authorityId: ROLE_PROMOTER,
+      days: 90,
+      remark: `phoneworker:${row.userName || row.ID}`
+    })
+    if (res.code === 0) {
+      tokenResult.value = res.data.token
+      tokenDialogVisible.value = true
+      ElMessage.success('Token已生成')
+    }
+  }
+
+  const copyToken = () => {
+    navigator.clipboard.writeText(tokenResult.value).then(() => {
+      ElMessage.success('Token已复制')
+    }).catch(() => {
+      ElMessage.error('复制失败，请手动复制')
+    })
+  }
 
   // 生成随机密码
   const generateRandomPassword = () => {

@@ -292,6 +292,8 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "手机号注册任务", Method: "POST", Path: "/phoneRegisterTask/device/heartbeat", Description: "设备上报手机号注册任务心跳"},
 		{ApiGroup: "手机号注册任务", Method: "POST", Path: "/phoneRegisterTask/device/report", Description: "设备上报手机号注册任务进度"},
 		{ApiGroup: "手机号注册任务", Method: "GET", Path: "/phoneRegisterTask/device/config", Description: "获取手机号注册设备配置"},
+		{ApiGroup: "手机号注册任务", Method: "GET", Path: "/phoneRegisterTask/open-api/promoter/device-stats", Description: "地推OpenAPI查询可用设备"},
+		{ApiGroup: "手机号注册任务", Method: "POST", Path: "/phoneRegisterTask/open-api/promoter/task", Description: "地推OpenAPI创建手机号注册任务"},
 	}
 	if err := db.Create(&entities).Error; err != nil {
 		return ctx, errors.Wrap(err, sysModel.SysApi{}.TableName()+"表数据初始化失败!")

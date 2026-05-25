@@ -101,15 +101,9 @@
                         :value="item.authorityId"
                      />
                  </el-select>
-             </el-form-item>
+            </el-form-item>
             <el-form-item label="有效期">
-                <el-select v-model="form.days" placeholder="请选择" style="width:100%">
-                    <el-option label="1天" :value="1" />
-                    <el-option label="7天" :value="7" />
-                    <el-option label="30天" :value="30" />
-                    <el-option label="90天" :value="90" />
-                    <el-option label="永久" :value="-1" />
-                </el-select>
+                <el-input model-value="90天" disabled />
             </el-form-item>
             <el-form-item label="备注">
                 <el-input v-model="form.remark" type="textarea" />
@@ -118,7 +112,7 @@
          <template #footer>
              <div style="flex: auto">
                  <el-button @click="drawerVisible = false">取消</el-button>
-                 <el-button type="primary" @click="submitIssuer">签发JWT</el-button>
+                 <el-button type="primary" @click="submitIssuer">签发Token</el-button>
              </div>
          </template>
     </el-drawer>
@@ -177,7 +171,7 @@ const curlCookie = ref('')
 const form = ref({
     userId: '',
     authorityId: '',
-    days: 30,
+    days: 90,
     remark: ''
 })
 
@@ -195,7 +189,7 @@ const getTableData = async () => {
 }
 
 const openDrawer = async () => {
-    form.value = { userId: '', authorityId: '', days: 30, remark: '' }
+    form.value = { userId: '', authorityId: '', days: 90, remark: '' }
     authorityOptions.value = []
     drawerVisible.value = true
     if (userOptions.value.length === 0) {

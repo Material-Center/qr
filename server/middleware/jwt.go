@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils"
 	"github.com/golang-jwt/jwt/v5"
 
@@ -40,6 +42,11 @@ func JWTAuth() gin.HandlerFunc {
 			}
 			response.NoAuth(err.Error(), c)
 			utils.ClearToken(c)
+			c.Abort()
+			return
+		}
+		if claims.TokenType == systemReq.TokenTypeOpenAPI || isStoredOpenAPIToken(token) {
+			response.NoAuth("OpenAPI token仅允许访问OpenAPI接口", c)
 			c.Abort()
 			return
 		}
@@ -86,4 +93,17 @@ func JWTAuth() gin.HandlerFunc {
 func isBlacklist(jwt string) bool {
 	_, ok := global.BlackCache.Get(jwt)
 	return ok
+}
+
+func isStoredOpenAPIToken(token string) bool {
+	if global.GVA_DB == nil || token == "" {
+		return false
+	}
+	var count int64
+	if err := global.GVA_DB.Model(&system.SysApiToken{}).
+		Where("token = ? AND status = ?", token, true).
+		Count(&count).Error; err != nil {
+		return false
+	}
+	return count > 0
 }

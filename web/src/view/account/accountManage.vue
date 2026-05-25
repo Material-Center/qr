@@ -103,7 +103,7 @@
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="220" fixed="right">
+        <el-table-column label="操作" min-width="300" fixed="right">
           <template #default="scope">
             <el-button type="primary" link icon="edit" @click="openEdit(scope.row)">
               编辑
@@ -113,6 +113,15 @@
             </el-button>
             <el-button type="primary" link icon="magic-stick" @click="openResetPwd(scope.row)">
               重置密码
+            </el-button>
+            <el-button
+              v-if="canCreatePromoterToken(scope.row)"
+              type="primary"
+              link
+              icon="key"
+              @click="createPromoterToken(scope.row)"
+            >
+              生成Token
             </el-button>
           </template>
         </el-table-column>
@@ -200,6 +209,24 @@
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="tokenDialogVisible"
+      title="OpenAPI Token"
+      width="720px"
+      :close-on-click-modal="false"
+    >
+      <el-input
+        v-model="tokenResult"
+        type="textarea"
+        :rows="6"
+        readonly
+      />
+      <template #footer>
+        <el-button @click="tokenDialogVisible = false">关闭</el-button>
+        <el-button type="primary" @click="copyToken">复制Token</el-button>
+      </template>
+    </el-dialog>
+
     <el-drawer
       v-model="showDrawer"
       :size="appStore.drawerSize"
@@ -274,6 +301,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAppStore } from '@/pinia'
 import { useUserStore } from '@/pinia/modules/user'
 import { deleteUser, getUserList, register, resetPassword, setUserInfo } from '@/api/user'
+import { createApiToken } from '@/api/sysApiToken'
 import CustomPic from '@/components/customPic/index.vue'
 import SelectImage from '@/components/selectImage/selectImage.vue'
 import { formatDate } from '@/utils/format'
@@ -350,6 +378,10 @@ const relationText = (row) => {
 
 const canConfigureCacheSample = (row) => {
   return [ROLE_LEADER, ROLE_PROMOTER].includes(row.authorityId)
+}
+
+const canCreatePromoterToken = (row) => {
+  return [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value) && row.authorityId === ROLE_PROMOTER
 }
 
 const cacheSampleText = (row) => {
@@ -735,6 +767,35 @@ const submitCacheSampleConfig = async () => {
     cacheSampleDialog.value = false
     await fetchUsers()
   }
+}
+
+const tokenDialogVisible = ref(false)
+const tokenResult = ref('')
+
+const createPromoterToken = async(row) => {
+  if (!canCreatePromoterToken(row)) {
+    ElMessage.warning('仅支持为地推账号生成Token')
+    return
+  }
+  const res = await createApiToken({
+    userId: row.ID,
+    authorityId: ROLE_PROMOTER,
+    days: 90,
+    remark: `phoneworker:${row.userName || row.ID}`
+  })
+  if (res.code === 0) {
+    tokenResult.value = res.data.token
+    tokenDialogVisible.value = true
+    ElMessage.success('Token已生成')
+  }
+}
+
+const copyToken = () => {
+  navigator.clipboard.writeText(tokenResult.value).then(() => {
+    ElMessage.success('Token已复制')
+  }).catch(() => {
+    ElMessage.error('复制失败，请手动复制')
+  })
 }
 
 const resetPwdDialog = ref(false)
