@@ -486,13 +486,23 @@ func (a *QQCacheApi) ExportAccountList(c *gin.Context) {
 // @Security  ApiKeyAuth
 // @accept    multipart/form-data
 // @Produce   application/zip
-// @Param     qqFile  formData  file  true  "TXT文件，每行格式：QQ----状态"
+// @Param     qqFile         formData  file  true   "TXT文件，每行格式：QQ----状态"
+// @Param     markExtracted  formData  bool  false  "是否标记为已提取"
 // @Success   200     file      zip
 // @Router    /qqCache/exportIniZipByQQFile [post]
 func (a *QQCacheApi) ExportIniZipByQQFile(c *gin.Context) {
 	role := utils.GetUserAuthorityId(c)
 	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
 		response.FailWithMessage("仅管理员可导出缓存", c)
+		return
+	}
+	markExtractedText := strings.TrimSpace(c.PostForm("markExtracted"))
+	if markExtractedText == "" {
+		markExtractedText = strings.TrimSpace(c.Query("markExtracted"))
+	}
+	markExtracted, err := strconv.ParseBool(markExtractedText)
+	if err != nil && markExtractedText != "" {
+		response.FailWithMessage("markExtracted参数格式错误", c)
 		return
 	}
 	file, _, err := c.Request.FormFile("qqFile")
@@ -510,7 +520,13 @@ func (a *QQCacheApi) ExportIniZipByQQFile(c *gin.Context) {
 		response.FailWithMessage("TXT文件不能超过512KB", c)
 		return
 	}
-	zipBytes, count, err := qqCacheService.ExportIniZipByQQText(string(raw))
+	var zipBytes []byte
+	var count int
+	if markExtracted {
+		zipBytes, count, err = qqCacheService.ExportIniZipByQQTextAndMarkExtracted(string(raw), utils.GetUserID(c))
+	} else {
+		zipBytes, count, err = qqCacheService.ExportIniZipByQQText(string(raw))
+	}
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return

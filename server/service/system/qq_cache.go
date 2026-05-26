@@ -514,16 +514,62 @@ func (s *QQCacheService) ExportIniZipByIDs(ids []uint) ([]byte, int, error) {
 }
 
 func (s *QQCacheService) ExportIniZipByQQText(raw string) ([]byte, int, error) {
-	qqNums := parseQQCacheExportQQNums(raw)
-	if len(qqNums) == 0 {
-		return nil, 0, errors.New("未解析到QQ账号")
-	}
-	var records []system.SysQQCacheRecord
-	if err := global.GVA_DB.Where("qq_num IN ?", qqNums).Find(&records).Error; err != nil {
+	records, err := s.qqCacheRecordsByQQText(global.GVA_DB, raw)
+	if err != nil {
 		return nil, 0, err
 	}
+	return buildQQCacheIniZip(records)
+}
+
+func (s *QQCacheService) ExportIniZipByQQTextAndMarkExtracted(raw string, extractorID uint) ([]byte, int, error) {
+	var zipBytes []byte
+	var exportedCount int
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		records, err := s.qqCacheRecordsByQQText(tx.Clauses(clause.Locking{Strength: "UPDATE"}), raw)
+		if err != nil {
+			return err
+		}
+		builtZipBytes, count, err := buildQQCacheIniZip(records)
+		if err != nil {
+			return err
+		}
+		now := time.Now()
+		for _, record := range records {
+			if record.INI == nil || strings.TrimSpace(*record.INI) == "" {
+				continue
+			}
+			if err := tx.Model(&system.SysQQCacheRecord{}).
+				Where("id = ?", record.ID).
+				Updates(map[string]any{
+					"extractor":         extractorID,
+					"extract_record_id": record.ID,
+					"extraction_at":     now,
+					"updated_at":        now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		zipBytes = builtZipBytes
+		exportedCount = count
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return zipBytes, exportedCount, nil
+}
+
+func (s *QQCacheService) qqCacheRecordsByQQText(db *gorm.DB, raw string) ([]system.SysQQCacheRecord, error) {
+	qqNums := parseQQCacheExportQQNums(raw)
+	if len(qqNums) == 0 {
+		return nil, errors.New("未解析到QQ账号")
+	}
+	var records []system.SysQQCacheRecord
+	if err := db.Where("qq_num IN ?", qqNums).Find(&records).Error; err != nil {
+		return nil, err
+	}
 	if len(records) == 0 {
-		return nil, 0, errors.New("未找到匹配QQ缓存")
+		return nil, errors.New("未找到匹配QQ缓存")
 	}
 	recordMap := make(map[string]system.SysQQCacheRecord, len(records))
 	for _, record := range records {
@@ -536,9 +582,9 @@ func (s *QQCacheService) ExportIniZipByQQText(raw string) ([]byte, int, error) {
 		}
 	}
 	if len(ordered) == 0 {
-		return nil, 0, errors.New("未找到匹配QQ缓存")
+		return nil, errors.New("未找到匹配QQ缓存")
 	}
-	return buildQQCacheIniZip(ordered)
+	return ordered, nil
 }
 
 func (s *QQCacheService) ExportAccountListText(req systemReq.QQCacheExportAccountList) (string, int, error) {

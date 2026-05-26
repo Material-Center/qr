@@ -313,6 +313,34 @@ func TestExportIniZipByQQText(t *testing.T) {
 	require.True(t, names["账号.txt"])
 }
 
+func TestExportIniZipByQQTextAndMarkExtracted(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	ini1 := "qqnum=70001\nguid=GUID001\n"
+	ini2 := "qqnum=70002\nguid=GUID002\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "70001", QQPwd: "pwd1", INI: &ini1}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "70002", QQPwd: "pwd2", INI: &ini2}).Error)
+
+	zipBytes, count, err := (&QQCacheService{}).ExportIniZipByQQTextAndMarkExtracted(strings.Join([]string{
+		"70002----updated",
+		"70001----created",
+	}, "\n"), 88)
+	require.NoError(t, err)
+	require.NotEmpty(t, zipBytes)
+	require.EqualValues(t, 2, count)
+
+	var records []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num IN ?", []string{"70001", "70002"}).Find(&records).Error)
+	require.Len(t, records, 2)
+	for _, record := range records {
+		require.NotNil(t, record.Extractor)
+		require.EqualValues(t, 88, *record.Extractor)
+		require.NotNil(t, record.ExtractRecordID)
+		require.EqualValues(t, record.ID, *record.ExtractRecordID)
+		require.NotNil(t, record.ExtractionAt)
+	}
+}
+
 func TestExportAccountListTextBySelectedIDs(t *testing.T) {
 	setupQQCacheTestDB(t)
 

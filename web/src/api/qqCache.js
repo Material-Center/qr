@@ -50,15 +50,19 @@ export const exportPendingQQCacheIniZip = (payload, config = {}) => {
 }
 
 export const exportQQCacheIniZipByQQFile = (file, config = {}) => {
+  const { markExtracted = false, ...requestConfig } = config || {}
   const form = new FormData()
   form.append('qqFile', file)
+  if (markExtracted) {
+    form.append('markExtracted', 'true')
+  }
   return service({
     url: '/qqCache/exportIniZipByQQFile',
     method: 'post',
     data: form,
     responseType: 'blob',
     donNotShowLoading: true,
-    ...config
+    ...requestConfig
   })
 }
 

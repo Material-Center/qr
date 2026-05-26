@@ -47,6 +47,15 @@
         </el-upload>
         <el-upload
           class="qq-file-upload"
+          accept=".txt,text/plain"
+          :show-file-list="false"
+          :auto-upload="false"
+          :on-change="onExtractByQQFile"
+        >
+          <el-button type="warning" plain>按TXT提取</el-button>
+        </el-upload>
+        <el-upload
+          class="qq-file-upload"
           accept=".zip,application/zip"
           :show-file-list="false"
           :auto-upload="false"
@@ -458,6 +467,29 @@ const onExportByQQFile = async (uploadFile) => {
     await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
   } catch (e) {
     ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+const onExtractByQQFile = async (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file) {
+    ElMessage.warning('请先选择TXT文件')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确认按TXT提取并标记这些账号为已提取？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const res = await exportQQCacheIniZipByQQFile(file, { markExtracted: true })
+    const ok = await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+    if (ok) {
+      await fetchList()
+    }
+  } catch (e) {
+    if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || '提取失败')
   }
 }
 
