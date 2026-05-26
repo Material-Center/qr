@@ -29,6 +29,10 @@
       "name": "internal-tool"
     },
     {
+      "path": "phoneworker",
+      "name": "phoneworker"
+    },
+    {
       "path": "test",
       "name": "test"
     },

@@ -12,6 +12,7 @@ type workerConfig struct {
 	PhoneSource   *PhoneSourceClient
 	IdleThreshold int64
 	Interval      time.Duration
+	CreateDelay   time.Duration
 	Logger        *log.Logger
 }
 
@@ -20,6 +21,7 @@ type Worker struct {
 	PhoneSource   *PhoneSourceClient
 	IdleThreshold int64
 	Interval      time.Duration
+	CreateDelay   time.Duration
 	logger        *log.Logger
 }
 
@@ -27,6 +29,10 @@ func NewWorker(cfg workerConfig) *Worker {
 	interval := cfg.Interval
 	if interval <= 0 {
 		interval = 3 * time.Second
+	}
+	createDelay := cfg.CreateDelay
+	if createDelay < 0 {
+		createDelay = 0
 	}
 	idleThreshold := cfg.IdleThreshold
 	if idleThreshold < 0 {
@@ -41,6 +47,7 @@ func NewWorker(cfg workerConfig) *Worker {
 		PhoneSource:   cfg.PhoneSource,
 		IdleThreshold: idleThreshold,
 		Interval:      interval,
+		CreateDelay:   createDelay,
 		logger:        logger,
 	}
 }
@@ -76,6 +83,16 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	phone, err := w.PhoneSource.FetchPhone(ctx)
 	if err != nil {
 		return err
+	}
+	if w.CreateDelay > 0 {
+		w.logger.Printf("phone=%s waiting create delay=%s", phone, w.CreateDelay)
+		timer := time.NewTimer(w.CreateDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
 	}
 	taskID, err := w.System.CreateUserSentTask(ctx, phone)
 	if err != nil {

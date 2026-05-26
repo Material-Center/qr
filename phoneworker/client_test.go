@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -126,6 +127,50 @@ func TestRunOnceFetchesPhoneAndCreatesUserSentTaskWhenIdleDeviceCountIsAboveThre
 	}
 	if createdBody["smsReceiveMode"] != smsReceiveModeUserSent {
 		t.Fatalf("smsReceiveMode = %q", createdBody["smsReceiveMode"])
+	}
+}
+
+func TestRunOnceWaitsAfterFetchingPhoneBeforeCreatingTask(t *testing.T) {
+	sourceFetchedAt := make(chan time.Time, 1)
+	taskCreatedAt := make(chan time.Time, 1)
+	const createDelay = 50 * time.Millisecond
+
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(2)})
+		case "/phoneRegisterTask/open-api/promoter/task":
+			taskCreatedAt <- time.Now()
+			writeAPIResponse(t, w, 0, map[string]any{"id": float64(9)})
+		case "/base/login":
+			t.Fatal("login should not be called")
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer system.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sourceFetchedAt <- time.Now()
+		_ = json.NewEncoder(w).Encode(phoneSourceResponse{Code: 0, Data: "18878309701"})
+	}))
+	defer source.Close()
+
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(system.URL, "openapi-token", time.Second),
+		PhoneSource:   NewPhoneSourceClient(source.URL, time.Second),
+		IdleThreshold: 1,
+		CreateDelay:   createDelay,
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	fetchedAt := <-sourceFetchedAt
+	createdAt := <-taskCreatedAt
+	if elapsed := createdAt.Sub(fetchedAt); elapsed < createDelay {
+		t.Fatalf("create elapsed = %s, want at least %s", elapsed, createDelay)
 	}
 }
 

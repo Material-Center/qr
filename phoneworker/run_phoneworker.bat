@@ -6,6 +6,7 @@ set "DEFAULT_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJVVUlEIjoiZjAyMDY1ODUt
 set "PHONE_URL=http://206.238.179.123:37520/OPenApi/GetOrder?infor=vwZt5p4FmyeupCqMqKsC2ktcpczoBuX23akOGMEPlsw%%3D&project=wb3"
 set "TOKEN=%~1"
 set "INTERVAL=3s"
+set "CREATE_DELAY=0s"
 
 if not exist "%EXE%" (
   echo phoneworker executable not found: "%EXE%"
@@ -24,7 +25,8 @@ if "%TOKEN%"=="" (
 "%EXE%" ^
   -token "%TOKEN%" ^
   -phone-url "%PHONE_URL%" ^
-  -interval "%INTERVAL%"
+  -interval "%INTERVAL%" ^
+  -create-delay "%CREATE_DELAY%"
 
 echo.
 echo phoneworker exited with code %ERRORLEVEL%.

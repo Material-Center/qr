@@ -28,6 +28,7 @@ func run() error {
 		phoneURL      = flag.String("phone-url", defaultPhoneSourceURL, "phone source API URL")
 		interval      = flag.Duration("interval", 3*time.Second, "poll interval")
 		idleThreshold = flag.Int64("idle-threshold", 1, "create a task only when idle device count is greater than this value")
+		createDelay   = flag.Duration("create-delay", 0, "wait after fetching phone before creating task")
 		timeout       = flag.Duration("timeout", 10*time.Second, "HTTP request timeout")
 		once          = flag.Bool("once", false, "run one cycle and exit")
 	)
@@ -49,6 +50,7 @@ func run() error {
 		PhoneSource:   source,
 		IdleThreshold: *idleThreshold,
 		Interval:      *interval,
+		CreateDelay:   *createDelay,
 		Logger:        logger,
 	})
 
