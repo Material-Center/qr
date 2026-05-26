@@ -48,6 +48,11 @@ type uploadItem struct {
 	force bool
 }
 
+type accountListLine struct {
+	QQNum  string
+	Action string
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -68,6 +73,7 @@ func runQQCacheImport(args []string) {
 	dir := flags.String("dir", ".", "zip文件目录")
 	endpoint := flags.String("endpoint", "https://www.qq123qq.com/api/internalTool/qqCache/importZip", "内部工具导入接口地址")
 	force := flags.Bool("force", false, "是否强制覆盖已存在账号的缓存字段")
+	accountListOut := flags.String("account-list-out", "", "导入成功账号列表输出路径，默认输出到zip目录")
 	timeout := flags.Duration("timeout", 2*time.Minute, "单个文件上传超时时间")
 	if err := flags.Parse(args); err != nil {
 		fatal(err)
@@ -83,6 +89,7 @@ func runQQCacheImport(args []string) {
 
 	client := &http.Client{Timeout: *timeout}
 	var created, updated, skipped, failed int
+	accountLines := make([]accountListLine, 0, len(files))
 	for _, path := range files {
 		qq, pwd, err := parseZipFileName(path)
 		if err != nil {
@@ -99,6 +106,7 @@ func runQQCacheImport(args []string) {
 			}
 			if exists.Exists {
 				skipped++
+				accountLines = append(accountLines, accountListLine{QQNum: exists.QQNum, Action: "skipped"})
 				fmt.Printf("[skipped] qq=%s recordId=%d file=%s\n", exists.QQNum, exists.QQCacheRecordID, filepath.Base(path))
 				continue
 			}
@@ -122,9 +130,21 @@ func runQQCacheImport(args []string) {
 		case "skipped":
 			skipped++
 		}
+		accountLines = append(accountLines, accountListLine{QQNum: result.QQNum, Action: result.Action})
 		fmt.Printf("[%s] qq=%s recordId=%d file=%s\n", result.Action, result.QQNum, result.QQCacheRecordID, filepath.Base(path))
 	}
 
+	if len(accountLines) > 0 {
+		outPath := buildAccountListOutPath(*dir, *accountListOut, func() string {
+			return time.Now().Format("20060102_150405")
+		})
+		if err := writeAccountList(outPath, accountLines); err != nil {
+			failed++
+			fmt.Printf("[失败] 写入账号列表失败: %v\n", err)
+		} else {
+			fmt.Printf("账号列表: %s\n", outPath)
+		}
+	}
 	fmt.Printf("完成: created=%d updated=%d skipped=%d failed=%d total=%d\n", created, updated, skipped, failed, len(files))
 	if failed > 0 {
 		os.Exit(1)
@@ -133,7 +153,7 @@ func runQQCacheImport(args []string) {
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "用法:")
-	fmt.Fprintln(os.Stderr, "  internal-tool qq-cache-import -dir <zip目录> -endpoint <接口地址> [-force]")
+	fmt.Fprintln(os.Stderr, "  internal-tool qq-cache-import -dir <zip目录> -endpoint <接口地址> [-force] [-account-list-out <txt路径>]")
 }
 
 func parseZipFileName(path string) (string, string, error) {
@@ -249,6 +269,36 @@ func uploadZip(client *http.Client, endpoint string, item uploadItem) (importRes
 		return importResultData{}, errors.New(parsed.Msg)
 	}
 	return parsed.Data, nil
+}
+
+func buildAccountListOutPath(dir string, explicit string, timestamp func() string) string {
+	explicit = strings.TrimSpace(explicit)
+	if explicit != "" {
+		return explicit
+	}
+	return filepath.Join(dir, fmt.Sprintf("qq_cache_import_accounts_%s.txt", timestamp()))
+}
+
+func writeAccountList(path string, lines []accountListLine) error {
+	var b strings.Builder
+	for _, line := range lines {
+		qq := strings.TrimSpace(line.QQNum)
+		if qq == "" {
+			continue
+		}
+		action := strings.TrimSpace(line.Action)
+		if action == "" {
+			action = "-"
+		}
+		b.WriteString(qq)
+		b.WriteString("----")
+		b.WriteString(action)
+		b.WriteString("\r\n")
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
 func fatal(err error) {

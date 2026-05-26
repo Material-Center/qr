@@ -45,6 +45,15 @@
         >
           <el-button type="info">按TXT导出</el-button>
         </el-upload>
+        <el-upload
+          class="qq-file-upload"
+          accept=".zip,application/zip"
+          :show-file-list="false"
+          :auto-upload="false"
+          :on-change="onImportZip"
+        >
+          <el-button type="success" plain>导入缓存包</el-button>
+        </el-upload>
         <div class="account-list-export-tool">
           <el-tooltip
             effect="dark"
@@ -179,6 +188,7 @@ import {
   exportQQCacheIniZip,
   getQQCacheBillingHistory,
   getQQCacheList,
+  importQQCacheZip,
   resetQQCacheExtract,
   settleQQCacheBilling
 } from '@/api/qqCache'
@@ -448,6 +458,31 @@ const onExportByQQFile = async (uploadFile) => {
     await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
   } catch (e) {
     ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+const onImportZip = async (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file) {
+    ElMessage.warning('请先选择ZIP文件')
+    return
+  }
+  const filename = String(file.name || '').toLowerCase()
+  if (!filename.endsWith('.zip')) {
+    ElMessage.warning('请上传ZIP缓存包')
+    return
+  }
+  try {
+    const res = await importQQCacheZip(file)
+    if (res?.code !== 0) {
+      return
+    }
+    const { data } = res
+    const action = data?.action === 'updated' ? '已覆盖' : '已导入'
+    ElMessage.success(`${data?.qqNum || '缓存包'}${action}`)
+    await fetchList()
+  } catch (e) {
+    ElMessage.error(e?.message || '导入失败')
   }
 }
 

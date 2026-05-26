@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
+	systemModel "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils"
@@ -96,8 +97,30 @@ func (a *QQCacheApi) InternalToolImportQQCacheZip(c *gin.Context) {
 		response.FailWithMessage("force参数格式错误", c)
 		return
 	}
+	a.importQQCacheZip(c, force, true)
+}
+
+// AdminImportQQCacheZip
+// @Tags      QQCache
+// @Summary   管理端导入QQ缓存zip
+// @Security  ApiKeyAuth
+// @accept    multipart/form-data
+// @Produce   application/json
+// @Param     cacheZip  formData  file  true  "缓存zip"
+// @Success   200       {object}  response.Response{data=systemRes.InternalToolQQCacheImportResponse,msg=string}
+// @Router    /qqCache/importZip [post]
+func (a *QQCacheApi) AdminImportQQCacheZip(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可导入缓存", c)
+		return
+	}
+	a.importQQCacheZip(c, true, false)
+}
+
+func (a *QQCacheApi) importQQCacheZip(c *gin.Context, force bool, skipExistingBeforeExtract bool) {
 	qqNum := strings.TrimSpace(c.PostForm("qqNum"))
-	if !force && qqNum != "" {
+	if skipExistingBeforeExtract && !force && qqNum != "" {
 		record, found, err := qqCacheService.InternalToolFindQQCacheByQQNum(qqNum)
 		if err != nil {
 			response.FailWithMessage(err.Error(), c)
@@ -131,13 +154,22 @@ func (a *QQCacheApi) InternalToolImportQQCacheZip(c *gin.Context) {
 		response.FailWithMessage("zip内账号与请求账号不一致", c)
 		return
 	}
-	record, action, err := qqCacheService.InternalToolImportQQCache(systemReq.InternalToolQQCacheImport{
+	req := systemReq.InternalToolQQCacheImport{
 		QQNum:    qqNum,
 		QQPwd:    c.PostForm("qqPwd"),
 		INI:      extracted.INI,
 		DeviceID: c.PostForm("deviceId"),
 		Force:    force,
-	})
+	}
+	var (
+		record systemModel.SysQQCacheRecord
+		action string
+	)
+	if force {
+		record, action, err = qqCacheService.AdminImportQQCache(req)
+	} else {
+		record, action, err = qqCacheService.InternalToolImportQQCache(req)
+	}
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return

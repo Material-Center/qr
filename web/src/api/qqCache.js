@@ -62,6 +62,18 @@ export const exportQQCacheIniZipByQQFile = (file, config = {}) => {
   })
 }
 
+export const importQQCacheZip = (file, config = {}) => {
+  const form = new FormData()
+  form.append('cacheZip', file)
+  return service({
+    url: '/qqCache/importZip',
+    method: 'post',
+    data: form,
+    donNotShowLoading: true,
+    ...config
+  })
+}
+
 export const settleQQCacheBilling = () => {
   return service({
     url: '/qqCache/billing/settle',

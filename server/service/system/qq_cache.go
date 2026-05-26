@@ -124,6 +124,11 @@ func (s *QQCacheService) InternalToolImportQQCache(req systemReq.InternalToolQQC
 	return record, action, nil
 }
 
+func (s *QQCacheService) AdminImportQQCache(req systemReq.InternalToolQQCacheImport) (system.SysQQCacheRecord, string, error) {
+	req.Force = true
+	return s.InternalToolImportQQCache(req)
+}
+
 func (s *QQCacheService) UploadPhoneRegister(req systemReq.QQCacheUpload) (systemRes system.SysQQCacheRecord, task system.SysPhoneRegisterTask, err error) {
 	if strings.TrimSpace(req.DeviceID) == "" {
 		return system.SysQQCacheRecord{}, system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")

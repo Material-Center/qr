@@ -161,6 +161,32 @@ func TestInternalToolImportQQCacheForceUpdatesOnlyCacheFields(t *testing.T) {
 	require.Equal(t, billingSettledBy, *stored.BillingSettledBy)
 }
 
+func TestAdminImportQQCacheOverwritesExistingByDefault(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	oldINI := "old ini"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum: "10006",
+		QQPwd: "oldpwd",
+		INI:   &oldINI,
+	}).Error)
+
+	record, action, err := (&QQCacheService{}).AdminImportQQCache(systemReq.InternalToolQQCacheImport{
+		QQNum: "10006",
+		QQPwd: "newpwd",
+		INI:   "new ini",
+	})
+	require.NoError(t, err)
+	require.Equal(t, qqCacheInternalToolActionUpdated, action)
+	require.Equal(t, "newpwd", record.QQPwd)
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "10006").First(&stored).Error)
+	require.Equal(t, "newpwd", stored.QQPwd)
+	require.NotNil(t, stored.INI)
+	require.Equal(t, "new ini", *stored.INI)
+}
+
 func TestInternalToolImportQQCacheStoresClientVersion(t *testing.T) {
 	setupQQCacheTestDB(t)
 
