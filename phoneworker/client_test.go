@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -164,13 +165,214 @@ func TestRunOnceWaitsAfterFetchingPhoneBeforeCreatingTask(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
+	runOnceStartedAt := time.Now()
 	if err := worker.RunOnce(ctx); err != nil {
 		t.Fatalf("run once: %v", err)
 	}
+	if elapsed := time.Since(runOnceStartedAt); elapsed >= createDelay {
+		t.Fatalf("run once blocked for %s, want it to schedule delayed create without blocking", elapsed)
+	}
 	fetchedAt := <-sourceFetchedAt
-	createdAt := <-taskCreatedAt
+	var createdAt time.Time
+	select {
+	case createdAt = <-taskCreatedAt:
+	case <-ctx.Done():
+		t.Fatalf("wait create task: %v", ctx.Err())
+	}
 	if elapsed := createdAt.Sub(fetchedAt); elapsed < createDelay {
 		t.Fatalf("create elapsed = %s, want at least %s", elapsed, createDelay)
+	}
+}
+
+func TestRunOnceFetchesOnePhonePerIntervalWhileDelayedCreateIsPending(t *testing.T) {
+	const createDelay = 50 * time.Millisecond
+	var sourceCalls int64
+	createdPhones := make(chan string, 2)
+
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(3)})
+		case "/phoneRegisterTask/open-api/promoter/task":
+			var body map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			createdPhones <- body["phone"]
+			writeAPIResponse(t, w, 0, map[string]any{"id": float64(9)})
+		case "/base/login":
+			t.Fatal("login should not be called")
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer system.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next := atomic.AddInt64(&sourceCalls, 1)
+		_ = json.NewEncoder(w).Encode(phoneSourceResponse{Code: 0, Data: "1887830970" + string(rune('0'+next))})
+	}))
+	defer source.Close()
+
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(system.URL, "openapi-token", time.Second),
+		PhoneSource:   NewPhoneSourceClient(source.URL, time.Second),
+		IdleThreshold: 1,
+		CreateDelay:   createDelay,
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if got := atomic.LoadInt64(&sourceCalls); got != 1 {
+		t.Fatalf("source calls after first run = %d, want 1", got)
+	}
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("second run once: %v", err)
+	}
+	if got := atomic.LoadInt64(&sourceCalls); got != 2 {
+		t.Fatalf("source calls after second interval = %d, want 2", got)
+	}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-createdPhones:
+		case <-ctx.Done():
+			t.Fatalf("wait created phone %d: %v", i+1, ctx.Err())
+		}
+	}
+}
+
+func TestRunOnceReleasesInFlightCapacityWhenDelayedCreateFails(t *testing.T) {
+	var sourceCalls int64
+	var createCalls int64
+	phones := []string{"18878309701", "18878309702"}
+
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(2)})
+		case "/phoneRegisterTask/open-api/promoter/task":
+			atomic.AddInt64(&createCalls, 1)
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"code":7,"msg":"create failed"}`))
+		case "/base/login":
+			t.Fatal("login should not be called")
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer system.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		idx := int(atomic.AddInt64(&sourceCalls, 1)) - 1
+		if idx >= len(phones) {
+			idx = len(phones) - 1
+		}
+		_ = json.NewEncoder(w).Encode(phoneSourceResponse{Code: 0, Data: phones[idx]})
+	}))
+	defer source.Close()
+
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(system.URL, "openapi-token", time.Second),
+		PhoneSource:   NewPhoneSourceClient(source.URL, time.Second),
+		IdleThreshold: 1,
+		CreateDelay:   10 * time.Millisecond,
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	waitUntil(t, ctx, func() bool {
+		return atomic.LoadInt64(&createCalls) == 1 && worker.inFlight.Load() == 0
+	})
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("second run once: %v", err)
+	}
+	if got := atomic.LoadInt64(&sourceCalls); got != 2 {
+		t.Fatalf("source calls after failed create = %d, want 2", got)
+	}
+}
+
+func TestDelayedCreateRefreshesIdleAndCreatesEvenWhenCapacityIsGone(t *testing.T) {
+	var statsCalls int64
+	var createCalls int64
+	var sourceCalls int64
+	idleValue := atomic.Int64{}
+	idleValue.Store(2)
+
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			atomic.AddInt64(&statsCalls, 1)
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(idleValue.Load())})
+		case "/phoneRegisterTask/open-api/promoter/task":
+			atomic.AddInt64(&createCalls, 1)
+			writeAPIResponse(t, w, 0, map[string]any{"id": float64(9)})
+		case "/base/login":
+			t.Fatal("login should not be called")
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer system.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt64(&sourceCalls, 1)
+		_ = json.NewEncoder(w).Encode(phoneSourceResponse{Code: 0, Data: "18878309701"})
+	}))
+	defer source.Close()
+
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(system.URL, "openapi-token", time.Second),
+		PhoneSource:   NewPhoneSourceClient(source.URL, time.Second),
+		IdleThreshold: 1,
+		Interval:      10 * time.Millisecond,
+		CreateDelay:   10 * time.Millisecond,
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	idleValue.Store(1)
+	waitUntil(t, ctx, func() bool {
+		return atomic.LoadInt64(&statsCalls) >= 2 && atomic.LoadInt64(&createCalls) == 1 && worker.inFlight.Load() == 0
+	})
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("second run once: %v", err)
+	}
+	if got := atomic.LoadInt64(&sourceCalls); got != 1 {
+		t.Fatalf("source calls while idle is low = %d, want 1", got)
+	}
+	if got := atomic.LoadInt64(&createCalls); got != 1 {
+		t.Fatalf("create calls while idle is low = %d, want 1", got)
+	}
+
+	idleValue.Store(2)
+	if err := worker.RunOnce(ctx); err != nil {
+		t.Fatalf("third run once: %v", err)
+	}
+	if got := atomic.LoadInt64(&sourceCalls); got != 2 {
+		t.Fatalf("source calls after capacity returns = %d, want 2", got)
+	}
+}
+
+func waitUntil(t *testing.T, ctx context.Context, ok func() bool) {
+	t.Helper()
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if ok() {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("wait condition: %v", ctx.Err())
+		case <-ticker.C:
+		}
 	}
 }
 

@@ -57,7 +57,10 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if *once {
-		return worker.RunOnce(ctx)
+		if err := worker.RunOnce(ctx); err != nil {
+			return err
+		}
+		return worker.WaitIdle(ctx)
 	}
 	return worker.Run(ctx)
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -23,6 +25,8 @@ type Worker struct {
 	Interval      time.Duration
 	CreateDelay   time.Duration
 	logger        *log.Logger
+	inFlight      atomic.Int64
+	createMu      sync.Mutex
 }
 
 func NewWorker(cfg workerConfig) *Worker {
@@ -75,8 +79,10 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("check idle devices: %w", err)
 	}
-	w.logger.Printf("idle=%d threshold=%d", idle, w.IdleThreshold)
-	if idle <= w.IdleThreshold {
+	inFlight := w.inFlight.Load()
+	capacity := idle - w.IdleThreshold - inFlight
+	w.logger.Printf("idle=%d threshold=%d inFlight=%d capacity=%d", idle, w.IdleThreshold, inFlight, capacity)
+	if capacity <= 0 {
 		return nil
 	}
 
@@ -85,14 +91,8 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		return err
 	}
 	if w.CreateDelay > 0 {
-		w.logger.Printf("phone=%s waiting create delay=%s", phone, w.CreateDelay)
-		timer := time.NewTimer(w.CreateDelay)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timer.C:
-		}
+		w.scheduleDelayedCreate(ctx, phone)
+		return nil
 	}
 	taskID, err := w.System.CreateUserSentTask(ctx, phone)
 	if err != nil {
@@ -100,4 +100,60 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	}
 	w.logger.Printf("created task id=%d phone=%s mode=%s", taskID, phone, smsReceiveModeUserSent)
 	return nil
+}
+
+func (w *Worker) scheduleDelayedCreate(ctx context.Context, phone string) {
+	w.inFlight.Add(1)
+	w.logger.Printf("phone=%s scheduled create delay=%s", phone, w.CreateDelay)
+	go func() {
+		defer w.inFlight.Add(-1)
+		timer := time.NewTimer(w.CreateDelay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			w.logger.Printf("phone=%s canceled before create: %v", phone, ctx.Err())
+			return
+		case <-timer.C:
+		}
+
+		w.createDelayedTask(ctx, phone)
+	}()
+}
+
+func (w *Worker) createDelayedTask(ctx context.Context, phone string) {
+	w.createMu.Lock()
+	defer w.createMu.Unlock()
+
+	pendingOthers := w.inFlight.Load() - 1
+	if pendingOthers < 0 {
+		pendingOthers = 0
+	}
+	idle, err := w.System.IdleDeviceCount(ctx)
+	if err != nil {
+		w.logger.Printf("phone=%s refresh idle before create failed: %v", phone, err)
+	} else {
+		capacity := idle - w.IdleThreshold - pendingOthers
+		w.logger.Printf("phone=%s refreshed idle=%d threshold=%d pendingOthers=%d createCapacity=%d", phone, idle, w.IdleThreshold, pendingOthers, capacity)
+	}
+	taskID, err := w.System.CreateUserSentTask(ctx, phone)
+	if err != nil {
+		w.logger.Printf("create task phone=%s failed: %v", phone, err)
+		return
+	}
+	w.logger.Printf("created task id=%d phone=%s mode=%s", taskID, phone, smsReceiveModeUserSent)
+}
+
+func (w *Worker) WaitIdle(ctx context.Context) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if w.inFlight.Load() <= 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
