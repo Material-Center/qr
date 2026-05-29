@@ -276,8 +276,18 @@
                 <el-table-column label="失败" prop="failCount" width="80" />
                 <el-table-column v-if="canSettle" label="风控数" prop="riskFailCount" width="90" />
                 <el-table-column label="处理中" prop="processingCount" width="90" />
-                <el-table-column v-if="canSettle" label="已结算" prop="settledCount" width="90" />
-                <el-table-column v-if="canSettle" label="待结算" prop="unsettledCount" width="90" />
+                <el-table-column v-if="showAdminPromoterSummaryMetrics" label="总数" width="80">
+                  <template #default="scope">
+                    {{ promoterSummaryTotal(scope.row) }}
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="showAdminPromoterSummaryMetrics" label="成功率" width="90">
+                  <template #default="scope">
+                    {{ promoterSummarySuccessRate(scope.row) }}
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="showPromoterSettlementColumns" label="已结算" prop="settledCount" width="90" />
+                <el-table-column v-if="showPromoterSettlementColumns" label="待结算" prop="unsettledCount" width="90" />
               </el-table>
             </el-card>
           </el-col>
@@ -394,6 +404,8 @@ const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showPromoterLeaderColumn = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const showAdminPromoterSummaryMetrics = computed(() => currentRoleId.value === ROLE_ADMIN)
+const showPromoterSettlementColumns = computed(() => canSettle.value && currentRoleId.value !== ROLE_ADMIN)
 const showDailyResetTip = computed(() => currentRoleId.value === ROLE_LEADER)
 const logDialogTitle = computed(() => {
   if (!logTask.value) return '任务日志'
@@ -564,6 +576,16 @@ const cacheStatusTagType = (status) => {
   if (status === 'timeout') return 'danger'
   if (status === 'pending') return 'warning'
   return 'info'
+}
+
+const promoterSummaryTotal = (row) => {
+  return (Number(row?.successCount) || 0) + (Number(row?.failCount) || 0) + (Number(row?.processingCount) || 0)
+}
+
+const promoterSummarySuccessRate = (row) => {
+  const total = promoterSummaryTotal(row)
+  if (total <= 0) return '0%'
+  return `${((Number(row?.successCount) || 0) * 100 / total).toFixed(2)}%`
 }
 
 const loadLeaderOptions = async () => {
