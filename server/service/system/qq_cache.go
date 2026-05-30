@@ -447,7 +447,8 @@ func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint,
 			createdAtEnd,
 		)
 		if err := query.
-			Order("updated_at asc").
+			Order("created_at asc").
+			Order("id asc").
 			Limit(count).
 			Find(&records).Error; err != nil {
 			return err
@@ -456,9 +457,7 @@ func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint,
 			return errors.New("暂无待提取缓存")
 		}
 		now := time.Now()
-		ids := make([]uint, 0, len(records))
 		for _, rec := range records {
-			ids = append(ids, rec.ID)
 			if err := tx.Model(&system.SysQQCacheRecord{}).
 				Where("id = ?", rec.ID).
 				Where("extractor IS NULL").
@@ -471,7 +470,7 @@ func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint,
 				return err
 			}
 		}
-		return tx.Where("id IN ?", ids).Find(&records).Error
+		return nil
 	})
 	if err != nil {
 		return nil, 0, err

@@ -358,6 +358,27 @@ const handleZipDownload = async (res, fallbackName) => {
   return true
 }
 
+const qqCacheExtractZipName = (count) => {
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const timestamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`
+  return `qq-${Number(count) || 0}个-${timestamp}.zip`
+}
+
+const countQQNumsFromTextFile = async (file) => {
+  const raw = await file.text()
+  const seen = new Set()
+  raw.replace(/\r\n/g, '\n').split('\n').forEach((line) => {
+    const text = String(line || '').trim()
+    if (!text) return
+    const qqNum = text.split('----')[0].trim()
+    if (/^\d+$/.test(qqNum)) {
+      seen.add(qqNum)
+    }
+  })
+  return seen.size
+}
+
 const handleFileDownload = async (res, fallbackName) => {
   const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
   const blob = res?.data instanceof Blob ? res.data : null
@@ -446,7 +467,7 @@ const onExportPendingIniZip = async () => {
     const res = await exportPendingQQCacheIniZip({
       count
     })
-    const ok = await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+    const ok = await handleZipDownload(res, qqCacheExtractZipName(count))
     if (ok) {
       await fetchList()
     }
@@ -482,8 +503,9 @@ const onExtractByQQFile = async (uploadFile) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
+    const fallbackCount = await countQQNumsFromTextFile(file)
     const res = await exportQQCacheIniZipByQQFile(file, { markExtracted: true })
-    const ok = await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+    const ok = await handleZipDownload(res, qqCacheExtractZipName(fallbackCount))
     if (ok) {
       await fetchList()
     }
