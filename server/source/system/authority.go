@@ -53,6 +53,7 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 		{AuthorityId: 300, AuthorityName: "地推", ParentId: utils.Pointer[uint](200), DefaultRouter: "phoneRegisterTaskCenter"},
 		{AuthorityId: 400, AuthorityName: "App提取", ParentId: utils.Pointer[uint](100), DefaultRouter: "about"},
 		{AuthorityId: 500, AuthorityName: "App上传", ParentId: utils.Pointer[uint](100), DefaultRouter: "about"},
+		{AuthorityId: 600, AuthorityName: "销售", ParentId: utils.Pointer[uint](100), DefaultRouter: "qqCacheExtract"},
 	}
 
 	if err := db.Create(&entities).Error; err != nil {
@@ -67,6 +68,7 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 			{AuthorityId: 300},
 			{AuthorityId: 400},
 			{AuthorityId: 500},
+			{AuthorityId: 600},
 		}); err != nil {
 		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
 			db.Model(&entities[0]).Association("DataAuthorityId").Relationship.JoinTable.Name)
@@ -80,6 +82,7 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 			{AuthorityId: 300},
 			{AuthorityId: 400},
 			{AuthorityId: 500},
+			{AuthorityId: 600},
 		}); err != nil {
 		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
 			db.Model(&entities[3]).Association("DataAuthorityId").Relationship.JoinTable.Name)
@@ -108,6 +111,14 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 		}); err != nil {
 		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
 			db.Model(&entities[5]).Association("DataAuthorityId").Relationship.JoinTable.Name)
+	}
+	// 销售仅可见自身数据
+	if err := db.Model(&entities[6]).Association("DataAuthorityId").Replace(
+		[]*sysModel.SysAuthority{
+			{AuthorityId: 600},
+		}); err != nil {
+		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
+			db.Model(&entities[6]).Association("DataAuthorityId").Relationship.JoinTable.Name)
 	}
 
 	next := context.WithValue(ctx, i.InitializerName(), entities)

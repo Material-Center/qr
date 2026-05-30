@@ -264,6 +264,11 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/exportAccountList", Description: "管理端导出QQ账号列表(txt)"},
 		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/billing/settle", Description: "管理端结算QQ缓存计费数量"},
 		{ApiGroup: "QQ缓存", Method: "GET", Path: "/qqCache/billing/history", Description: "管理端查询QQ缓存计费结算历史"},
+		{ApiGroup: "QQ缓存", Method: "GET", Path: "/qqCache/sales/summary", Description: "销售查询缓存提取汇总"},
+		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/sales/extract", Description: "销售按数量提取QQ缓存"},
+		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/sales/history", Description: "销售查询提取历史"},
+		{ApiGroup: "QQ缓存", Method: "GET", Path: "/qqCache/sales/summaryList", Description: "管理端按销售查询提取汇总"},
+		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/sales/settle", Description: "管理端按销售结算QQ缓存"},
 		{ApiGroup: "QQ缓存", Method: "GET", Path: "/qqCache/roleHint", Description: "获取App角色提示"},
 		{ApiGroup: "QQ缓存", Method: "POST", Path: "/qqCache/uploadPhoneRegister", Description: "手机号注册上传QQ缓存并完成任务"},
 

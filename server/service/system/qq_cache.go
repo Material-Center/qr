@@ -23,6 +23,7 @@ const qqCacheExportIniMaxIDs = 100
 const (
 	qqCacheServiceRoleSuperAdmin = uint(888)
 	qqCacheServiceRoleAdmin      = uint(100)
+	qqCacheServiceRoleSales      = uint(600)
 )
 
 const (
@@ -423,14 +424,28 @@ func (s *QQCacheService) ResetExtractByID(id uint) error {
 	if id == 0 {
 		return errors.New("记录id不能为空")
 	}
-	return global.GVA_DB.Model(&system.SysQQCacheRecord{}).
-		Where("id = ?", id).
-		Updates(map[string]any{
-			"extractor":         nil,
-			"extract_record_id": nil,
-			"extraction_at":     nil,
-			"updated_at":        time.Now(),
-		}).Error
+	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		var record system.SysQQCacheRecord
+		if err := tx.Where("id = ?", id).First(&record).Error; err != nil {
+			return err
+		}
+		if record.ExtractRecordID != nil {
+			var batch system.SysQQCacheExtractBatch
+			if err := tx.Select("id").Where("id = ?", *record.ExtractRecordID).First(&batch).Error; err == nil {
+				return errors.New("销售提取记录不可重置")
+			} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return err
+			}
+		}
+		return tx.Model(&system.SysQQCacheRecord{}).
+			Where("id = ?", id).
+			Updates(map[string]any{
+				"extractor":         nil,
+				"extract_record_id": nil,
+				"extraction_at":     nil,
+				"updated_at":        time.Now(),
+			}).Error
+	})
 }
 
 func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint, createdAtStart string, createdAtEnd string) ([]byte, int, error) {
@@ -480,6 +495,323 @@ func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint,
 		return nil, 0, err
 	}
 	return zipBytes, exportedCount, nil
+}
+
+func (s *QQCacheService) ExportSalesPendingIniZipByCount(count int, extractorID uint) ([]byte, int, system.SysQQCacheExtractBatch, error) {
+	if count <= 0 {
+		return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("提取数量必须大于0")
+	}
+	var records []system.SysQQCacheRecord
+	var batch system.SysQQCacheExtractBatch
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("extractor IS NULL").
+			Where("ini IS NOT NULL AND TRIM(ini) <> ''").
+			Order("created_at asc").
+			Order("id asc").
+			Limit(count).
+			Find(&records).Error; err != nil {
+			return err
+		}
+		if len(records) == 0 {
+			return errors.New("暂无待提取缓存")
+		}
+		now := time.Now()
+		batch = system.SysQQCacheExtractBatch{
+			ExtractorID:   extractorID,
+			ExtractorName: s.salesExtractorName(tx, extractorID),
+			ExtractCount:  len(records),
+			Status:        system.QQCacheExtractBatchStatusPendingSettlement,
+			ExtractedAt:   now,
+		}
+		if err := tx.Create(&batch).Error; err != nil {
+			return err
+		}
+		ids := make([]uint, 0, len(records))
+		for _, rec := range records {
+			ids = append(ids, rec.ID)
+		}
+		rsp := tx.Model(&system.SysQQCacheRecord{}).
+			Where("id IN ? AND extractor IS NULL", ids).
+			Updates(map[string]any{
+				"extractor":         extractorID,
+				"extract_record_id": batch.ID,
+				"extraction_at":     now,
+				"updated_at":        now,
+			})
+		if rsp.Error != nil {
+			return rsp.Error
+		}
+		if rsp.RowsAffected != int64(len(records)) {
+			return errors.New("部分缓存已被提取，请重试")
+		}
+		if err := tx.Where("id IN ?", ids).Find(&records).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, system.SysQQCacheExtractBatch{}, err
+	}
+	zipBytes, exportedCount, err := buildQQCacheIniZip(records)
+	if err != nil {
+		return nil, 0, system.SysQQCacheExtractBatch{}, err
+	}
+	return zipBytes, exportedCount, batch, nil
+}
+
+func (s *QQCacheService) salesExtractorName(tx *gorm.DB, extractorID uint) string {
+	var user system.SysUser
+	if err := tx.Select("id, username, nick_name").Where("id = ?", extractorID).First(&user).Error; err != nil {
+		return fmt.Sprintf("ID %d", extractorID)
+	}
+	if strings.TrimSpace(user.NickName) != "" {
+		return strings.TrimSpace(user.NickName)
+	}
+	if strings.TrimSpace(user.Username) != "" {
+		return strings.TrimSpace(user.Username)
+	}
+	return fmt.Sprintf("ID %d", extractorID)
+}
+
+func (s *QQCacheService) GetSalesSummary(extractorID uint, date string) (systemRes.QQCacheSalesSummary, error) {
+	var summary systemRes.QQCacheSalesSummary
+	if err := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Where("extractor IS NULL").
+		Where("ini IS NOT NULL AND TRIM(ini) <> ''").
+		Count(&summary.Available).Error; err != nil {
+		return summary, err
+	}
+	startAt, endAt := qqCacheSalesDayRange(date)
+	base := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Where("extractor = ?", extractorID).
+		Where("extraction_at >= ? AND extraction_at <= ?", startAt, endAt)
+	if err := base.Count(&summary.TodayExtracted).Error; err != nil {
+		return summary, err
+	}
+	if err := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Where("extractor = ?", extractorID).
+		Where("extraction_at >= ? AND extraction_at <= ?", startAt, endAt).
+		Where("sales_settled_at IS NULL").
+		Count(&summary.TodayUnsettled).Error; err != nil {
+		return summary, err
+	}
+	summary.BillingTotal = summary.TodayExtracted
+	summary.BillingSettled = summary.TodayExtracted - summary.TodayUnsettled
+	return summary, nil
+}
+
+func (s *QQCacheService) ListSalesExtractHistory(extractorID uint, req systemReq.QQCacheSalesHistory) ([]systemRes.QQCacheSalesHistoryItem, int64, error) {
+	page := req.Page
+	pageSize := req.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 10
+	}
+	startAt, endAt := qqCacheSalesDayRange(req.Date)
+	db := global.GVA_DB.Model(&system.SysQQCacheExtractBatch{}).
+		Where("extractor_id = ?", extractorID).
+		Where("extracted_at >= ? AND extracted_at <= ?", startAt, endAt)
+	var total int64
+	if err := db.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var batches []system.SysQQCacheExtractBatch
+	if err := db.Order("extracted_at desc").Order("id desc").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Find(&batches).Error; err != nil {
+		return nil, 0, err
+	}
+	items := make([]systemRes.QQCacheSalesHistoryItem, 0, len(batches))
+	for _, batch := range batches {
+		items = append(items, systemRes.QQCacheSalesHistoryItem{
+			ID:                   batch.ID,
+			ExtractedAt:          batch.ExtractedAt,
+			ExtractCount:         batch.ExtractCount,
+			SettledCount:         batch.SettledCount,
+			SettlementStatus:     batch.Status,
+			SettlementStatusText: qqCacheSalesSettlementStatusText(batch.Status),
+			SettledAt:            batch.SettledAt,
+		})
+	}
+	return items, total, nil
+}
+
+func (s *QQCacheService) ListSalesSummaryForAdmin() ([]systemRes.QQCacheSalesAdminSummaryItem, error) {
+	type row struct {
+		ExtractorID         uint   `gorm:"column:extractor_id"`
+		ExtractedCount      int64  `gorm:"column:extracted_count"`
+		SettledCount        int64  `gorm:"column:settled_count"`
+		UnsettledCount      int64  `gorm:"column:unsettled_count"`
+		LastExtractionAtRaw string `gorm:"column:last_extraction_at"`
+	}
+	var rows []row
+	if err := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Select("extractor AS extractor_id, COUNT(1) AS extracted_count, SUM(CASE WHEN sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled_count, SUM(CASE WHEN sales_settled_at IS NULL THEN 1 ELSE 0 END) AS unsettled_count, MAX(extraction_at) AS last_extraction_at").
+		Where("extractor IS NOT NULL").
+		Group("extractor").
+		Order("last_extraction_at DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	userIDs := make([]uint, 0, len(rows))
+	for _, r := range rows {
+		userIDs = append(userIDs, r.ExtractorID)
+	}
+	userMap := map[uint]system.SysUser{}
+	if len(userIDs) > 0 {
+		var users []system.SysUser
+		if err := global.GVA_DB.Select("id, username, nick_name, authority_id").Where("id IN ? AND authority_id = ?", userIDs, qqCacheServiceRoleSales).Find(&users).Error; err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			userMap[user.ID] = user
+		}
+	}
+	items := make([]systemRes.QQCacheSalesAdminSummaryItem, 0, len(rows))
+	for _, r := range rows {
+		user := userMap[r.ExtractorID]
+		if user.ID == 0 {
+			continue
+		}
+		name := strings.TrimSpace(user.NickName)
+		if name == "" {
+			name = strings.TrimSpace(user.Username)
+		}
+		if name == "" {
+			name = fmt.Sprintf("ID %d", r.ExtractorID)
+		}
+		lastExtractionAt := parseQQCacheSalesSQLTime(r.LastExtractionAtRaw)
+		items = append(items, systemRes.QQCacheSalesAdminSummaryItem{
+			ExtractorID:      r.ExtractorID,
+			ExtractorName:    name,
+			Username:         user.Username,
+			NickName:         user.NickName,
+			ExtractedCount:   r.ExtractedCount,
+			SettledCount:     r.SettledCount,
+			UnsettledCount:   r.UnsettledCount,
+			LastExtractionAt: lastExtractionAt,
+		})
+	}
+	return items, nil
+}
+
+func (s *QQCacheService) SettleSalesBilling(operatorRole uint, operatorID uint, extractorID uint) (qqCacheBillingSettleResult, error) {
+	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
+		return qqCacheBillingSettleResult{}, errors.New("仅管理员可结算")
+	}
+	if extractorID == 0 {
+		return qqCacheBillingSettleResult{}, errors.New("提取人不能为空")
+	}
+	var extractor system.SysUser
+	if err := global.GVA_DB.Select("id, authority_id").Where("id = ?", extractorID).First(&extractor).Error; err != nil {
+		return qqCacheBillingSettleResult{}, errors.New("销售账号不存在")
+	}
+	if extractor.AuthorityId != qqCacheServiceRoleSales {
+		return qqCacheBillingSettleResult{}, errors.New("仅可结算销售账号")
+	}
+	settledAt := time.Now()
+	result := qqCacheBillingSettleResult{SettledAt: settledAt}
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		base := tx.Model(&system.SysQQCacheRecord{}).
+			Where("extractor = ? AND sales_settled_at IS NULL", extractorID)
+		if err := base.Count(&result.SettledCount).Error; err != nil {
+			return err
+		}
+		if result.SettledCount > 0 {
+			if err := tx.Model(&system.SysQQCacheRecord{}).
+				Where("extractor = ? AND sales_settled_at IS NULL", extractorID).
+				Updates(map[string]any{
+					"sales_settled_at": settledAt,
+					"sales_settled_by": operatorID,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return s.refreshSalesBatchSettlementTx(tx, extractorID, settledAt, operatorID)
+	})
+	return result, err
+}
+
+func (s *QQCacheService) refreshSalesBatchSettlementTx(tx *gorm.DB, extractorID uint, settledAt time.Time, operatorID uint) error {
+	var batches []system.SysQQCacheExtractBatch
+	if err := tx.Where("extractor_id = ?", extractorID).Find(&batches).Error; err != nil {
+		return err
+	}
+	for _, batch := range batches {
+		var total int64
+		if err := tx.Model(&system.SysQQCacheRecord{}).
+			Where("extract_record_id = ?", batch.ID).
+			Count(&total).Error; err != nil {
+			return err
+		}
+		var settled int64
+		if err := tx.Model(&system.SysQQCacheRecord{}).
+			Where("extract_record_id = ? AND sales_settled_at IS NOT NULL", batch.ID).
+			Count(&settled).Error; err != nil {
+			return err
+		}
+		status := system.QQCacheExtractBatchStatusPendingSettlement
+		updates := map[string]any{
+			"settled_count": int(settled),
+			"status":        status,
+			"updated_at":    time.Now(),
+		}
+		if total > 0 && settled == total {
+			status = system.QQCacheExtractBatchStatusSettled
+			updates["status"] = status
+			updates["settled_at"] = settledAt
+			updates["settled_by"] = operatorID
+		}
+		if err := tx.Model(&system.SysQQCacheExtractBatch{}).Where("id = ?", batch.ID).Updates(updates).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func qqCacheSalesDayRange(date string) (time.Time, time.Time) {
+	base := time.Now()
+	if trimmed := strings.TrimSpace(date); trimmed != "" {
+		if parsed, err := time.ParseInLocation("2006-01-02", trimmed, time.Local); err == nil {
+			base = parsed
+		}
+	}
+	start := time.Date(base.Year(), base.Month(), base.Day(), 0, 0, 0, 0, time.Local)
+	end := time.Date(base.Year(), base.Month(), base.Day(), 23, 59, 59, int(time.Second-time.Nanosecond), time.Local)
+	return start, end
+}
+
+func qqCacheSalesSettlementStatusText(status string) string {
+	if status == system.QQCacheExtractBatchStatusSettled {
+		return "已结算"
+	}
+	return "待结算"
+}
+
+func parseQQCacheSalesSQLTime(value string) *time.Time {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, layout := range layouts {
+		if parsed, err := time.ParseInLocation(layout, value, time.Local); err == nil {
+			return &parsed
+		}
+	}
+	return nil
 }
 
 // ExportIniZipByIDs 将所选记录的 ini 文本打成 zip（zip 内文件名：{qq}.ini）

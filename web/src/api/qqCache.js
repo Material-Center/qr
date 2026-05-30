@@ -94,3 +94,45 @@ export const getQQCacheBillingHistory = () => {
     method: 'get'
   })
 }
+
+export const getQQCacheSalesSummary = (params = {}) => {
+  return service({
+    url: '/qqCache/sales/summary',
+    method: 'get',
+    params
+  })
+}
+
+export const exportSalesQQCacheIniZip = (payload, config = {}) => {
+  return service({
+    url: '/qqCache/sales/extract',
+    method: 'post',
+    data: payload,
+    responseType: 'blob',
+    donNotShowLoading: true,
+    ...config
+  })
+}
+
+export const getQQCacheSalesHistory = (data) => {
+  return service({
+    url: '/qqCache/sales/history',
+    method: 'post',
+    data
+  })
+}
+
+export const getQQCacheSalesSummaryList = () => {
+  return service({
+    url: '/qqCache/sales/summaryList',
+    method: 'get'
+  })
+}
+
+export const settleQQCacheSalesBilling = (data) => {
+  return service({
+    url: '/qqCache/sales/settle',
+    method: 'post',
+    data
+  })
+}

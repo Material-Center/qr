@@ -29,6 +29,22 @@
             <el-option :value="false" label="未提取" />
           </el-select>
         </el-form-item>
+        <el-form-item label="提取人">
+          <el-select
+            v-model="searchInfo.extractorId"
+            clearable
+            filterable
+            placeholder="请选择提取人"
+            style="width: 180px"
+          >
+            <el-option
+              v-for="item in salesSummaryList"
+              :key="item.extractorId"
+              :label="item.extractorName || item.username || `ID ${item.extractorId}`"
+              :value="item.extractorId"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" icon="search" @click="fetchList">查询</el-button>
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
@@ -132,9 +148,9 @@
         <el-table-column label="QQ账号" prop="qqNum" min-width="140" />
         <el-table-column label="版本号" prop="clientVersion" min-width="110" />
         <el-table-column label="设备ID" prop="deviceId" min-width="160" show-overflow-tooltip />
-        <el-table-column label="提取人ID" min-width="100">
+        <el-table-column label="提取人" min-width="120">
           <template #default="{ row }">
-            {{ row.extractor || '-' }}
+            {{ extractorDisplay(row.extractor) }}
           </template>
         </el-table-column>
         <el-table-column label="提取时间" min-width="170">
@@ -173,6 +189,40 @@
       </div>
     </div>
 
+    <div class="gva-table-box">
+      <div class="sales-summary-header">
+        <span class="sales-summary-title">销售提取汇总</span>
+        <el-button icon="refresh" @click="fetchSalesSummary">刷新</el-button>
+      </div>
+      <el-table :data="salesSummaryList" row-key="extractorId" size="small">
+        <el-table-column label="销售" min-width="160">
+          <template #default="{ row }">
+            {{ row.extractorName || row.nickName || row.username || `ID ${row.extractorId}` }}
+          </template>
+        </el-table-column>
+        <el-table-column label="提取数量" prop="extractedCount" min-width="100" />
+        <el-table-column label="已结算总数" prop="settledCount" min-width="110" />
+        <el-table-column label="待结算总数" prop="unsettledCount" min-width="110" />
+        <el-table-column label="最近提取时间" min-width="170">
+          <template #default="{ row }">
+            {{ row.lastExtractionAt ? formatDate(row.lastExtractionAt) : '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="140" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              type="primary"
+              link
+              :disabled="Number(row.unsettledCount) <= 0"
+              @click="onSettleSales(row)"
+            >
+              标记已结算
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+
     <el-dialog v-model="billingHistoryVisible" title="QQ缓存结算历史" width="520px">
       <el-table v-loading="billingHistoryLoading" :data="billingHistory" size="small">
         <el-table-column label="结算时间" min-width="180">
@@ -197,9 +247,11 @@ import {
   exportQQCacheIniZip,
   getQQCacheBillingHistory,
   getQQCacheList,
+  getQQCacheSalesSummaryList,
   importQQCacheZip,
   resetQQCacheExtract,
-  settleQQCacheBilling
+  settleQQCacheBilling,
+  settleQQCacheSalesBilling
 } from '@/api/qqCache'
 
 defineOptions({
@@ -223,12 +275,14 @@ const extractStats = ref({
 const billingHistoryVisible = ref(false)
 const billingHistoryLoading = ref(false)
 const billingHistory = ref([])
+const salesSummaryList = ref([])
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
   clientVersion: '',
   deviceId: '',
-  extracted: undefined
+  extracted: undefined,
+  extractorId: undefined
 })
 
 const onSelectionChange = (rows) => {
@@ -262,6 +316,21 @@ const accountListExportHint = computed(() => {
   }
   return '未勾选时按当前筛选条件导出'
 })
+
+const salesSummaryMap = computed(() => {
+  const map = new Map()
+  ;(salesSummaryList.value || []).forEach((item) => {
+    map.set(Number(item.extractorId), item)
+  })
+  return map
+})
+
+const extractorDisplay = (extractorId) => {
+  if (!extractorId) return '-'
+  const item = salesSummaryMap.value.get(Number(extractorId))
+  if (!item) return `ID ${extractorId}`
+  return item.extractorName || item.nickName || item.username || `ID ${extractorId}`
+}
 
 const dayStart = (base = new Date()) => {
   const d = new Date(base)
@@ -436,6 +505,7 @@ const buildAccountListExportPayload = () => {
     qqNum: searchInfo.value.qqNum || undefined,
     clientVersion: searchInfo.value.clientVersion || undefined,
     deviceId: searchInfo.value.deviceId || undefined,
+    extractorId: searchInfo.value.extractorId || undefined,
     extracted: searchInfo.value.extracted,
     createdAtStart: createdAtStart || undefined,
     createdAtEnd: createdAtEnd || undefined
@@ -583,6 +653,25 @@ const onSettleBilling = async () => {
   }
 }
 
+const onSettleSales = async (row) => {
+  const count = Number(row?.unsettledCount) || 0
+  if (!row?.extractorId || count <= 0) return
+  const name = row.extractorName || row.nickName || row.username || `ID ${row.extractorId}`
+  try {
+    await ElMessageBox.confirm(`确认将 ${name} 的 ${count} 个待结算账号标记为已结算？`, '确认结算', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    const { data } = await settleQQCacheSalesBilling({ extractorId: row.extractorId })
+    ElMessage.success(`已结算 ${data?.settledCount || 0} 个账号`)
+    await Promise.all([fetchList(), fetchSalesSummary()])
+  } catch (e) {
+    if (e === 'cancel' || e === 'close') return
+    ElMessage.error(e?.message || '结算失败')
+  }
+}
+
 const onOpenBillingHistory = async () => {
   billingHistory.value = []
   billingHistoryVisible.value = true
@@ -606,6 +695,7 @@ const fetchList = async () => {
       qqNum: searchInfo.value.qqNum || undefined,
       clientVersion: searchInfo.value.clientVersion || undefined,
       deviceId: searchInfo.value.deviceId || undefined,
+      extractorId: searchInfo.value.extractorId || undefined,
       extracted: searchInfo.value.extracted,
       createdAtStart: createdAtStart || undefined,
       createdAtEnd: createdAtEnd || undefined
@@ -627,13 +717,23 @@ const fetchList = async () => {
   }
 }
 
+const fetchSalesSummary = async () => {
+  try {
+    const { data } = await getQQCacheSalesSummaryList()
+    salesSummaryList.value = data || []
+  } catch (e) {
+    ElMessage.error(e?.message || '销售汇总加载失败')
+  }
+}
+
 const resetSearch = () => {
   searchInfo.value = {
     createdAtRange: todayDateTimeRange(),
     qqNum: '',
     clientVersion: '',
     deviceId: '',
-    extracted: undefined
+    extracted: undefined,
+    extractorId: undefined
   }
   page.value = 1
   fetchList()
@@ -664,6 +764,7 @@ const onResetExtract = async (row) => {
 
 onMounted(() => {
   searchInfo.value.createdAtRange = todayDateTimeRange()
+  fetchSalesSummary()
   fetchList()
 })
 </script>
@@ -722,6 +823,19 @@ onMounted(() => {
 
 .billing-actions :deep(.el-button + .el-button) {
   margin-left: 0;
+}
+
+.sales-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sales-summary-title {
+  color: var(--el-text-color-primary);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 @media (max-width: 900px) {

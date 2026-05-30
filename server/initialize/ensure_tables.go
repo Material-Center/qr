@@ -64,6 +64,7 @@ func (e *ensureTables) MigrateTable(ctx context.Context) (context.Context, error
 		sysModel.SysPhoneRegisterRiskDailyStat{},
 		sysModel.SysRegisterConfig{},
 		sysModel.SysQQCacheRecord{},
+		sysModel.SysQQCacheExtractBatch{},
 		adapter.CasbinRule{},
 
 		example.ExaFile{},
@@ -110,6 +111,7 @@ func (e *ensureTables) TableCreated(ctx context.Context) bool {
 		sysModel.SysPhoneRegisterRiskDailyStat{},
 		sysModel.SysRegisterConfig{},
 		sysModel.SysQQCacheRecord{},
+		sysModel.SysQQCacheExtractBatch{},
 
 		adapter.CasbinRule{},
 

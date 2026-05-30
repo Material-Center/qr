@@ -53,6 +53,7 @@
   "/src/view/register/debugLogin.vue": "RegisterDebugLogin",
   "/src/view/register/phoneTaskCenter.vue": "PhoneTaskCenter",
   "/src/view/register/phoneTaskManage.vue": "PhoneTaskManage",
+  "/src/view/register/qqCacheExtract.vue": "QQCacheExtract",
   "/src/view/register/qqCacheManage.vue": "QQCacheManage",
   "/src/view/register/taskCenter.vue": "RegisterTaskCenter",
   "/src/view/register/taskManage.vue": "RegisterTaskManage",

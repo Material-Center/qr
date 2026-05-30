@@ -20,4 +20,6 @@ type SysQQCacheRecord struct {
 	DeviceID         *string    `json:"deviceId" gorm:"column:device_id;size:128;comment:设备ID"`
 	BillingSettledAt *time.Time `json:"billingSettledAt" gorm:"column:billing_settled_at;index;comment:计费结算时间"`
 	BillingSettledBy *uint      `json:"billingSettledBy" gorm:"column:billing_settled_by;index;comment:计费结算管理员ID"`
+	SalesSettledAt   *time.Time `json:"salesSettledAt" gorm:"column:sales_settled_at;index;comment:销售结算时间"`
+	SalesSettledBy   *uint      `json:"salesSettledBy" gorm:"column:sales_settled_by;index;comment:销售结算管理员ID"`
 }

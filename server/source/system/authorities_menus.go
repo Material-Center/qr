@@ -67,6 +67,9 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 
 	for _, menu := range allMenus {
 		if menu.ParentId == 0 {
+			if menu.Name == "qqCacheManage" || menu.Name == "qqCacheExtract" {
+				continue
+			}
 			basicMenus = append(basicMenus, menu)
 		}
 	}
@@ -87,6 +90,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	registerManageChild, hasRegisterManageChild := menuNameMap["registerTaskManage"]
 	phoneRegisterManageChild, hasPhoneRegisterManageChild := menuNameMap["phoneRegisterTaskManage"]
 	qqCacheMenu, hasQQCacheMenu := menuNameMap["qqCacheManage"]
+	qqCacheExtractMenu, hasQQCacheExtractMenu := menuNameMap["qqCacheExtract"]
 	registerCenterChild, hasRegisterCenterChild := menuNameMap["registerTaskCenter"]
 	phoneRegisterCenterChild, hasPhoneRegisterCenterChild := menuNameMap["phoneRegisterTaskCenter"]
 	registerConfigChild, hasRegisterConfigChild := menuNameMap["registerConfig"]
@@ -168,6 +172,15 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	// 500 App上传：仅基础菜单（不开放后台管理页）
 	if err = assignMenus(500, basicMenus, "为App上传分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为App上传分配菜单失败")
+	}
+
+	// 600 销售：基础菜单 + 缓存提取
+	salesMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
+	if hasQQCacheExtractMenu {
+		salesMenus = append(salesMenus, qqCacheExtractMenu)
+	}
+	if err = assignMenus(600, salesMenus, "为销售分配菜单失败"); err != nil {
+		return next, errors.Wrap(err, "为销售分配菜单失败")
 	}
 
 	return next, nil

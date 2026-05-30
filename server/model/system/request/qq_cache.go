@@ -51,6 +51,19 @@ type QQCacheExportPendingIniZip struct {
 	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
 }
 
+type QQCacheSalesExtract struct {
+	Count int `json:"count" form:"count"`
+}
+
+type QQCacheSalesHistory struct {
+	request.PageInfo
+	Date string `json:"date" form:"date"`
+}
+
+type QQCacheSalesSettle struct {
+	ExtractorID uint `json:"extractorId" form:"extractorId"`
+}
+
 type QQCacheExportAccountList struct {
 	IDs            []uint `json:"ids" form:"ids"`
 	QQNum          string `json:"qqNum" form:"qqNum"`

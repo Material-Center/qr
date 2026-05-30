@@ -24,6 +24,7 @@ const (
 	rolePromoter   = uint(300)
 	roleAppExtract = uint(400)
 	roleAppUpload  = uint(500)
+	roleSales      = uint(600)
 
 	userCacheSampleRatioKey = "cacheSampleRatio"
 )
@@ -36,7 +37,8 @@ func canManageTarget(operatorAuthorityID, targetAuthorityID uint) bool {
 		return targetAuthorityID == roleLeader ||
 			targetAuthorityID == rolePromoter ||
 			targetAuthorityID == roleAppExtract ||
-			targetAuthorityID == roleAppUpload
+			targetAuthorityID == roleAppUpload ||
+			targetAuthorityID == roleSales
 	case roleLeader:
 		return targetAuthorityID == rolePromoter
 	default:
@@ -286,8 +288,8 @@ func (b *BaseApi) Register(c *gin.Context) {
 	}
 	operatorAuthorityID := utils.GetUserAuthorityId(c)
 	operatorID := utils.GetUserID(c)
-	if (r.AuthorityId == roleAppExtract || r.AuthorityId == roleAppUpload) && operatorAuthorityID != roleAdmin {
-		response.FailWithMessage("仅管理员可创建App提取/App上传角色账号", c)
+	if (r.AuthorityId == roleAppExtract || r.AuthorityId == roleAppUpload || r.AuthorityId == roleSales) && operatorAuthorityID != roleAdmin {
+		response.FailWithMessage("仅管理员可创建App提取/App上传/销售角色账号", c)
 		return
 	}
 	if !canManageTarget(operatorAuthorityID, r.AuthorityId) {

@@ -71,6 +71,7 @@ func RegisterTables() {
 		system.SysPhoneRegisterRiskDailyStat{},
 		system.SysRegisterConfig{},
 		system.SysQQCacheRecord{},
+		system.SysQQCacheExtractBatch{},
 
 		example.ExaFile{},
 		example.ExaCustomer{},

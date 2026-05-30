@@ -282,6 +282,8 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/qqCache/exportAccountList", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/billing/settle", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/billing/history", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/sales/summaryList", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/sales/settle", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/roleHint", V2: "GET"},
 
 		// 100 管理员（业务角色）
@@ -325,6 +327,8 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/qqCache/exportAccountList", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/billing/settle", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/billing/history", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/sales/summaryList", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/sales/settle", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/roleHint", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 
@@ -392,6 +396,19 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "500", V1: "/qqCache/upload", V2: "POST"},
 		{Ptype: "p", V0: "500", V1: "/qqCache/roleHint", V2: "GET"},
 		{Ptype: "p", V0: "500", V1: "/jwt/jsonInBlacklist", V2: "POST"},
+
+		// 600 销售（仅后台缓存提取）
+		{Ptype: "p", V0: "600", V1: "/menu/getMenu", V2: "POST"},
+		{Ptype: "p", V0: "600", V1: "/menu/getMenuList", V2: "POST"},
+		{Ptype: "p", V0: "600", V1: "/menu/getBaseMenuTree", V2: "POST"},
+		{Ptype: "p", V0: "600", V1: "/user/getUserInfo", V2: "GET"},
+		{Ptype: "p", V0: "600", V1: "/user/changePassword", V2: "POST"},
+		{Ptype: "p", V0: "600", V1: "/user/setSelfInfo", V2: "PUT"},
+		{Ptype: "p", V0: "600", V1: "/user/setSelfSetting", V2: "PUT"},
+		{Ptype: "p", V0: "600", V1: "/qqCache/sales/summary", V2: "GET"},
+		{Ptype: "p", V0: "600", V1: "/qqCache/sales/extract", V2: "POST"},
+		{Ptype: "p", V0: "600", V1: "/qqCache/sales/history", V2: "POST"},
+		{Ptype: "p", V0: "600", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 	}
 	if err := db.Create(&entities).Error; err != nil {
 		return ctx, errors.Wrap(err, "Casbin 表 ("+i.InitializerName()+") 数据初始化失败!")

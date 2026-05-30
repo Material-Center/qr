@@ -59,6 +59,7 @@ func (i *initMenu) InitializeData(ctx context.Context) (next context.Context, er
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "account", Name: "account", Component: "view/routerHolder.vue", Sort: 4, Meta: Meta{Title: "账号管理", Icon: "avatar"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "register", Name: "register", Component: "view/routerHolder.vue", Sort: 5, Meta: Meta{Title: "注册任务", Icon: "tickets"}},
 		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "qq-cache-manage", Name: "qqCacheManage", Component: "view/register/qqCacheManage.vue", Sort: 6, Meta: Meta{Title: "QQ缓存管理", Icon: "folder-opened"}},
+		{MenuLevel: 0, Hidden: false, ParentId: 0, Path: "qq-cache-extract", Name: "qqCacheExtract", Component: "view/register/qqCacheExtract.vue", Sort: 7, Meta: Meta{Title: "缓存提取", Icon: "download"}},
 		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "register-task-center", Name: "registerTaskCenter", Component: "view/register/taskCenter.vue", Sort: 0, Meta: Meta{Title: "创建任务", Icon: "plus", DefaultMenu: true}},
 		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "phone-register-task-center", Name: "phoneRegisterTaskCenter", Component: "view/register/phoneTaskCenter.vue", Sort: 0, Meta: Meta{Title: "手机号注册任务", Icon: "iphone", DefaultMenu: true}},
 		{MenuLevel: 0, Hidden: true, ParentId: 0, Path: "person", Name: "person", Component: "view/person/person.vue", Sort: 4, Meta: Meta{Title: "个人信息", Icon: "message"}},

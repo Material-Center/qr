@@ -56,3 +56,39 @@ type QQCacheBillingSettlementHistoryItem struct {
 	SettledAt    time.Time `json:"settledAt"`
 	SettledCount int64     `json:"settledCount"`
 }
+
+type QQCacheSalesSummary struct {
+	Available      int64 `json:"available"`
+	TodayExtracted int64 `json:"todayExtracted"`
+	TodayUnsettled int64 `json:"todayUnsettled"`
+	BillingSettled int64 `json:"billingSettled"`
+	BillingTotal   int64 `json:"billingTotal"`
+}
+
+type QQCacheSalesHistoryItem struct {
+	ID                   uint       `json:"id"`
+	ExtractedAt          time.Time  `json:"extractedAt"`
+	ExtractCount         int        `json:"extractCount"`
+	SettledCount         int        `json:"settledCount"`
+	SettlementStatus     string     `json:"settlementStatus"`
+	SettlementStatusText string     `json:"settlementStatusText"`
+	SettledAt            *time.Time `json:"settledAt"`
+}
+
+type QQCacheSalesHistoryResponse struct {
+	List     []QQCacheSalesHistoryItem `json:"list"`
+	Total    int64                     `json:"total"`
+	Page     int                       `json:"page"`
+	PageSize int                       `json:"pageSize"`
+}
+
+type QQCacheSalesAdminSummaryItem struct {
+	ExtractorID      uint       `json:"extractorId"`
+	ExtractorName    string     `json:"extractorName"`
+	Username         string     `json:"username"`
+	NickName         string     `json:"nickName"`
+	ExtractedCount   int64      `json:"extractedCount"`
+	SettledCount     int64      `json:"settledCount"`
+	UnsettledCount   int64      `json:"unsettledCount"`
+	LastExtractionAt *time.Time `json:"lastExtractionAt"`
+}

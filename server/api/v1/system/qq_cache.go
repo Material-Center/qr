@@ -25,6 +25,7 @@ const (
 	qqCacheRoleAdmin            = uint(100)
 	qqCacheRoleAppExtract       = uint(400)
 	qqCacheRoleAppUpload        = uint(500)
+	qqCacheRoleSales            = uint(600)
 	qqCacheExportQQFileMaxBytes = 512 * 1024
 	qqCacheInternalToolZipBytes = 500 * 1024
 )
@@ -428,6 +429,152 @@ func (a *QQCacheApi) GetBillingSettlementHistory(c *gin.Context) {
 		return
 	}
 	response.OkWithDetailed(rows, "获取成功", c)
+}
+
+// GetSalesSummary
+// @Tags      QQCache
+// @Summary   销售查询缓存提取汇总
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200   {object}  response.Response{data=systemRes.QQCacheSalesSummary}
+// @Router    /qqCache/sales/summary [get]
+func (a *QQCacheApi) GetSalesSummary(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleSales {
+		response.FailWithMessage("仅销售可查看缓存提取汇总", c)
+		return
+	}
+	summary, err := qqCacheService.GetSalesSummary(utils.GetUserID(c), c.Query("date"))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(summary, "获取成功", c)
+}
+
+// SalesExtract
+// @Tags      QQCache
+// @Summary   销售按数量提取未提取缓存 INI（zip）
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/zip
+// @Param     data  body      systemReq.QQCacheSalesExtract  true  "提取数量"
+// @Success   200   file      zip
+// @Router    /qqCache/sales/extract [post]
+func (a *QQCacheApi) SalesExtract(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleSales {
+		response.FailWithMessage("仅销售可提取缓存", c)
+		return
+	}
+	var req systemReq.QQCacheSalesExtract
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	zipBytes, count, _, err := qqCacheService.ExportSalesPendingIniZipByCount(req.Count, utils.GetUserID(c))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	filename := qqCacheExtractZipFilename(count)
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", qqCacheAttachmentDisposition(filename))
+	c.Data(200, "application/zip", zipBytes)
+}
+
+// GetSalesHistory
+// @Tags      QQCache
+// @Summary   销售查询提取历史
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.QQCacheSalesHistory  true  "分页和日期"
+// @Success   200   {object}  response.Response{data=systemRes.QQCacheSalesHistoryResponse}
+// @Router    /qqCache/sales/history [post]
+func (a *QQCacheApi) GetSalesHistory(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleSales {
+		response.FailWithMessage("仅销售可查看提取历史", c)
+		return
+	}
+	var req systemReq.QQCacheSalesHistory
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	list, total, err := qqCacheService.ListSalesExtractHistory(utils.GetUserID(c), req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	page := req.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := req.PageSize
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 10
+	}
+	response.OkWithDetailed(systemRes.QQCacheSalesHistoryResponse{
+		List:     list,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, "获取成功", c)
+}
+
+// GetSalesSummaryList
+// @Tags      QQCache
+// @Summary   管理端按销售查询提取汇总
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Success   200   {object}  response.Response
+// @Router    /qqCache/sales/summaryList [get]
+func (a *QQCacheApi) GetSalesSummaryList(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可查看销售提取汇总", c)
+		return
+	}
+	list, err := qqCacheService.ListSalesSummaryForAdmin()
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(list, "获取成功", c)
+}
+
+// SettleSalesBilling
+// @Tags      QQCache
+// @Summary   管理端按销售结算QQ缓存计费数量
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.QQCacheSalesSettle  true  "销售ID"
+// @Success   200   {object}  response.Response
+// @Router    /qqCache/sales/settle [post]
+func (a *QQCacheApi) SettleSalesBilling(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可结算", c)
+		return
+	}
+	var req systemReq.QQCacheSalesSettle
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	result, err := qqCacheService.SettleSalesBilling(role, utils.GetUserID(c), req.ExtractorID)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{
+		"settledAt":    result.SettledAt,
+		"settledCount": result.SettledCount,
+	}, "结算成功", c)
 }
 
 // ResetExtract
