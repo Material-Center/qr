@@ -8,6 +8,7 @@ import (
 	commonReq "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
+	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -184,6 +185,40 @@ func TestQQCacheSettleSalesBillingRejectsNonSalesExtractor(t *testing.T) {
 	require.Nil(t, record.SalesSettledBy)
 	require.Nil(t, record.BillingSettledAt)
 	require.Nil(t, record.BillingSettledBy)
+}
+
+func TestQQCacheSalesSummaryListIncludesSalesWithoutExtracts(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesWithExtractID := uint(6101)
+	salesWithoutExtractID := uint(6102)
+	adminExtractorID := uint(1101)
+	now := time.Now()
+	ini := "qqnum=51001\nguid=GUID001\n"
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysUser{
+		{GVA_MODEL: global.GVA_MODEL{ID: salesWithExtractID}, Username: "sales_with", NickName: "已提取销售", AuthorityId: 600, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: salesWithoutExtractID}, Username: "sales_empty", NickName: "未提取销售", AuthorityId: 600, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: adminExtractorID}, Username: "admin_extractor", AuthorityId: 100, Enable: 1},
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "51001", INI: &ini, Extractor: &salesWithExtractID, ExtractionAt: &now},
+		{QQNum: "51002", INI: &ini, Extractor: &adminExtractorID, ExtractionAt: &now},
+	}).Error)
+
+	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin()
+	require.NoError(t, err)
+	require.Len(t, summaries, 2)
+
+	byID := map[uint]systemRes.QQCacheSalesAdminSummaryItem{}
+	for _, item := range summaries {
+		byID[item.ExtractorID] = item
+	}
+	require.EqualValues(t, 1, byID[salesWithExtractID].ExtractedCount)
+	require.EqualValues(t, 1, byID[salesWithExtractID].UnsettledCount)
+	require.EqualValues(t, 0, byID[salesWithoutExtractID].ExtractedCount)
+	require.EqualValues(t, 0, byID[salesWithoutExtractID].SettledCount)
+	require.EqualValues(t, 0, byID[salesWithoutExtractID].UnsettledCount)
+	require.NotContains(t, byID, adminExtractorID)
 }
 
 func TestQQCacheGlobalBillingDoesNotSettleSalesBatch(t *testing.T) {

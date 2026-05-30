@@ -643,43 +643,47 @@ func (s *QQCacheService) ListSalesExtractHistory(extractorID uint, req systemReq
 func (s *QQCacheService) ListSalesSummaryForAdmin() ([]systemRes.QQCacheSalesAdminSummaryItem, error) {
 	type row struct {
 		ExtractorID         uint   `gorm:"column:extractor_id"`
+		Username            string `gorm:"column:username"`
+		NickName            string `gorm:"column:nick_name"`
 		ExtractedCount      int64  `gorm:"column:extracted_count"`
 		SettledCount        int64  `gorm:"column:settled_count"`
 		UnsettledCount      int64  `gorm:"column:unsettled_count"`
 		LastExtractionAtRaw string `gorm:"column:last_extraction_at"`
 	}
 	var rows []row
-	if err := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
-		Select("extractor AS extractor_id, COUNT(1) AS extracted_count, SUM(CASE WHEN sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled_count, SUM(CASE WHEN sales_settled_at IS NULL THEN 1 ELSE 0 END) AS unsettled_count, MAX(extraction_at) AS last_extraction_at").
-		Where("extractor IS NOT NULL").
-		Group("extractor").
-		Order("last_extraction_at DESC").
+	qqCacheAggregate := `
+		SELECT
+			extractor AS extractor_id,
+			COUNT(1) AS extracted_count,
+			SUM(CASE WHEN sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled_count,
+			SUM(CASE WHEN sales_settled_at IS NULL THEN 1 ELSE 0 END) AS unsettled_count,
+			MAX(extraction_at) AS last_extraction_at
+		FROM sys_qq_cache_records
+		WHERE extractor IS NOT NULL AND deleted_at IS NULL
+		GROUP BY extractor
+	`
+	if err := global.GVA_DB.Table("sys_users AS u").
+		Select(`
+			u.id AS extractor_id,
+			u.username,
+			u.nick_name,
+			COALESCE(q.extracted_count, 0) AS extracted_count,
+			COALESCE(q.settled_count, 0) AS settled_count,
+			COALESCE(q.unsettled_count, 0) AS unsettled_count,
+			q.last_extraction_at AS last_extraction_at
+		`).
+		Joins("LEFT JOIN ("+qqCacheAggregate+") AS q ON q.extractor_id = u.id").
+		Where("u.authority_id = ? AND u.deleted_at IS NULL", qqCacheServiceRoleSales).
+		Order("q.last_extraction_at DESC").
+		Order("u.id DESC").
 		Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	userIDs := make([]uint, 0, len(rows))
-	for _, r := range rows {
-		userIDs = append(userIDs, r.ExtractorID)
-	}
-	userMap := map[uint]system.SysUser{}
-	if len(userIDs) > 0 {
-		var users []system.SysUser
-		if err := global.GVA_DB.Select("id, username, nick_name, authority_id").Where("id IN ? AND authority_id = ?", userIDs, qqCacheServiceRoleSales).Find(&users).Error; err != nil {
-			return nil, err
-		}
-		for _, user := range users {
-			userMap[user.ID] = user
-		}
-	}
 	items := make([]systemRes.QQCacheSalesAdminSummaryItem, 0, len(rows))
 	for _, r := range rows {
-		user := userMap[r.ExtractorID]
-		if user.ID == 0 {
-			continue
-		}
-		name := strings.TrimSpace(user.NickName)
+		name := strings.TrimSpace(r.NickName)
 		if name == "" {
-			name = strings.TrimSpace(user.Username)
+			name = strings.TrimSpace(r.Username)
 		}
 		if name == "" {
 			name = fmt.Sprintf("ID %d", r.ExtractorID)
@@ -688,8 +692,8 @@ func (s *QQCacheService) ListSalesSummaryForAdmin() ([]systemRes.QQCacheSalesAdm
 		items = append(items, systemRes.QQCacheSalesAdminSummaryItem{
 			ExtractorID:      r.ExtractorID,
 			ExtractorName:    name,
-			Username:         user.Username,
-			NickName:         user.NickName,
+			Username:         r.Username,
+			NickName:         r.NickName,
 			ExtractedCount:   r.ExtractedCount,
 			SettledCount:     r.SettledCount,
 			UnsettledCount:   r.UnsettledCount,
