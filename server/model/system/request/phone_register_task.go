@@ -3,8 +3,10 @@ package request
 import "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 
 type PhoneRegisterTaskCreate struct {
-	Phone          string `json:"phone" form:"phone"`
-	SMSReceiveMode string `json:"smsReceiveMode" form:"smsReceiveMode"`
+	Phone             string `json:"phone" form:"phone"`
+	SMSReceiveMode    string `json:"smsReceiveMode" form:"smsReceiveMode"`
+	StartDelaySeconds int    `json:"startDelaySeconds" form:"startDelaySeconds"`
+	ReserveDevice     bool   `json:"reserveDevice" form:"reserveDevice"`
 }
 
 type PhoneRegisterTaskSubmitCode struct {

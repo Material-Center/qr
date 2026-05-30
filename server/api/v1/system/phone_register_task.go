@@ -425,6 +425,7 @@ func buildPhoneRegisterActiveInfo(task system.SysPhoneRegisterTask) systemRes.Ph
 		HolderDeviceID:      task.HolderDeviceID,
 		ClaimedAt:           task.ClaimedAt,
 		LastHeartbeatAt:     task.LastHeartbeatAt,
+		AvailableAt:         task.AvailableAt,
 		ExpiresAt:           task.ExpiresAt,
 		FinishedAt:          task.FinishedAt,
 	}

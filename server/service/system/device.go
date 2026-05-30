@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -29,6 +30,10 @@ func (s *DeviceService) MarkHeartbeat(deviceID string) error {
 }
 
 func (s *DeviceService) MarkBusy(deviceID string, business string) error {
+	return s.MarkBusyWithTTL(deviceID, business, deviceHeartbeatTTL)
+}
+
+func (s *DeviceService) MarkBusyWithTTL(deviceID string, business string, ttl time.Duration) error {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
 		return nil
@@ -41,10 +46,66 @@ func (s *DeviceService) MarkBusy(deviceID string, business string) error {
 	if value == "" {
 		value = "busy"
 	}
+	if ttl <= 0 {
+		ttl = deviceHeartbeatTTL
+	}
 	if err := global.GVA_REDIS.Set(ctx, deviceHeartbeatKey(deviceID), time.Now().Unix(), deviceHeartbeatTTL).Err(); err != nil {
 		return err
 	}
-	return global.GVA_REDIS.Set(ctx, deviceBusyKey(deviceID), value, deviceHeartbeatTTL).Err()
+	return global.GVA_REDIS.Set(ctx, deviceBusyKey(deviceID), value, ttl).Err()
+}
+
+func (s *DeviceService) TryReserveIdleDevice(business string, ttl time.Duration) (string, error) {
+	if global.GVA_REDIS == nil {
+		return "", nil
+	}
+	value := strings.TrimSpace(business)
+	if value == "" {
+		value = "busy"
+	}
+	if ttl <= 0 {
+		ttl = deviceHeartbeatTTL
+	}
+	ctx := context.Background()
+	for _, deviceID := range s.ListOnlineDeviceIDs() {
+		deviceID = strings.TrimSpace(deviceID)
+		if deviceID == "" {
+			continue
+		}
+		ok, err := global.GVA_REDIS.SetNX(ctx, deviceBusyKey(deviceID), value, ttl).Result()
+		if err != nil {
+			return "", err
+		}
+		if ok {
+			return deviceID, nil
+		}
+	}
+	return "", nil
+}
+
+func (s *DeviceService) UpdateBusyIfMatching(deviceID string, oldBusiness string, newBusiness string, ttl time.Duration) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" || global.GVA_REDIS == nil {
+		return nil
+	}
+	oldValue := strings.TrimSpace(oldBusiness)
+	newValue := strings.TrimSpace(newBusiness)
+	if oldValue == "" || newValue == "" {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = deviceHeartbeatTTL
+	}
+	ctx := context.Background()
+	key := deviceBusyKey(deviceID)
+	current, err := global.GVA_REDIS.Get(ctx, key).Result()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(current) != oldValue {
+		return fmt.Errorf("设备%s busy状态已变更", deviceID)
+	}
+	return global.GVA_REDIS.Set(ctx, key, newValue, ttl).Err()
 }
 
 func (s *DeviceService) ClearBusy(deviceID string, businesses ...string) error {

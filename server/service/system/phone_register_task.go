@@ -25,6 +25,8 @@ const (
 	phoneRegisterTimeoutScanEvery = 1 * time.Minute
 	phoneRegisterCodeSubmitWindow = 3 * time.Minute
 	phoneRegisterCacheWaitTimeout = 3 * time.Minute
+	reservedClaimGracePeriod      = 30 * time.Second
+	phoneRegisterReserveSafetyTTL = 30 * time.Second
 
 	phoneRoleSuperAdmin = uint(888)
 	phoneRoleAdmin      = uint(100)
@@ -42,6 +44,7 @@ const (
 )
 
 const phoneRegisterDeviceBusyBusiness = "phone_register"
+const phoneRegisterReservationBusyPrefix = "phone_register_reserved:"
 
 var defaultPhoneRegisterBlockedPrefixes = []string{"133", "149", "153", "173", "177", "180", "181", "189", "190", "193", "199"}
 
@@ -64,6 +67,12 @@ type phoneRegisterTaskSettleResult struct {
 type phoneRegisterDeviceStats struct {
 	Online int64
 	Idle   int64
+}
+
+type PhoneRegisterTaskCreateOptions struct {
+	TaskSource        string
+	StartDelaySeconds int
+	ReserveDevice     bool
 }
 
 var phoneRegisterTaskDaemonOnce sync.Once
@@ -96,7 +105,17 @@ func startPhoneRegisterTaskDaemon() {
 	})
 }
 
-func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, smsReceiveMode string) (system.SysPhoneRegisterTask, error) {
+func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, smsReceiveMode string, optionList ...PhoneRegisterTaskCreateOptions) (system.SysPhoneRegisterTask, error) {
+	var options PhoneRegisterTaskCreateOptions
+	if len(optionList) > 0 {
+		options = optionList[0]
+	}
+	if options.StartDelaySeconds < 0 {
+		return system.SysPhoneRegisterTask{}, errors.New("startDelaySeconds不能小于0")
+	}
+	if options.StartDelaySeconds > 600 {
+		return system.SysPhoneRegisterTask{}, errors.New("startDelaySeconds不能超过600")
+	}
 	phone = strings.TrimSpace(phone)
 	smsReceiveMode = normalizePhoneRegisterSMSMode(smsReceiveMode)
 	if phone == "" {
@@ -134,18 +153,74 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		return system.SysPhoneRegisterTask{}, errors.New("当前账号已禁用任务创建")
 	}
 
+	now := time.Now()
+	var availableAt *time.Time
+	expiresBase := now
+	if options.StartDelaySeconds > 0 {
+		t := now.Add(time.Duration(options.StartDelaySeconds) * time.Second)
+		availableAt = &t
+		expiresBase = t
+	}
+
+	var reservedDeviceID string
+	var reservationToken string
+	if options.ReserveDevice && options.StartDelaySeconds > 0 {
+		reservationToken = fmt.Sprintf("%s%d", phoneRegisterReservationBusyPrefix, now.UnixNano())
+		reserveTTL := time.Duration(options.StartDelaySeconds)*time.Second + reservedClaimGracePeriod + phoneRegisterReserveSafetyTTL
+		deviceID, reserveErr := (&DeviceService{}).TryReserveIdleDevice(reservationToken, reserveTTL)
+		if reserveErr != nil {
+			return system.SysPhoneRegisterTask{}, reserveErr
+		}
+		reservedDeviceID = deviceID
+	}
+
+	var holderDeviceID *string
+	if reservedDeviceID != "" {
+		holderDeviceID = &reservedDeviceID
+	}
 	task := system.SysPhoneRegisterTask{
 		Phone:          phone,
 		PromoterID:     promoterID,
 		LeaderID:       promoter.LeaderID,
 		SMSReceiveMode: smsReceiveMode,
+		TaskSource:     strings.TrimSpace(options.TaskSource),
 		Status:         system.PhoneRegisterStatusPending,
-		ExpiresAt:      time.Now().Add(phoneRegisterTaskTimeout),
+		HolderDeviceID: holderDeviceID,
+		AvailableAt:    availableAt,
+		ExpiresAt:      expiresBase.Add(phoneRegisterTaskTimeout),
 	}
 	if err := global.GVA_DB.Create(&task).Error; err != nil {
+		if reservedDeviceID != "" {
+			_ = (&DeviceService{}).ClearBusy(reservedDeviceID, reservationToken)
+		}
 		return system.SysPhoneRegisterTask{}, err
 	}
+	if reservedDeviceID != "" {
+		finalBusiness := phoneRegisterReservationBusyBusiness(task.ID)
+		reserveTTL := time.Until(task.ExpiresAt)
+		if reserveTTL < reservedClaimGracePeriod+phoneRegisterReserveSafetyTTL {
+			reserveTTL = reservedClaimGracePeriod + phoneRegisterReserveSafetyTTL
+		}
+		if err := (&DeviceService{}).UpdateBusyIfMatching(reservedDeviceID, reservationToken, finalBusiness, reserveTTL); err != nil {
+			finishedAt := time.Now()
+			statusCode := system.PhoneRegisterStatusCodeUnknown
+			_ = global.GVA_DB.Model(&task).Updates(map[string]interface{}{
+				"status":           system.PhoneRegisterStatusFailed,
+				"status_code":      &statusCode,
+				"last_error":       "预占设备失败",
+				"finished_at":      &finishedAt,
+				"holder_device_id": nil,
+			}).Error
+			_ = (&DeviceService{}).ClearBusy(reservedDeviceID, reservationToken)
+			_ = (&DeviceService{}).ClearBusy(reservedDeviceID, finalBusiness)
+			return system.SysPhoneRegisterTask{}, errors.New("预占设备失败")
+		}
+	}
 	return task, nil
+}
+
+func phoneRegisterReservationBusyBusiness(taskID uint) string {
+	return fmt.Sprintf("%s%d", phoneRegisterReservationBusyPrefix, taskID)
 }
 
 func isValidPhoneRegisterTaskPhone(phone string) bool {
@@ -399,6 +474,7 @@ func buildPhoneRegisterTaskListItems(tasks []system.SysPhoneRegisterTask, includ
 			HolderDeviceID:  task.HolderDeviceID,
 			ClaimedAt:       task.ClaimedAt,
 			LastHeartbeatAt: task.LastHeartbeatAt,
+			AvailableAt:     task.AvailableAt,
 			ExpiresAt:       task.ExpiresAt,
 		}
 		if includeQQNum {
@@ -624,6 +700,7 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 	}
 	_ = (&DeviceService{}).MarkHeartbeat(deviceID)
 	_ = s.timeoutUnfinishedTasks()
+	_ = s.releaseExpiredReservations(time.Now())
 
 	var task system.SysPhoneRegisterTask
 	found := false
@@ -633,13 +710,22 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 			return err
 		}
 		if ok {
-			task = existing
-			found = true
-			return nil
+			handled, handledFound, handledTask, err := s.handleHeldTaskForPollTx(tx, existing, deviceID, time.Now())
+			if err != nil {
+				return err
+			}
+			if handled {
+				task = handledTask
+				found = handledFound
+				return nil
+			}
 		}
 
+		now := time.Now()
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending).
+			Where("holder_device_id IS NULL").
+			Where("(available_at IS NULL OR available_at <= ?)", now).
 			Order("id asc").
 			First(&task).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -648,7 +734,6 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 			}
 			return err
 		}
-		now := time.Now()
 		task.Status = system.PhoneRegisterStatusRunning
 		task.TaskSource = system.PhoneRegisterTaskSourceScript
 		task.HolderDeviceID = stringPtr(deviceID)
@@ -680,6 +765,7 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 		return system.SysPhoneRegisterTask{}, false, err
 	}
 	_ = s.timeoutUnfinishedTasks()
+	_ = s.releaseExpiredReservations(time.Now())
 
 	var task system.SysPhoneRegisterTask
 	found := false
@@ -689,13 +775,22 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 			return err
 		}
 		if ok {
-			task = existing
-			found = true
-			return nil
+			handled, handledFound, handledTask, err := s.handleHeldTaskForPollTx(tx, existing, deviceID, time.Now())
+			if err != nil {
+				return err
+			}
+			if handled {
+				task = handledTask
+				found = handledFound
+				return nil
+			}
 		}
 
+		now := time.Now()
 		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending)
+			Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending).
+			Where("holder_device_id IS NULL").
+			Where("(available_at IS NULL OR available_at <= ?)", now)
 		if smsReceiveMode != "" {
 			query = query.Where("sms_receive_mode = ?", smsReceiveMode)
 		}
@@ -706,7 +801,6 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 			}
 			return err
 		}
-		now := time.Now()
 		task.Status = system.PhoneRegisterStatusRunning
 		task.TaskSource = system.PhoneRegisterTaskSourceOpenAPI
 		task.HolderDeviceID = stringPtr(deviceID)
@@ -725,6 +819,76 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 		_ = markPhoneRegisterDeviceBusy(deviceID)
 	}
 	return task, found, err
+}
+
+func (s *PhoneRegisterTaskService) handleHeldTaskForPollTx(tx *gorm.DB, task system.SysPhoneRegisterTask, deviceID string, now time.Time) (bool, bool, system.SysPhoneRegisterTask, error) {
+	if task.Status != system.PhoneRegisterStatusPending {
+		return true, true, task, nil
+	}
+	if task.AvailableAt != nil && task.AvailableAt.After(now) {
+		return true, false, system.SysPhoneRegisterTask{}, nil
+	}
+	if task.AvailableAt != nil && now.After(task.AvailableAt.Add(reservedClaimGracePeriod)) {
+		if err := s.releaseReservationTx(tx, task, now); err != nil {
+			return false, false, system.SysPhoneRegisterTask{}, err
+		}
+		return false, false, system.SysPhoneRegisterTask{}, nil
+	}
+
+	task.Status = system.PhoneRegisterStatusRunning
+	task.ClaimedAt = &now
+	task.LastHeartbeatAt = &now
+	task.LastError = ""
+	if err := tx.Model(&task).
+		Select("status", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
+		Updates(task).Error; err != nil {
+		return false, false, system.SysPhoneRegisterTask{}, err
+	}
+	return true, true, task, nil
+}
+
+func (s *PhoneRegisterTaskService) releaseReservationTx(tx *gorm.DB, task system.SysPhoneRegisterTask, now time.Time) error {
+	if task.HolderDeviceID == nil {
+		return nil
+	}
+	deviceID := strings.TrimSpace(*task.HolderDeviceID)
+	if deviceID == "" {
+		return nil
+	}
+	if err := tx.Model(&system.SysPhoneRegisterTask{}).
+		Where("id = ? AND status = ? AND holder_device_id = ?", task.ID, system.PhoneRegisterStatusPending, deviceID).
+		Updates(map[string]any{
+			"holder_device_id": nil,
+			"updated_at":       now,
+		}).Error; err != nil {
+		return err
+	}
+	_ = (&DeviceService{}).ClearBusy(deviceID, phoneRegisterReservationBusyBusiness(task.ID))
+	return nil
+}
+
+func (s *PhoneRegisterTaskService) releaseExpiredReservations(now time.Time) error {
+	if global.GVA_DB == nil {
+		return nil
+	}
+	deadline := now.Add(-reservedClaimGracePeriod)
+	var tasks []system.SysPhoneRegisterTask
+	if err := global.GVA_DB.
+		Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending).
+		Where("holder_device_id IS NOT NULL").
+		Where("available_at IS NOT NULL AND available_at <= ?", deadline).
+		Limit(100).
+		Find(&tasks).Error; err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+			return s.releaseReservationTx(tx, task, now)
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *PhoneRegisterTaskService) DeviceTask(req systemReq.PhoneRegisterDeviceTask) (system.SysPhoneRegisterTask, bool, error) {
@@ -1467,6 +1631,10 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 	}
 	now := time.Now()
 	heartbeatDeadline := now.Add(-phoneRegisterLeaseTimeout)
+	timedOutReservations, err := s.findTimedOutPendingReservations(now)
+	if err != nil {
+		return err
+	}
 	releasedDeviceIDs, err := s.findTimeoutReleasedDeviceIDs(now, heartbeatDeadline)
 	if err != nil {
 		return err
@@ -1531,10 +1699,29 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 	if err := s.recordOpenAPICacheUploadTimeouts(now); err != nil {
 		return err
 	}
+	for _, task := range timedOutReservations {
+		if task.HolderDeviceID != nil {
+			_ = (&DeviceService{}).ClearBusy(*task.HolderDeviceID, phoneRegisterReservationBusyBusiness(task.ID))
+		}
+	}
 	for _, deviceID := range releasedDeviceIDs {
 		_ = markPhoneRegisterDeviceOffline(deviceID)
 	}
 	return nil
+}
+
+func (s *PhoneRegisterTaskService) findTimedOutPendingReservations(now time.Time) ([]system.SysPhoneRegisterTask, error) {
+	var tasks []system.SysPhoneRegisterTask
+	if err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Select("id", "holder_device_id").
+		Where("finished_at IS NULL").
+		Where("status = ?", system.PhoneRegisterStatusPending).
+		Where("holder_device_id IS NOT NULL").
+		Where("expires_at <= ?", now).
+		Find(&tasks).Error; err != nil {
+		return nil, err
+	}
+	return tasks, nil
 }
 
 func (s *PhoneRegisterTaskService) findTimeoutReleasedDeviceIDs(now time.Time, heartbeatDeadline time.Time) ([]string, error) {
@@ -1555,6 +1742,7 @@ func (s *PhoneRegisterTaskService) findTimeoutReleasedDeviceIDs(now time.Time, h
 	if err := collect(global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
 		Where("finished_at IS NULL").
 		Where("status NOT IN ?", []string{system.PhoneRegisterStatusSucceeded, system.PhoneRegisterStatusFailed}).
+		Where("status != ?", system.PhoneRegisterStatusPending).
 		Where("holder_device_id IS NOT NULL").
 		Where("expires_at <= ?", now)); err != nil {
 		return nil, err

@@ -10,6 +10,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
+	systemService "github.com/flipped-aurora/gin-vue-admin/server/service/system"
 	"github.com/flipped-aurora/gin-vue-admin/server/utils"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -54,12 +55,28 @@ func (a *PhoneRegisterTaskApi) PromoterOpenAPICreateTask(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	task, err := phoneRegisterTaskService.CreateTask(auth.userID, req.Phone, system.PhoneRegisterSMSModeUserSentToTX)
+	if req.StartDelaySeconds < 0 {
+		response.FailWithMessage("startDelaySeconds不能小于0", c)
+		return
+	}
+	if req.StartDelaySeconds > 600 {
+		response.FailWithMessage("startDelaySeconds不能超过600", c)
+		return
+	}
+	task, err := phoneRegisterTaskService.CreateTask(auth.userID, req.Phone, system.PhoneRegisterSMSModeUserSentToTX, PhoneRegisterTaskCreateOptionsForOpenAPI(req))
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
 	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "创建成功", c)
+}
+
+func PhoneRegisterTaskCreateOptionsForOpenAPI(req systemReq.PhoneRegisterTaskCreate) systemService.PhoneRegisterTaskCreateOptions {
+	return systemService.PhoneRegisterTaskCreateOptions{
+		TaskSource:        system.PhoneRegisterTaskSourceOpenAPI,
+		StartDelaySeconds: req.StartDelaySeconds,
+		ReserveDevice:     req.ReserveDevice,
+	}
 }
 
 type phoneRegisterPromoterOpenAPIAuth struct {

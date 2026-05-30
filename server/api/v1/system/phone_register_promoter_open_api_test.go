@@ -164,6 +164,65 @@ func TestPromoterOpenAPICreateTaskUsesTokenUserAndUserSentMode(t *testing.T) {
 	require.Equal(t, modelSystem.PhoneRegisterSMSModeUserSentToTX, task.SMSReceiveMode)
 }
 
+func TestPromoterOpenAPICreateTaskRejectsNegativeStartDelay(t *testing.T) {
+	setupPhoneRegisterPromoterOpenAPITest(t)
+	router := newPhoneRegisterPromoterOpenAPIRouter()
+	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
+
+	body := bytes.NewBufferString(`{"phone":"18878309701","startDelaySeconds":-1}`)
+	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/promoter/task", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Open-Api-Token", token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	got := decodePhoneRegisterOpenAPIResponse(t, rec)
+	require.Equal(t, response.ERROR, got.Code)
+	require.Equal(t, "startDelaySeconds不能小于0", got.Msg)
+}
+
+func TestPromoterOpenAPICreateTaskRejectsStartDelayOverLimit(t *testing.T) {
+	setupPhoneRegisterPromoterOpenAPITest(t)
+	router := newPhoneRegisterPromoterOpenAPIRouter()
+	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
+
+	body := bytes.NewBufferString(`{"phone":"18878309701","startDelaySeconds":601}`)
+	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/promoter/task", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Open-Api-Token", token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	got := decodePhoneRegisterOpenAPIResponse(t, rec)
+	require.Equal(t, response.ERROR, got.Code)
+	require.Equal(t, "startDelaySeconds不能超过600", got.Msg)
+}
+
+func TestPromoterOpenAPICreateTaskKeepsLegacyBehaviorWhenStartDelayIsZero(t *testing.T) {
+	setupPhoneRegisterPromoterOpenAPITest(t)
+	router := newPhoneRegisterPromoterOpenAPIRouter()
+	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
+
+	body := bytes.NewBufferString(`{"phone":"18878309701","startDelaySeconds":0,"reserveDevice":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/promoter/task", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Open-Api-Token", token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	got := decodePhoneRegisterOpenAPIResponse(t, rec)
+	require.Equal(t, response.SUCCESS, got.Code)
+
+	var task modelSystem.SysPhoneRegisterTask
+	require.NoError(t, global.GVA_DB.First(&task).Error)
+	require.Nil(t, task.AvailableAt)
+	require.Nil(t, task.HolderDeviceID)
+	require.Equal(t, modelSystem.PhoneRegisterTaskSourceOpenAPI, task.TaskSource)
+}
+
 func TestPromoterOpenAPIRejectsNonPromoterToken(t *testing.T) {
 	setupPhoneRegisterPromoterOpenAPITest(t)
 	router := newPhoneRegisterPromoterOpenAPIRouter()

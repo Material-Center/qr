@@ -17,6 +17,7 @@ type PhoneRegisterTaskActiveInfo struct {
 	HolderDeviceID      *string    `json:"holderDeviceId,omitempty"`
 	ClaimedAt           *time.Time `json:"claimedAt,omitempty"`
 	LastHeartbeatAt     *time.Time `json:"lastHeartbeatAt,omitempty"`
+	AvailableAt         *time.Time `json:"availableAt,omitempty"`
 	ExpiresAt           time.Time  `json:"expiresAt"`
 	FinishedAt          *time.Time `json:"finishedAt"`
 }
@@ -60,6 +61,7 @@ type PhoneRegisterTaskListItem struct {
 	HolderDeviceID  *string                     `json:"holderDeviceId,omitempty"`
 	ClaimedAt       *time.Time                  `json:"claimedAt,omitempty"`
 	LastHeartbeatAt *time.Time                  `json:"lastHeartbeatAt,omitempty"`
+	AvailableAt     *time.Time                  `json:"availableAt,omitempty"`
 	ExpiresAt       time.Time                   `json:"expiresAt"`
 	Promoter        *PhoneRegisterTaskUserBrief `json:"promoter,omitempty"`
 	Leader          *PhoneRegisterTaskUserBrief `json:"leader,omitempty"`

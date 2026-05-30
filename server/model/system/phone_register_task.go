@@ -65,6 +65,7 @@ type SysPhoneRegisterTask struct {
 	HolderDeviceID  *string    `json:"holderDeviceId" gorm:"index;size:128;comment:当前持有设备ID"`
 	ClaimedAt       *time.Time `json:"claimedAt" gorm:"comment:领取时间"`
 	LastHeartbeatAt *time.Time `json:"lastHeartbeatAt" gorm:"index;comment:最后心跳时间"`
+	AvailableAt     *time.Time `json:"availableAt" gorm:"index;comment:可领取时间"`
 	ExpiresAt       time.Time  `json:"expiresAt" gorm:"index;comment:任务过期时间"`
 	RetryCount      int        `json:"retryCount" gorm:"default:0;comment:重试次数"`
 

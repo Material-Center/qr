@@ -59,10 +59,18 @@ func (c *SystemClient) IdleDeviceCount(ctx context.Context) (int64, error) {
 	return data.DeviceIdleCount, nil
 }
 
-func (c *SystemClient) CreateUserSentTask(ctx context.Context, phone string) (uint, error) {
-	payload := map[string]string{
+func (c *SystemClient) CreateUserSentTask(ctx context.Context, phone string, createDelay time.Duration) (uint, error) {
+	payload := map[string]any{
 		"phone":          strings.TrimSpace(phone),
 		"smsReceiveMode": smsReceiveModeUserSent,
+	}
+	if createDelay > 0 {
+		delaySeconds := int(createDelay.Round(time.Second) / time.Second)
+		if delaySeconds < 1 {
+			delaySeconds = 1
+		}
+		payload["startDelaySeconds"] = delaySeconds
+		payload["reserveDevice"] = true
 	}
 	var data createTaskData
 	if err := c.doJSON(ctx, http.MethodPost, "/phoneRegisterTask/open-api/promoter/task", payload, &data); err != nil {
