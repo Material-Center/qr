@@ -419,7 +419,7 @@ const onExportIniZip = async () => {
   }
   try {
     const res = await exportQQCacheIniZip(ids)
-    await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+    await handleZipDownload(res, qqCacheExtractZipName(ids.length))
   } catch (e) {
     ElMessage.error(e?.message || '导出失败')
   }
@@ -486,8 +486,9 @@ const onExportByQQFile = async (uploadFile) => {
     return
   }
   try {
+    const fallbackCount = await countQQNumsFromTextFile(file)
     const res = await exportQQCacheIniZipByQQFile(file)
-    await handleZipDownload(res, `qq_cache_ini_${Date.now()}.zip`)
+    await handleZipDownload(res, qqCacheExtractZipName(fallbackCount))
   } catch (e) {
     ElMessage.error(e?.message || '导出失败')
   }

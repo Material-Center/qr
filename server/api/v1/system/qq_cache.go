@@ -410,10 +410,10 @@ func (a *QQCacheApi) ExportIniZip(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	filename := fmt.Sprintf("qq_cache_ini_%d_%s.zip", count, time.Now().Format("20060102_150405"))
+	filename := qqCacheExtractZipFilename(count)
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Header("Content-Disposition", qqCacheAttachmentDisposition(filename))
 	c.Data(200, "application/zip", zipBytes)
 }
 
@@ -532,17 +532,10 @@ func (a *QQCacheApi) ExportIniZipByQQFile(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	filename := fmt.Sprintf("qq_cache_ini_%d_%s.zip", count, time.Now().Format("20060102_150405"))
-	if markExtracted {
-		filename = qqCacheExtractZipFilename(count)
-	}
+	filename := qqCacheExtractZipFilename(count)
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
-	if markExtracted {
-		c.Header("Content-Disposition", qqCacheAttachmentDisposition(filename))
-	} else {
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
-	}
+	c.Header("Content-Disposition", qqCacheAttachmentDisposition(filename))
 	c.Data(200, "application/zip", zipBytes)
 }
 
