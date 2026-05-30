@@ -25,7 +25,8 @@
         />
         <el-button
           type="primary"
-          :disabled="extractMax <= 0"
+          :disabled="extractMax <= 0 || extracting"
+          :loading="extracting"
           @click="onExtract"
         >
           提取
@@ -92,6 +93,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const historyData = ref([])
+const extracting = ref(false)
 
 const extractMax = computed(() => Math.max(Number(summary.value.available) || 0, 0))
 
@@ -179,6 +181,7 @@ const fetchAll = async () => {
 }
 
 const onExtract = async () => {
+  if (extracting.value) return
   const count = Number(extractCount.value) || 0
   if (count <= 0) {
     ElMessage.warning('请输入提取数量')
@@ -194,6 +197,7 @@ const onExtract = async () => {
       cancelButtonText: '取消',
       type: 'warning'
     })
+    extracting.value = true
     const res = await exportSalesQQCacheIniZip({ count })
     const ok = await handleZipDownload(res, qqCacheExtractZipName(count))
     if (ok) {
@@ -203,6 +207,8 @@ const onExtract = async () => {
   } catch (e) {
     if (e === 'cancel' || e === 'close') return
     ElMessage.error(e?.message || '提取失败')
+  } finally {
+    extracting.value = false
   }
 }
 

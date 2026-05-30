@@ -185,3 +185,76 @@ func TestQQCacheSettleSalesBillingRejectsNonSalesExtractor(t *testing.T) {
 	require.Nil(t, record.BillingSettledAt)
 	require.Nil(t, record.BillingSettledBy)
 }
+
+func TestQQCacheGlobalBillingDoesNotSettleSalesBatch(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6004)
+	ini := "qqnum=60001\nguid=GUID001\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_c",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "60001", INI: &ini},
+		{QQNum: "60002", INI: &ini},
+	}).Error)
+	_, count, batch, err := (&QQCacheService{}).ExportSalesPendingIniZipByCount(2, salesID)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+
+	globalResult, err := (&QQCacheService{}).SettleBilling(100, 88)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, globalResult.SettledCount)
+
+	var storedBatch model.SysQQCacheExtractBatch
+	require.NoError(t, global.GVA_DB.First(&storedBatch, batch.ID).Error)
+	require.Equal(t, model.QQCacheExtractBatchStatusPendingSettlement, storedBatch.Status)
+	require.EqualValues(t, 0, storedBatch.SettledCount)
+	require.Nil(t, storedBatch.SettledAt)
+	require.Nil(t, storedBatch.SettledBy)
+
+	var records []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", salesID).Find(&records).Error)
+	require.Len(t, records, 2)
+	for _, record := range records {
+		require.NotNil(t, record.BillingSettledAt)
+		require.NotNil(t, record.BillingSettledBy)
+		require.Nil(t, record.SalesSettledAt)
+		require.Nil(t, record.SalesSettledBy)
+	}
+}
+
+func TestQQCacheResetExtractRejectsSalesBatchRecord(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6005)
+	ini := "qqnum=70001\nguid=GUID001\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_d",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{QQNum: "70001", INI: &ini}).Error)
+	_, count, _, err := (&QQCacheService{}).ExportSalesPendingIniZipByCount(1, salesID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
+	var record model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "70001").First(&record).Error)
+	require.NotNil(t, record.Extractor)
+	require.NotNil(t, record.ExtractRecordID)
+
+	err = (&QQCacheService{}).ResetExtractByID(record.ID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "销售提取记录不可重置")
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.First(&stored, record.ID).Error)
+	require.NotNil(t, stored.Extractor)
+	require.NotNil(t, stored.ExtractRecordID)
+	require.NotNil(t, stored.ExtractionAt)
+}

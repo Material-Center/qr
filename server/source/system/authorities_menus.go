@@ -174,8 +174,8 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 		return next, errors.Wrap(err, "为App上传分配菜单失败")
 	}
 
-	// 600 销售：基础菜单 + 缓存提取
-	salesMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
+	// 600 销售：仅缓存提取
+	var salesMenus []sysModel.SysBaseMenu
 	if hasQQCacheExtractMenu {
 		salesMenus = append(salesMenus, qqCacheExtractMenu)
 	}

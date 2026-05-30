@@ -288,7 +288,8 @@ func (b *BaseApi) Register(c *gin.Context) {
 	}
 	operatorAuthorityID := utils.GetUserAuthorityId(c)
 	operatorID := utils.GetUserID(c)
-	if (r.AuthorityId == roleAppExtract || r.AuthorityId == roleAppUpload || r.AuthorityId == roleSales) && operatorAuthorityID != roleAdmin {
+	if (r.AuthorityId == roleAppExtract || r.AuthorityId == roleAppUpload || r.AuthorityId == roleSales) &&
+		operatorAuthorityID != roleAdmin && operatorAuthorityID != roleSuperAdmin {
 		response.FailWithMessage("仅管理员可创建App提取/App上传/销售角色账号", c)
 		return
 	}
