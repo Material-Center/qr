@@ -551,7 +551,8 @@ func qqCacheExtractZipFilename(count int) string {
 }
 
 func qqCacheAttachmentDisposition(filename string) string {
-	return fmt.Sprintf("attachment; filename*=UTF-8''%s", url.PathEscape(filename))
+	fallback := strings.NewReplacer("个", "").Replace(filename)
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, fallback, url.PathEscape(filename))
 }
 
 // AppLoginRoleHint

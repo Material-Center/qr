@@ -236,7 +236,9 @@ const onSelectionChange = (rows) => {
 
 const pickZipFilename = (contentDisposition) => {
   if (!contentDisposition) return null
-  const m = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i.exec(contentDisposition)
+  const utf8Match = /filename\*=(?:UTF-8'')?["']?([^"';]+)/i.exec(contentDisposition)
+  const fallbackMatch = /filename=["']?([^"';]+)/i.exec(contentDisposition)
+  const m = utf8Match || fallbackMatch
   if (!m?.[1]) return null
   try {
     return decodeURIComponent(m[1].replace(/["']/g, '').trim())
