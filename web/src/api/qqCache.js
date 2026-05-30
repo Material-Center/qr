@@ -66,9 +66,12 @@ export const exportQQCacheIniZipByQQFile = (file, config = {}) => {
   })
 }
 
-export const importQQCacheZip = (file, config = {}) => {
+export const importQQCacheZip = (files, config = {}) => {
   const form = new FormData()
-  form.append('cacheZip', file)
+  const fileList = Array.isArray(files) ? files : [files]
+  fileList.filter(Boolean).forEach((file) => {
+    form.append('cacheZip', file)
+  })
   return service({
     url: '/qqCache/importZip',
     method: 'post',

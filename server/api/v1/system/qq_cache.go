@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/url"
 	"strconv"
 	"strings"
@@ -89,7 +90,7 @@ func (a *QQCacheApi) UploadPhoneRegister(c *gin.Context) {
 // @Param     qqNum     formData  string  true   "QQ账号"
 // @Param     qqPwd     formData  string  false  "QQ密码"
 // @Param     force     formData  bool    false  "是否强制覆盖缓存字段"
-// @Param     cacheZip  formData  file    true   "缓存zip"
+// @Param     cacheZip  formData  file    true   "缓存zip，支持同字段传多个文件"
 // @Success   200       {object}  response.Response{data=systemRes.InternalToolQQCacheImportResponse,msg=string}
 // @Router    /internalTool/qqCache/importZip [post]
 func (a *QQCacheApi) InternalToolImportQQCacheZip(c *gin.Context) {
@@ -107,7 +108,7 @@ func (a *QQCacheApi) InternalToolImportQQCacheZip(c *gin.Context) {
 // @Security  ApiKeyAuth
 // @accept    multipart/form-data
 // @Produce   application/json
-// @Param     cacheZip  formData  file  true  "缓存zip"
+// @Param     cacheZip  formData  file  true  "缓存zip，支持同字段传多个文件"
 // @Success   200       {object}  response.Response{data=systemRes.InternalToolQQCacheImportResponse,msg=string}
 // @Router    /qqCache/importZip [post]
 func (a *QQCacheApi) AdminImportQQCacheZip(c *gin.Context) {
@@ -138,39 +139,26 @@ func (a *QQCacheApi) importQQCacheZip(c *gin.Context, force bool, skipExistingBe
 		}
 	}
 
-	zipBytes, err := readQQCacheInternalToolZip(c)
+	files, err := qqCacheUploadedZipFiles(c)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	extracted, err := callQQCacheExtractor(zipBytes, c.PostForm("clientId"), c.PostForm("deviceInfo"))
+	if len(files) > 1 {
+		if qqNum != "" {
+			response.FailWithMessage("多文件导入不支持传qqNum", c)
+			return
+		}
+		a.importQQCacheZipBatch(c, files, force)
+		return
+	}
+
+	zipBytes, err := readQQCacheZipFile(files[0])
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	if qqNum == "" {
-		qqNum = strings.TrimSpace(extracted.QQNum)
-	}
-	if extracted.QQNum != "" && qqNum != "" && strings.TrimSpace(extracted.QQNum) != qqNum {
-		response.FailWithMessage("zip内账号与请求账号不一致", c)
-		return
-	}
-	req := systemReq.InternalToolQQCacheImport{
-		QQNum:    qqNum,
-		QQPwd:    c.PostForm("qqPwd"),
-		INI:      extracted.INI,
-		DeviceID: c.PostForm("deviceId"),
-		Force:    force,
-	}
-	var (
-		record systemModel.SysQQCacheRecord
-		action string
-	)
-	if force {
-		record, action, err = qqCacheService.AdminImportQQCache(req)
-	} else {
-		record, action, err = qqCacheService.InternalToolImportQQCache(req)
-	}
+	record, action, err := a.importQQCacheZipBytes(c, zipBytes, force, qqNum)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -181,6 +169,65 @@ func (a *QQCacheApi) importQQCacheZip(c *gin.Context, force bool, skipExistingBe
 		Action:          action,
 		Force:           force,
 	}, "导入成功", c)
+}
+
+func (a *QQCacheApi) importQQCacheZipBatch(c *gin.Context, files []*multipart.FileHeader, force bool) {
+	results := make([]systemRes.InternalToolQQCacheImportItemResponse, 0, len(files))
+	success := 0
+	for _, file := range files {
+		item := systemRes.InternalToolQQCacheImportItemResponse{
+			FileName: file.Filename,
+			Force:    force,
+		}
+		zipBytes, err := readQQCacheZipFile(file)
+		if err == nil {
+			var record systemModel.SysQQCacheRecord
+			var action string
+			record, action, err = a.importQQCacheZipBytes(c, zipBytes, force, "")
+			if err == nil {
+				item.QQCacheRecordID = record.ID
+				item.QQNum = record.QQNum
+				item.Action = action
+				item.Success = true
+				success++
+			}
+		}
+		if err != nil {
+			item.Error = err.Error()
+		}
+		results = append(results, item)
+	}
+	failed := len(files) - success
+	response.OkWithDetailed(systemRes.InternalToolQQCacheImportBatchResponse{
+		Total:   len(files),
+		Success: success,
+		Failed:  failed,
+		Results: results,
+	}, fmt.Sprintf("导入完成，成功%d个，失败%d个", success, failed), c)
+}
+
+func (a *QQCacheApi) importQQCacheZipBytes(c *gin.Context, zipBytes []byte, force bool, qqNum string) (systemModel.SysQQCacheRecord, string, error) {
+	extracted, err := callQQCacheExtractor(zipBytes, c.PostForm("clientId"), c.PostForm("deviceInfo"))
+	if err != nil {
+		return systemModel.SysQQCacheRecord{}, "", err
+	}
+	if qqNum == "" {
+		qqNum = strings.TrimSpace(extracted.QQNum)
+	}
+	if extracted.QQNum != "" && qqNum != "" && strings.TrimSpace(extracted.QQNum) != qqNum {
+		return systemModel.SysQQCacheRecord{}, "", errors.New("zip内账号与请求账号不一致")
+	}
+	req := systemReq.InternalToolQQCacheImport{
+		QQNum:    qqNum,
+		QQPwd:    c.PostForm("qqPwd"),
+		INI:      extracted.INI,
+		DeviceID: c.PostForm("deviceId"),
+		Force:    force,
+	}
+	if force {
+		return qqCacheService.AdminImportQQCache(req)
+	}
+	return qqCacheService.InternalToolImportQQCache(req)
 }
 
 // InternalToolCheckQQCache
@@ -206,23 +253,48 @@ func (a *QQCacheApi) InternalToolCheckQQCache(c *gin.Context) {
 }
 
 func readQQCacheInternalToolZip(c *gin.Context) ([]byte, error) {
-	file, header, err := c.Request.FormFile("cacheZip")
+	files, err := qqCacheUploadedZipFiles(c)
+	if err != nil {
+		return nil, err
+	}
+	return readQQCacheZipFile(files[0])
+}
+
+func qqCacheUploadedZipFiles(c *gin.Context) ([]*multipart.FileHeader, error) {
+	form, err := c.MultipartForm()
 	if err != nil {
 		return nil, errors.New("cacheZip不能为空")
 	}
-	defer file.Close()
-	if header != nil && header.Size > qqCacheInternalToolZipBytes {
-		return nil, errors.New("cacheZip不能超过500K")
+	files := make([]*multipart.FileHeader, 0, len(form.File["cacheZip"])+len(form.File["cacheZips"]))
+	files = append(files, form.File["cacheZip"]...)
+	files = append(files, form.File["cacheZips"]...)
+	if len(files) == 0 {
+		return nil, errors.New("cacheZip不能为空")
 	}
+	return files, nil
+}
+
+func readQQCacheZipFile(header *multipart.FileHeader) ([]byte, error) {
+	if header == nil {
+		return nil, errors.New("cacheZip不能为空")
+	}
+	if header.Size > qqCacheInternalToolZipBytes {
+		return nil, fmt.Errorf("%s不能超过500K", header.Filename)
+	}
+	file, err := header.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
 	zipBytes, err := io.ReadAll(io.LimitReader(file, qqCacheInternalToolZipBytes+1))
 	if err != nil {
 		return nil, err
 	}
 	if len(zipBytes) == 0 {
-		return nil, errors.New("cacheZip不能为空")
+		return nil, fmt.Errorf("%s不能为空", header.Filename)
 	}
 	if len(zipBytes) > qqCacheInternalToolZipBytes {
-		return nil, errors.New("cacheZip不能超过500K")
+		return nil, fmt.Errorf("%s不能超过500K", header.Filename)
 	}
 	return zipBytes, nil
 }

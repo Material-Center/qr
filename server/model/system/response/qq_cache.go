@@ -29,6 +29,23 @@ type InternalToolQQCacheImportResponse struct {
 	Force           bool   `json:"force"`
 }
 
+type InternalToolQQCacheImportItemResponse struct {
+	FileName        string `json:"fileName"`
+	QQCacheRecordID uint   `json:"qqCacheRecordId"`
+	QQNum           string `json:"qqNum"`
+	Action          string `json:"action"`
+	Force           bool   `json:"force"`
+	Success         bool   `json:"success"`
+	Error           string `json:"error"`
+}
+
+type InternalToolQQCacheImportBatchResponse struct {
+	Total   int                                     `json:"total"`
+	Success int                                     `json:"success"`
+	Failed  int                                     `json:"failed"`
+	Results []InternalToolQQCacheImportItemResponse `json:"results"`
+}
+
 type InternalToolQQCacheExistsResponse struct {
 	QQCacheRecordID uint   `json:"qqCacheRecordId"`
 	QQNum           string `json:"qqNum"`

@@ -54,15 +54,15 @@
         >
           <el-button type="warning" plain>按TXT提取</el-button>
         </el-upload>
-        <el-upload
-          class="qq-file-upload"
+        <input
+          ref="importZipInputRef"
+          class="qq-cache-hidden-input"
+          type="file"
           accept=".zip,application/zip"
-          :show-file-list="false"
-          :auto-upload="false"
-          :on-change="onImportZip"
+          multiple
+          @change="onImportZipChange"
         >
-          <el-button type="success" plain>导入缓存包</el-button>
-        </el-upload>
+        <el-button type="success" plain @click="triggerImportZipInput">导入缓存包</el-button>
         <div class="account-list-export-tool">
           <el-tooltip
             effect="dark"
@@ -211,6 +211,7 @@ const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
 const selectedRows = ref([])
+const importZipInputRef = ref(null)
 const extractCount = ref(1)
 const extractStats = ref({
   pending: 0,
@@ -518,28 +519,49 @@ const onExtractByQQFile = async (uploadFile) => {
   }
 }
 
-const onImportZip = async (uploadFile) => {
-  const file = uploadFile?.raw
-  if (!file) {
+const triggerImportZipInput = () => {
+  if (!importZipInputRef.value) return
+  importZipInputRef.value.value = ''
+  importZipInputRef.value.click()
+}
+
+const onImportZipChange = async (event) => {
+  const files = Array.from(event?.target?.files || [])
+  if (!files.length) {
     ElMessage.warning('请先选择ZIP文件')
     return
   }
-  const filename = String(file.name || '').toLowerCase()
-  if (!filename.endsWith('.zip')) {
+  const invalid = files.find((file) => !String(file.name || '').toLowerCase().endsWith('.zip'))
+  if (invalid) {
     ElMessage.warning('请上传ZIP缓存包')
     return
   }
   try {
-    const res = await importQQCacheZip(file)
+    const res = await importQQCacheZip(files)
     if (res?.code !== 0) {
       return
     }
     const { data } = res
-    const action = data?.action === 'updated' ? '已覆盖' : '已导入'
-    ElMessage.success(`${data?.qqNum || '缓存包'}${action}`)
+    if (Array.isArray(data?.results)) {
+      const success = Number(data?.success) || 0
+      const failed = Number(data?.failed) || 0
+      const message = `导入完成：成功 ${success} 个，失败 ${failed} 个`
+      if (failed > 0) {
+        ElMessage.warning(message)
+      } else {
+        ElMessage.success(message)
+      }
+    } else {
+      const action = data?.action === 'updated' ? '已覆盖' : '已导入'
+      ElMessage.success(`${data?.qqNum || '缓存包'}${action}`)
+    }
     await fetchList()
   } catch (e) {
     ElMessage.error(e?.message || '导入失败')
+  } finally {
+    if (event?.target) {
+      event.target.value = ''
+    }
   }
 }
 
@@ -650,6 +672,10 @@ onMounted(() => {
 .qq-file-upload {
   display: inline-flex;
   vertical-align: middle;
+}
+
+.qq-cache-hidden-input {
+  display: none;
 }
 
 .qq-cache-tool-row {
