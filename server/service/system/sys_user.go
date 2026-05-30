@@ -1,6 +1,7 @@
 package system
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -444,7 +445,7 @@ func (userService *UserService) DeleteUser(id int) (err error) {
 //@return: err error, user model.SysUser
 
 func (userService *UserService) SetUserInfo(req system.SysUser) error {
-	return global.GVA_DB.Model(&system.SysUser{}).
+	err := global.GVA_DB.Model(&system.SysUser{}).
 		Select("updated_at", "nick_name", "header_img", "phone", "email", "enable", "phone_register_task_disabled").
 		Where("id=?", req.ID).
 		Updates(map[string]interface{}{
@@ -456,6 +457,15 @@ func (userService *UserService) SetUserInfo(req system.SysUser) error {
 			"enable":                       req.Enable,
 			"phone_register_task_disabled": req.PhoneRegisterTaskDisabled,
 		}).Error
+	if err != nil {
+		return err
+	}
+	var user system.SysUser
+	if err := global.GVA_DB.Select("uuid, enable").Where("id = ?", req.ID).First(&user).Error; err != nil {
+		return err
+	}
+	_ = utils.SetLoginUserEnableCache(context.Background(), user.UUID.String(), user.Enable)
+	return nil
 }
 
 func (userService *UserService) SetUserCacheSampleRatio(userID uint, ratio *int, configured bool) error {
@@ -493,9 +503,17 @@ func (userService *UserService) SetUserCacheSampleRatio(userID uint, ratio *int,
 //@return: err error, user model.SysUser
 
 func (userService *UserService) SetSelfInfo(req system.SysUser) error {
-	return global.GVA_DB.Model(&system.SysUser{}).
+	if err := global.GVA_DB.Model(&system.SysUser{}).
 		Where("id=?", req.ID).
-		Updates(req).Error
+		Updates(req).Error; err != nil {
+		return err
+	}
+	var user system.SysUser
+	if err := global.GVA_DB.Select("uuid, enable").Where("id = ?", req.ID).First(&user).Error; err != nil {
+		return err
+	}
+	_ = utils.SetLoginUserEnableCache(context.Background(), user.UUID.String(), user.Enable)
+	return nil
 }
 
 //@author: [piexlmax](https://github.com/piexlmax)

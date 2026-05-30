@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"time"
@@ -51,14 +52,19 @@ func JWTAuth() gin.HandlerFunc {
 			return
 		}
 
-		// 已登录用户被管理员禁用 需要使该用户的jwt失效 此处比较消耗性能 如果需要 请自行打开
-		// 用户被删除的逻辑 需要优化 此处比较消耗性能 如果需要 请自行打开
-
-		//if user, err := userService.FindUserByUuid(claims.UUID.String()); err != nil || user.Enable == 2 {
-		//	_ = jwtService.JsonInBlacklist(system.JwtBlacklist{Jwt: token})
-		//	response.FailWithDetailed(gin.H{"reload": true}, err.Error(), c)
-		//	c.Abort()
-		//}
+		enabled, err := isLoginUserEnabled(c.Request.Context(), claims)
+		if err != nil {
+			response.NoAuth(err.Error(), c)
+			utils.ClearToken(c)
+			c.Abort()
+			return
+		}
+		if !enabled {
+			response.NoAuth("用户被禁用，请重新登录", c)
+			utils.ClearToken(c)
+			c.Abort()
+			return
+		}
 		c.Set("claims", claims)
 		if claims.ExpiresAt.Unix()-time.Now().Unix() < claims.BufferTime {
 			dr, _ := utils.ParseDuration(global.GVA_CONFIG.JWT.ExpiresTime)
@@ -106,4 +112,19 @@ func isStoredOpenAPIToken(token string) bool {
 		return false
 	}
 	return count > 0
+}
+
+func isLoginUserEnabled(ctx context.Context, claims *systemReq.CustomClaims) (bool, error) {
+	if global.GVA_DB == nil {
+		return false, errors.New("数据库未初始化")
+	}
+	if enable, found, err := utils.GetLoginUserEnableCache(ctx, claims.UUID.String()); err == nil && found {
+		return enable == 1, nil
+	}
+	var user system.SysUser
+	if err := global.GVA_DB.Select("id, enable").Where("uuid = ?", claims.UUID).First(&user).Error; err != nil {
+		return false, errors.New("用户不存在或已被删除")
+	}
+	_ = utils.SetLoginUserEnableCache(ctx, claims.UUID.String(), user.Enable)
+	return user.Enable == 1, nil
 }
