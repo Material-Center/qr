@@ -9,6 +9,7 @@ import (
 	modelCommonReq "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 	modelSystem "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	modelSystemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
+	modelSystemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -504,6 +505,41 @@ func TestGetSummaryIncludesRiskFailCountForPromoters(t *testing.T) {
 	require.EqualValues(t, 2, *got.Leaders[0].RiskFailCount)
 }
 
+func TestPhoneRegisterTaskSummaryOrderIsStable(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	leaderIDs := []uint{30, 10, 20}
+	for _, leaderID := range leaderIDs {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+			GVA_MODEL:   global.GVA_MODEL{ID: leaderID},
+			Username:    "leader",
+			NickName:    "团长",
+			AuthorityId: 200,
+			Enable:      1,
+		}).Error)
+		for _, promoterID := range []uint{leaderID + 2, leaderID + 1} {
+			require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+				Phone:      "18800000000",
+				PromoterID: promoterID,
+				LeaderID:   &leaderID,
+				Status:     modelSystem.PhoneRegisterStatusSucceeded,
+				StatusCode: &successCode,
+				FinishedAt: &now,
+				ExpiresAt:  now.Add(time.Hour),
+			}).Error)
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		got, err := (&PhoneRegisterTaskService{}).GetSummary(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskSummaryFilter{})
+		require.NoError(t, err)
+		require.Equal(t, []uint{10, 20, 30}, phoneSummaryLeaderIDs(got.Leaders))
+		require.Equal(t, []uint{11, 12, 21, 22, 31, 32}, phoneSummaryPromoterIDs(got.Promoters))
+	}
+}
+
 func TestGetSummaryHidesRiskFailCountForLeaderRole(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 
@@ -531,6 +567,22 @@ func TestGetSummaryHidesRiskFailCountForLeaderRole(t *testing.T) {
 	payload, err := json.Marshal(got)
 	require.NoError(t, err)
 	require.NotContains(t, string(payload), "riskFailCount")
+}
+
+func phoneSummaryLeaderIDs(items []modelSystemRes.PhoneRegisterTaskSummaryItem) []uint {
+	ids := make([]uint, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.LeaderID)
+	}
+	return ids
+}
+
+func phoneSummaryPromoterIDs(items []modelSystemRes.PhoneRegisterTaskSummaryItem) []uint {
+	ids := make([]uint, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.PromoterID)
+	}
+	return ids
 }
 
 func TestPhoneRegisterRiskReasonDoesNotUseQuota(t *testing.T) {

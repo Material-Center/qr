@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1158,6 +1159,15 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 	for _, item := range leaderMap {
 		leaders = append(leaders, item)
 	}
+	sort.Slice(leaders, func(i, j int) bool {
+		return leaders[i].LeaderID < leaders[j].LeaderID
+	})
+	sort.Slice(promoters, func(i, j int) bool {
+		if promoters[i].LeaderID != promoters[j].LeaderID {
+			return promoters[i].LeaderID < promoters[j].LeaderID
+		}
+		return promoters[i].PromoterID < promoters[j].PromoterID
+	})
 	return systemRes.RegisterTaskSummaryResponse{
 		Leaders:   leaders,
 		Promoters: promoters,
