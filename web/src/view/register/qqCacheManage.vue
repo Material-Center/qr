@@ -46,7 +46,7 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" icon="search" @click="fetchList">查询</el-button>
+          <el-button type="primary" icon="search" @click="onSearch">查询</el-button>
           <el-button icon="refresh" @click="resetSearch">重置</el-button>
         </el-form-item>
       </el-form>
@@ -759,11 +759,20 @@ const fetchList = async () => {
 
 const fetchSalesSummary = async () => {
   try {
-    const { data } = await getQQCacheSalesSummaryList()
+    const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
+    const { data } = await getQQCacheSalesSummaryList({
+      createdAtStart: createdAtStart || undefined,
+      createdAtEnd: createdAtEnd || undefined
+    })
     salesSummaryList.value = data || []
   } catch (e) {
     ElMessage.error(e?.message || '销售汇总加载失败')
   }
+}
+
+const onSearch = async () => {
+  page.value = 1
+  await Promise.all([fetchList(), fetchSalesSummary()])
 }
 
 const resetSearch = () => {
@@ -776,7 +785,7 @@ const resetSearch = () => {
     extractorId: undefined
   }
   page.value = 1
-  fetchList()
+  Promise.all([fetchList(), fetchSalesSummary()])
 }
 
 const handleCurrentChange = (val) => {

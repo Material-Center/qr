@@ -9,7 +9,7 @@
           <el-card shadow="never">待结算数量：{{ summary.todayUnsettled }}</el-card>
         </el-col>
         <el-col :xs="24" :sm="8">
-          <el-card shadow="never">我已提取总数：{{ summary.todayExtracted }}</el-card>
+          <el-card shadow="never">今日已提取数量：{{ summary.todayExtracted }}</el-card>
         </el-col>
       </el-row>
 

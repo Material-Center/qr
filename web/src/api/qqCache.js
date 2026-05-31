@@ -122,10 +122,11 @@ export const getQQCacheSalesHistory = (data) => {
   })
 }
 
-export const getQQCacheSalesSummaryList = () => {
+export const getQQCacheSalesSummaryList = (params = {}) => {
   return service({
     url: '/qqCache/sales/summaryList',
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 

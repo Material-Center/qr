@@ -640,7 +640,7 @@ func (s *QQCacheService) ListSalesExtractHistory(extractorID uint, req systemReq
 	return items, total, nil
 }
 
-func (s *QQCacheService) ListSalesSummaryForAdmin() ([]systemRes.QQCacheSalesAdminSummaryItem, error) {
+func (s *QQCacheService) ListSalesSummaryForAdmin(createdAtStart string, createdAtEnd string) ([]systemRes.QQCacheSalesAdminSummaryItem, error) {
 	type row struct {
 		ExtractorID         uint   `gorm:"column:extractor_id"`
 		Username            string `gorm:"column:username"`
@@ -651,17 +651,20 @@ func (s *QQCacheService) ListSalesSummaryForAdmin() ([]systemRes.QQCacheSalesAdm
 		LastExtractionAtRaw string `gorm:"column:last_extraction_at"`
 	}
 	var rows []row
-	qqCacheAggregate := `
-		SELECT
-			extractor AS extractor_id,
-			COUNT(1) AS extracted_count,
-			SUM(CASE WHEN sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled_count,
-			SUM(CASE WHEN sales_settled_at IS NULL THEN 1 ELSE 0 END) AS unsettled_count,
-			MAX(extraction_at) AS last_extraction_at
-		FROM sys_qq_cache_records
-		WHERE extractor IS NOT NULL AND deleted_at IS NULL
-		GROUP BY extractor
-	`
+	qqCacheAggregate := applyQQCacheCreatedAtRangeFilter(
+		global.GVA_DB.Table("sys_qq_cache_records").
+			Select(`
+				extractor AS extractor_id,
+				COUNT(1) AS extracted_count,
+				SUM(CASE WHEN sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled_count,
+				SUM(CASE WHEN sales_settled_at IS NULL THEN 1 ELSE 0 END) AS unsettled_count,
+				MAX(extraction_at) AS last_extraction_at
+			`).
+			Where("extractor IS NOT NULL AND deleted_at IS NULL").
+			Group("extractor"),
+		createdAtStart,
+		createdAtEnd,
+	)
 	if err := global.GVA_DB.Table("sys_users AS u").
 		Select(`
 			u.id AS extractor_id,
@@ -672,7 +675,7 @@ func (s *QQCacheService) ListSalesSummaryForAdmin() ([]systemRes.QQCacheSalesAdm
 			COALESCE(q.unsettled_count, 0) AS unsettled_count,
 			q.last_extraction_at AS last_extraction_at
 		`).
-		Joins("LEFT JOIN ("+qqCacheAggregate+") AS q ON q.extractor_id = u.id").
+		Joins("JOIN (?) AS q ON q.extractor_id = u.id", qqCacheAggregate).
 		Where("u.authority_id = ? AND u.deleted_at IS NULL", qqCacheServiceRoleSales).
 		Order("q.last_extraction_at DESC").
 		Order("u.id DESC").

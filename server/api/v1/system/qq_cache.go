@@ -538,7 +538,7 @@ func (a *QQCacheApi) GetSalesSummaryList(c *gin.Context) {
 		response.FailWithMessage("仅管理员可查看销售提取汇总", c)
 		return
 	}
-	list, err := qqCacheService.ListSalesSummaryForAdmin()
+	list, err := qqCacheService.ListSalesSummaryForAdmin(c.Query("createdAtStart"), c.Query("createdAtEnd"))
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return

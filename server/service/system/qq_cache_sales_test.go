@@ -146,7 +146,7 @@ func TestQQCacheSettleSalesBillingUpdatesBatchStatus(t *testing.T) {
 		require.Nil(t, record.BillingSettledBy)
 	}
 
-	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin()
+	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin("", "")
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	require.EqualValues(t, salesID, summaries[0].ExtractorID)
@@ -192,13 +192,14 @@ func TestQQCacheSettleSalesBillingRejectsNonSalesExtractor(t *testing.T) {
 	require.Nil(t, record.BillingSettledBy)
 }
 
-func TestQQCacheSalesSummaryListIncludesSalesWithoutExtracts(t *testing.T) {
+func TestQQCacheSalesSummaryListFiltersSalesWithoutExtractsInRange(t *testing.T) {
 	setupQQCacheSalesTestDB(t)
 
 	salesWithExtractID := uint(6101)
 	salesWithoutExtractID := uint(6102)
 	adminExtractorID := uint(1101)
 	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
 	ini := "qqnum=51001\nguid=GUID001\n"
 	require.NoError(t, global.GVA_DB.Create(&[]model.SysUser{
 		{GVA_MODEL: global.GVA_MODEL{ID: salesWithExtractID}, Username: "sales_with", NickName: "已提取销售", AuthorityId: 600, Enable: 1},
@@ -206,13 +207,19 @@ func TestQQCacheSalesSummaryListIncludesSalesWithoutExtracts(t *testing.T) {
 		{GVA_MODEL: global.GVA_MODEL{ID: adminExtractorID}, Username: "admin_extractor", AuthorityId: 100, Enable: 1},
 	}).Error)
 	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
-		{QQNum: "51001", INI: &ini, Extractor: &salesWithExtractID, ExtractionAt: &now},
-		{QQNum: "51002", INI: &ini, Extractor: &adminExtractorID, ExtractionAt: &now},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now, UpdatedAt: now}, QQNum: "51001", INI: &ini, Extractor: &salesWithExtractID, ExtractionAt: &now},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now, UpdatedAt: now}, QQNum: "51002", INI: &ini, Extractor: &adminExtractorID, ExtractionAt: &now},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: yesterday, UpdatedAt: yesterday}, QQNum: "51003", INI: &ini, Extractor: &salesWithExtractID, ExtractionAt: &yesterday},
 	}).Error)
 
-	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	todayEnd := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, time.Local)
+	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin(
+		todayStart.Format("2006-01-02 15:04:05"),
+		todayEnd.Format("2006-01-02 15:04:05"),
+	)
 	require.NoError(t, err)
-	require.Len(t, summaries, 2)
+	require.Len(t, summaries, 1)
 
 	byID := map[uint]systemRes.QQCacheSalesAdminSummaryItem{}
 	for _, item := range summaries {
@@ -220,10 +227,15 @@ func TestQQCacheSalesSummaryListIncludesSalesWithoutExtracts(t *testing.T) {
 	}
 	require.EqualValues(t, 1, byID[salesWithExtractID].ExtractedCount)
 	require.EqualValues(t, 1, byID[salesWithExtractID].UnsettledCount)
-	require.EqualValues(t, 0, byID[salesWithoutExtractID].ExtractedCount)
-	require.EqualValues(t, 0, byID[salesWithoutExtractID].SettledCount)
-	require.EqualValues(t, 0, byID[salesWithoutExtractID].UnsettledCount)
+	require.NotContains(t, byID, salesWithoutExtractID)
 	require.NotContains(t, byID, adminExtractorID)
+
+	allSummaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin("", "")
+	require.NoError(t, err)
+	for _, item := range allSummaries {
+		byID[item.ExtractorID] = item
+	}
+	require.EqualValues(t, 2, byID[salesWithExtractID].ExtractedCount)
 }
 
 func TestQQCacheGlobalBillingDoesNotSettleSalesBatch(t *testing.T) {
