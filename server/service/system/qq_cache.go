@@ -707,15 +707,8 @@ func (s *QQCacheService) SettleSalesBilling(operatorRole uint, operatorID uint, 
 	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
 		return qqCacheBillingSettleResult{}, errors.New("仅管理员可结算")
 	}
-	if extractorID == 0 {
-		return qqCacheBillingSettleResult{}, errors.New("提取人不能为空")
-	}
-	var extractor system.SysUser
-	if err := global.GVA_DB.Select("id, authority_id").Where("id = ?", extractorID).First(&extractor).Error; err != nil {
-		return qqCacheBillingSettleResult{}, errors.New("销售账号不存在")
-	}
-	if extractor.AuthorityId != qqCacheServiceRoleSales {
-		return qqCacheBillingSettleResult{}, errors.New("仅可结算销售账号")
+	if err := s.ensureSalesExtractor(extractorID); err != nil {
+		return qqCacheBillingSettleResult{}, err
 	}
 	settledAt := time.Now()
 	result := qqCacheBillingSettleResult{SettledAt: settledAt}
@@ -738,6 +731,37 @@ func (s *QQCacheService) SettleSalesBilling(operatorRole uint, operatorID uint, 
 		return s.refreshSalesBatchSettlementTx(tx, extractorID, settledAt, operatorID)
 	})
 	return result, err
+}
+
+func (s *QQCacheService) GetSalesSettlementHistory(operatorRole uint, extractorID uint) ([]systemRes.QQCacheSalesSettlementHistoryItem, error) {
+	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
+		return nil, errors.New("仅管理员可查看销售结算历史")
+	}
+	if err := s.ensureSalesExtractor(extractorID); err != nil {
+		return nil, err
+	}
+	var rows []systemRes.QQCacheSalesSettlementHistoryItem
+	err := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+		Select("sales_settled_at AS settled_at, COUNT(1) AS settled_count").
+		Where("extractor = ? AND sales_settled_at IS NOT NULL", extractorID).
+		Group("sales_settled_at").
+		Order("sales_settled_at DESC").
+		Scan(&rows).Error
+	return rows, err
+}
+
+func (s *QQCacheService) ensureSalesExtractor(extractorID uint) error {
+	if extractorID == 0 {
+		return errors.New("提取人不能为空")
+	}
+	var extractor system.SysUser
+	if err := global.GVA_DB.Select("id, authority_id").Where("id = ?", extractorID).First(&extractor).Error; err != nil {
+		return errors.New("销售账号不存在")
+	}
+	if extractor.AuthorityId != qqCacheServiceRoleSales {
+		return errors.New("仅可操作销售账号")
+	}
+	return nil
 }
 
 func (s *QQCacheService) refreshSalesBatchSettlementTx(tx *gorm.DB, extractorID uint, settledAt time.Time, operatorID uint) error {

@@ -92,3 +92,8 @@ type QQCacheSalesAdminSummaryItem struct {
 	UnsettledCount   int64      `json:"unsettledCount"`
 	LastExtractionAt *time.Time `json:"lastExtractionAt"`
 }
+
+type QQCacheSalesSettlementHistoryItem struct {
+	SettledAt    time.Time `json:"settledAt"`
+	SettledCount int64     `json:"settledCount"`
+}

@@ -208,7 +208,7 @@
             {{ row.lastExtractionAt ? formatDate(row.lastExtractionAt) : '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button
               type="primary"
@@ -216,7 +216,14 @@
               :disabled="Number(row.unsettledCount) <= 0"
               @click="onSettleSales(row)"
             >
-              标记已结算
+              结算
+            </el-button>
+            <el-button
+              type="primary"
+              link
+              @click="onOpenSalesSettlementHistory(row)"
+            >
+              历史
             </el-button>
           </template>
         </el-table-column>
@@ -225,6 +232,17 @@
 
     <el-dialog v-model="billingHistoryVisible" title="QQ缓存结算历史" width="520px">
       <el-table v-loading="billingHistoryLoading" :data="billingHistory" size="small">
+        <el-table-column label="结算时间" min-width="180">
+          <template #default="{ row }">
+            {{ row.settledAt ? formatDate(row.settledAt) : '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="数量" prop="settledCount" width="120" />
+      </el-table>
+    </el-dialog>
+
+    <el-dialog v-model="salesSettlementHistoryVisible" :title="salesSettlementHistoryTitle" width="520px">
+      <el-table v-loading="salesSettlementHistoryLoading" :data="salesSettlementHistory" size="small">
         <el-table-column label="结算时间" min-width="180">
           <template #default="{ row }">
             {{ row.settledAt ? formatDate(row.settledAt) : '-' }}
@@ -247,6 +265,7 @@ import {
   exportQQCacheIniZip,
   getQQCacheBillingHistory,
   getQQCacheList,
+  getQQCacheSalesSettlementHistory,
   getQQCacheSalesSummaryList,
   importQQCacheZip,
   resetQQCacheExtract,
@@ -275,6 +294,10 @@ const extractStats = ref({
 const billingHistoryVisible = ref(false)
 const billingHistoryLoading = ref(false)
 const billingHistory = ref([])
+const salesSettlementHistoryVisible = ref(false)
+const salesSettlementHistoryLoading = ref(false)
+const salesSettlementHistory = ref([])
+const salesSettlementHistoryTitle = ref('销售结算历史')
 const salesSummaryList = ref([])
 const searchInfo = ref({
   createdAtRange: [],
@@ -669,6 +692,23 @@ const onSettleSales = async (row) => {
   } catch (e) {
     if (e === 'cancel' || e === 'close') return
     ElMessage.error(e?.message || '结算失败')
+  }
+}
+
+const onOpenSalesSettlementHistory = async (row) => {
+  if (!row?.extractorId) return
+  const name = row.extractorName || row.nickName || row.username || `ID ${row.extractorId}`
+  salesSettlementHistory.value = []
+  salesSettlementHistoryTitle.value = `${name} 结算历史`
+  salesSettlementHistoryVisible.value = true
+  salesSettlementHistoryLoading.value = true
+  try {
+    const { data } = await getQQCacheSalesSettlementHistory({ extractorId: row.extractorId })
+    salesSettlementHistory.value = data || []
+  } catch (e) {
+    ElMessage.error(e?.message || '销售结算历史加载失败')
+  } finally {
+    salesSettlementHistoryLoading.value = false
   }
 }
 

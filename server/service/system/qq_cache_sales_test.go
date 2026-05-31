@@ -153,6 +153,11 @@ func TestQQCacheSettleSalesBillingUpdatesBatchStatus(t *testing.T) {
 	require.EqualValues(t, 2, summaries[0].ExtractedCount)
 	require.EqualValues(t, 2, summaries[0].SettledCount)
 	require.EqualValues(t, 0, summaries[0].UnsettledCount)
+
+	history, err := (&QQCacheService{}).GetSalesSettlementHistory(100, salesID)
+	require.NoError(t, err)
+	require.Len(t, history, 1)
+	require.EqualValues(t, 2, history[0].SettledCount)
 }
 
 func TestQQCacheSettleSalesBillingRejectsNonSalesExtractor(t *testing.T) {

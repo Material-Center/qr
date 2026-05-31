@@ -577,6 +577,33 @@ func (a *QQCacheApi) SettleSalesBilling(c *gin.Context) {
 	}, "结算成功", c)
 }
 
+// GetSalesSettlementHistory
+// @Tags      QQCache
+// @Summary   管理端查询指定销售结算历史
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Param     extractorId  query     int  true  "销售ID"
+// @Success   200          {object}  response.Response{data=[]systemRes.QQCacheSalesSettlementHistoryItem}
+// @Router    /qqCache/sales/settlement/history [get]
+func (a *QQCacheApi) GetSalesSettlementHistory(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可查看销售结算历史", c)
+		return
+	}
+	extractorID64, err := strconv.ParseUint(strings.TrimSpace(c.Query("extractorId")), 10, 64)
+	if err != nil || extractorID64 == 0 {
+		response.FailWithMessage("提取人不能为空", c)
+		return
+	}
+	rows, err := qqCacheService.GetSalesSettlementHistory(role, uint(extractorID64))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(rows, "获取成功", c)
+}
+
 // ResetExtract
 // @Tags      QQCache
 // @Summary   管理端重置提取锁

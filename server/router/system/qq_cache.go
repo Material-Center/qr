@@ -33,6 +33,7 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 		qqCacheRouter.POST("sales/history", qqCacheApi.GetSalesHistory)
 		qqCacheRouterWithoutRecord.GET("sales/summaryList", qqCacheApi.GetSalesSummaryList)
 		qqCacheRouter.POST("sales/settle", qqCacheApi.SettleSalesBilling)
+		qqCacheRouterWithoutRecord.GET("sales/settlement/history", qqCacheApi.GetSalesSettlementHistory)
 	}
 	{
 		qqCacheRouterWithoutRecord.GET("roleHint", qqCacheApi.AppLoginRoleHint)

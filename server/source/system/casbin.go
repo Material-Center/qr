@@ -284,6 +284,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/qqCache/billing/history", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/sales/summaryList", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/sales/settle", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/sales/settlement/history", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/roleHint", V2: "GET"},
 
 		// 100 管理员（业务角色）
@@ -329,6 +330,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/qqCache/billing/history", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/sales/summaryList", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/sales/settle", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/sales/settlement/history", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/roleHint", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 

@@ -136,3 +136,11 @@ export const settleQQCacheSalesBilling = (data) => {
     data
   })
 }
+
+export const getQQCacheSalesSettlementHistory = (params) => {
+  return service({
+    url: '/qqCache/sales/settlement/history',
+    method: 'get',
+    params
+  })
+}

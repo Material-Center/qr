@@ -143,6 +143,12 @@ WHERE NOT EXISTS (
   SELECT 1 FROM `sys_apis` WHERE `path` = '/qqCache/sales/settle' AND `method` = 'POST' AND `deleted_at` IS NULL
 );
 
+INSERT INTO `sys_apis` (`created_at`, `updated_at`, `api_group`, `method`, `path`, `description`)
+SELECT NOW(), NOW(), 'QQ缓存', 'GET', '/qqCache/sales/settlement/history', '管理端查询销售结算历史'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path` = '/qqCache/sales/settlement/history' AND `method` = 'GET' AND `deleted_at` IS NULL
+);
+
 INSERT INTO `casbin_rule` (`ptype`, `v0`, `v1`, `v2`, `v3`, `v4`, `v5`)
 SELECT 'p', role_id, api_path, api_method, '', '', ''
 FROM (
@@ -159,8 +165,10 @@ FROM (
   UNION ALL SELECT '600', '/jwt/jsonInBlacklist', 'POST'
   UNION ALL SELECT '100', '/qqCache/sales/summaryList', 'GET'
   UNION ALL SELECT '100', '/qqCache/sales/settle', 'POST'
+  UNION ALL SELECT '100', '/qqCache/sales/settlement/history', 'GET'
   UNION ALL SELECT '888', '/qqCache/sales/summaryList', 'GET'
   UNION ALL SELECT '888', '/qqCache/sales/settle', 'POST'
+  UNION ALL SELECT '888', '/qqCache/sales/settlement/history', 'GET'
 ) p
 WHERE NOT EXISTS (
   SELECT 1 FROM `casbin_rule` c
