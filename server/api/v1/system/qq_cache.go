@@ -546,6 +546,78 @@ func (a *QQCacheApi) GetSalesSummaryList(c *gin.Context) {
 	response.OkWithDetailed(list, "获取成功", c)
 }
 
+// GetSalesExtractBatches
+// @Tags      QQCache
+// @Summary   管理端查询销售提取批次明细
+// @Security  ApiKeyAuth
+// @Produce   application/json
+// @Param     extractorId     query     int     true   "销售ID"
+// @Param     createdAtStart  query     string  false  "缓存创建开始时间"
+// @Param     createdAtEnd    query     string  false  "缓存创建结束时间"
+// @Success   200             {object}  response.Response{data=[]systemRes.QQCacheSalesAdminBatchItem}
+// @Router    /qqCache/sales/batches [get]
+func (a *QQCacheApi) GetSalesExtractBatches(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可查看销售提取明细", c)
+		return
+	}
+	extractorID64, err := strconv.ParseUint(strings.TrimSpace(c.Query("extractorId")), 10, 64)
+	if err != nil || extractorID64 == 0 {
+		response.FailWithMessage("提取人不能为空", c)
+		return
+	}
+	list, err := qqCacheService.ListSalesExtractBatchesForAdmin(
+		role,
+		uint(extractorID64),
+		c.Query("createdAtStart"),
+		c.Query("createdAtEnd"),
+	)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(list, "获取成功", c)
+}
+
+// DownloadSalesExtractBatch
+// @Tags      QQCache
+// @Summary   管理端重新下载销售提取批次缓存INI(zip)
+// @Security  ApiKeyAuth
+// @accept    application/json
+// @Produce   application/zip
+// @Param     data  body      systemReq.QQCacheSalesBatchDownload  true  "销售ID、批次ID和创建时间范围"
+// @Success   200   file      zip
+// @Router    /qqCache/sales/batch/download [post]
+func (a *QQCacheApi) DownloadSalesExtractBatch(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可重新下载销售提取缓存", c)
+		return
+	}
+	var req systemReq.QQCacheSalesBatchDownload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	zipBytes, count, err := qqCacheService.ExportSalesExtractBatchIniZipForAdmin(
+		role,
+		req.ExtractorID,
+		req.BatchID,
+		req.CreatedAtStart,
+		req.CreatedAtEnd,
+	)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	filename := qqCacheExtractZipFilename(count)
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", qqCacheAttachmentDisposition(filename))
+	c.Data(200, "application/zip", zipBytes)
+}
+
 // SettleSalesBilling
 // @Tags      QQCache
 // @Summary   管理端按销售结算QQ缓存计费数量

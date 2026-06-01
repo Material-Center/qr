@@ -706,6 +706,101 @@ func (s *QQCacheService) ListSalesSummaryForAdmin(createdAtStart string, created
 	return items, nil
 }
 
+func (s *QQCacheService) ListSalesExtractBatchesForAdmin(operatorRole uint, extractorID uint, createdAtStart string, createdAtEnd string) ([]systemRes.QQCacheSalesAdminBatchItem, error) {
+	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
+		return nil, errors.New("仅管理员可查看销售提取明细")
+	}
+	if err := s.ensureSalesExtractor(extractorID); err != nil {
+		return nil, err
+	}
+	type row struct {
+		ID             uint   `gorm:"column:id"`
+		ExtractedAtRaw string `gorm:"column:extracted_at"`
+		ExtractCount   int64  `gorm:"column:extract_count"`
+		SettledCount   int64  `gorm:"column:settled_count"`
+		SettledAtRaw   string `gorm:"column:settled_at"`
+	}
+	var rows []row
+	db := global.GVA_DB.Table("sys_qq_cache_extract_batches AS b").
+		Select(`
+			b.id AS id,
+			b.extracted_at AS extracted_at,
+			COUNT(r.id) AS extract_count,
+			SUM(CASE WHEN r.sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled_count,
+			MAX(r.sales_settled_at) AS settled_at
+		`).
+		Joins("JOIN sys_qq_cache_records AS r ON r.extract_record_id = b.id AND r.extractor = b.extractor_id AND r.deleted_at IS NULL").
+		Where("b.extractor_id = ? AND b.deleted_at IS NULL", extractorID)
+	if startAt, ok := parseTaskListTime(createdAtStart); ok {
+		db = db.Where("r.created_at >= ?", startAt)
+	}
+	if endAt, ok := parseTaskListTime(createdAtEnd); ok {
+		db = db.Where("r.created_at <= ?", endAt)
+	}
+	if err := db.Group("b.id, b.extracted_at").
+		Order("b.extracted_at DESC").
+		Order("b.id DESC").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	items := make([]systemRes.QQCacheSalesAdminBatchItem, 0, len(rows))
+	for _, r := range rows {
+		status := system.QQCacheExtractBatchStatusPendingSettlement
+		if r.ExtractCount > 0 && r.SettledCount == r.ExtractCount {
+			status = system.QQCacheExtractBatchStatusSettled
+		}
+		settledAt := parseQQCacheSalesSQLTime(r.SettledAtRaw)
+		if status != system.QQCacheExtractBatchStatusSettled {
+			settledAt = nil
+		}
+		items = append(items, systemRes.QQCacheSalesAdminBatchItem{
+			ID:                   r.ID,
+			ExtractedAt:          parseQQCacheSalesSQLTime(r.ExtractedAtRaw),
+			ExtractCount:         r.ExtractCount,
+			SettledCount:         r.SettledCount,
+			SettlementStatus:     status,
+			SettlementStatusText: qqCacheSalesSettlementStatusText(status),
+			SettledAt:            settledAt,
+		})
+	}
+	return items, nil
+}
+
+func (s *QQCacheService) ExportSalesExtractBatchIniZipForAdmin(operatorRole uint, extractorID uint, batchID uint, createdAtStart string, createdAtEnd string) ([]byte, int, error) {
+	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
+		return nil, 0, errors.New("仅管理员可重新下载销售提取缓存")
+	}
+	if batchID == 0 {
+		return nil, 0, errors.New("提取批次不能为空")
+	}
+	if err := s.ensureSalesExtractor(extractorID); err != nil {
+		return nil, 0, err
+	}
+	var batch system.SysQQCacheExtractBatch
+	if err := global.GVA_DB.Select("id, extractor_id").
+		Where("id = ? AND extractor_id = ?", batchID, extractorID).
+		First(&batch).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, 0, errors.New("提取批次不存在")
+		}
+		return nil, 0, err
+	}
+	db := applyQQCacheCreatedAtRangeFilter(
+		global.GVA_DB.Where("extractor = ? AND extract_record_id = ?", extractorID, batchID).
+			Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
+		createdAtStart,
+		createdAtEnd,
+	)
+	var records []system.SysQQCacheRecord
+	if err := db.Order("created_at ASC").Order("id ASC").Find(&records).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(records) == 0 {
+		return nil, 0, errors.New("当前时间范围内暂无可重新下载的缓存")
+	}
+	return buildQQCacheIniZip(records)
+}
+
 func (s *QQCacheService) SettleSalesBilling(operatorRole uint, operatorID uint, extractorID uint) (qqCacheBillingSettleResult, error) {
 	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
 		return qqCacheBillingSettleResult{}, errors.New("仅管理员可结算")

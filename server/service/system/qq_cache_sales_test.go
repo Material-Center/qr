@@ -1,6 +1,8 @@
 package system
 
 import (
+	"archive/zip"
+	"bytes"
 	"testing"
 	"time"
 
@@ -309,4 +311,79 @@ func TestQQCacheResetExtractRejectsSalesBatchRecord(t *testing.T) {
 	require.NotNil(t, stored.Extractor)
 	require.NotNil(t, stored.ExtractRecordID)
 	require.NotNil(t, stored.ExtractionAt)
+}
+
+func TestQQCacheSalesBatchRedownloadUsesCreatedAtRangeAndDoesNotMutateState(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6006)
+	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
+	iniA := "qqnum=80001\nguid=GUID001\n"
+	iniB := "qqnum=80002\nguid=GUID002\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_e",
+		NickName:    "销售E",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: yesterday, UpdatedAt: yesterday}, QQNum: "80001", INI: &iniA},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now, UpdatedAt: now}, QQNum: "80002", INI: &iniB},
+	}).Error)
+	_, count, batch, err := (&QQCacheService{}).ExportSalesPendingIniZipByCount(2, salesID)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	todayEnd := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, time.Local)
+	batches, err := (&QQCacheService{}).ListSalesExtractBatchesForAdmin(
+		100,
+		salesID,
+		todayStart.Format("2006-01-02 15:04:05"),
+		todayEnd.Format("2006-01-02 15:04:05"),
+	)
+	require.NoError(t, err)
+	require.Len(t, batches, 1)
+	require.EqualValues(t, batch.ID, batches[0].ID)
+	require.EqualValues(t, 1, batches[0].ExtractCount)
+
+	zipBytes, exportedCount, err := (&QQCacheService{}).ExportSalesExtractBatchIniZipForAdmin(
+		100,
+		salesID,
+		batch.ID,
+		todayStart.Format("2006-01-02 15:04:05"),
+		todayEnd.Format("2006-01-02 15:04:05"),
+	)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, exportedCount)
+	requireQQCacheZipEntries(t, zipBytes, []string{"80002.ini", "账号.txt"})
+
+	var storedBatch model.SysQQCacheExtractBatch
+	require.NoError(t, global.GVA_DB.First(&storedBatch, batch.ID).Error)
+	require.Equal(t, model.QQCacheExtractBatchStatusPendingSettlement, storedBatch.Status)
+	require.EqualValues(t, 0, storedBatch.SettledCount)
+	require.Nil(t, storedBatch.SettledAt)
+	require.Nil(t, storedBatch.SettledBy)
+
+	var records []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extract_record_id = ?", batch.ID).Find(&records).Error)
+	require.Len(t, records, 2)
+	for _, record := range records {
+		require.EqualValues(t, salesID, *record.Extractor)
+		require.Nil(t, record.SalesSettledAt)
+		require.Nil(t, record.SalesSettledBy)
+	}
+}
+
+func requireQQCacheZipEntries(t *testing.T, zipBytes []byte, expected []string) {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	require.NoError(t, err)
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	require.ElementsMatch(t, expected, names)
 }

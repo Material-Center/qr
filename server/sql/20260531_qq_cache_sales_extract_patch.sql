@@ -138,6 +138,18 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO `sys_apis` (`created_at`, `updated_at`, `api_group`, `method`, `path`, `description`)
+SELECT NOW(), NOW(), 'QQ缓存', 'GET', '/qqCache/sales/batches', '管理端查询销售提取批次明细'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path` = '/qqCache/sales/batches' AND `method` = 'GET' AND `deleted_at` IS NULL
+);
+
+INSERT INTO `sys_apis` (`created_at`, `updated_at`, `api_group`, `method`, `path`, `description`)
+SELECT NOW(), NOW(), 'QQ缓存', 'POST', '/qqCache/sales/batch/download', '管理端重新下载销售提取缓存'
+WHERE NOT EXISTS (
+  SELECT 1 FROM `sys_apis` WHERE `path` = '/qqCache/sales/batch/download' AND `method` = 'POST' AND `deleted_at` IS NULL
+);
+
+INSERT INTO `sys_apis` (`created_at`, `updated_at`, `api_group`, `method`, `path`, `description`)
 SELECT NOW(), NOW(), 'QQ缓存', 'POST', '/qqCache/sales/settle', '管理端按销售结算QQ缓存'
 WHERE NOT EXISTS (
   SELECT 1 FROM `sys_apis` WHERE `path` = '/qqCache/sales/settle' AND `method` = 'POST' AND `deleted_at` IS NULL
@@ -164,9 +176,13 @@ FROM (
   UNION ALL SELECT '600', '/qqCache/sales/history', 'POST'
   UNION ALL SELECT '600', '/jwt/jsonInBlacklist', 'POST'
   UNION ALL SELECT '100', '/qqCache/sales/summaryList', 'GET'
+  UNION ALL SELECT '100', '/qqCache/sales/batches', 'GET'
+  UNION ALL SELECT '100', '/qqCache/sales/batch/download', 'POST'
   UNION ALL SELECT '100', '/qqCache/sales/settle', 'POST'
   UNION ALL SELECT '100', '/qqCache/sales/settlement/history', 'GET'
   UNION ALL SELECT '888', '/qqCache/sales/summaryList', 'GET'
+  UNION ALL SELECT '888', '/qqCache/sales/batches', 'GET'
+  UNION ALL SELECT '888', '/qqCache/sales/batch/download', 'POST'
   UNION ALL SELECT '888', '/qqCache/sales/settle', 'POST'
   UNION ALL SELECT '888', '/qqCache/sales/settlement/history', 'GET'
 ) p

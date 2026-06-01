@@ -32,6 +32,8 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 		qqCacheRouterWithoutRecord.POST("sales/extract", qqCacheApi.SalesExtract)
 		qqCacheRouter.POST("sales/history", qqCacheApi.GetSalesHistory)
 		qqCacheRouterWithoutRecord.GET("sales/summaryList", qqCacheApi.GetSalesSummaryList)
+		qqCacheRouterWithoutRecord.GET("sales/batches", qqCacheApi.GetSalesExtractBatches)
+		qqCacheRouterWithoutRecord.POST("sales/batch/download", qqCacheApi.DownloadSalesExtractBatch)
 		qqCacheRouter.POST("sales/settle", qqCacheApi.SettleSalesBilling)
 		qqCacheRouterWithoutRecord.GET("sales/settlement/history", qqCacheApi.GetSalesSettlementHistory)
 	}

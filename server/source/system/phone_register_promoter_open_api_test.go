@@ -89,6 +89,8 @@ func TestQQCacheSalesAPIsAndPermissionsAreSeeded(t *testing.T) {
 	requireSeededAPI(t, db, "POST", "/qqCache/sales/extract")
 	requireSeededAPI(t, db, "POST", "/qqCache/sales/history")
 	requireSeededAPI(t, db, "GET", "/qqCache/sales/summaryList")
+	requireSeededAPI(t, db, "GET", "/qqCache/sales/batches")
+	requireSeededAPI(t, db, "POST", "/qqCache/sales/batch/download")
 	requireSeededAPI(t, db, "POST", "/qqCache/sales/settle")
 
 	requireSeededPermission(t, db, "600", "GET", "/qqCache/sales/summary")
@@ -96,9 +98,12 @@ func TestQQCacheSalesAPIsAndPermissionsAreSeeded(t *testing.T) {
 	requireSeededPermission(t, db, "600", "POST", "/qqCache/sales/history")
 	requireNoSeededPermission(t, db, "600", "POST", "/qqCache/list")
 	requireNoSeededPermission(t, db, "600", "POST", "/qqCache/sales/settle")
+	requireNoSeededPermission(t, db, "600", "POST", "/qqCache/sales/batch/download")
 
 	for _, role := range []string{"100", "888"} {
 		requireSeededPermission(t, db, role, "GET", "/qqCache/sales/summaryList")
+		requireSeededPermission(t, db, role, "GET", "/qqCache/sales/batches")
+		requireSeededPermission(t, db, role, "POST", "/qqCache/sales/batch/download")
 		requireSeededPermission(t, db, role, "POST", "/qqCache/sales/settle")
 	}
 }

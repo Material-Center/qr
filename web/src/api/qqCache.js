@@ -21,7 +21,7 @@ export const exportQQCacheIniZip = (ids, config = {}) => {
     url: '/qqCache/exportIniZip',
     method: 'post',
     data: { ids },
-    responseType: 'blob',
+    responseType: 'arraybuffer',
     donNotShowLoading: true,
     ...config
   })
@@ -32,7 +32,7 @@ export const exportQQCacheAccountList = (payload, config = {}) => {
     url: '/qqCache/exportAccountList',
     method: 'post',
     data: payload,
-    responseType: 'blob',
+    responseType: 'arraybuffer',
     donNotShowLoading: true,
     ...config
   })
@@ -43,7 +43,7 @@ export const exportPendingQQCacheIniZip = (payload, config = {}) => {
     url: '/qqCache/exportPendingIniZip',
     method: 'post',
     data: typeof payload === 'number' ? { count: payload } : payload,
-    responseType: 'blob',
+    responseType: 'arraybuffer',
     donNotShowLoading: true,
     ...config
   })
@@ -60,7 +60,7 @@ export const exportQQCacheIniZipByQQFile = (file, config = {}) => {
     url: '/qqCache/exportIniZipByQQFile',
     method: 'post',
     data: form,
-    responseType: 'blob',
+    responseType: 'arraybuffer',
     donNotShowLoading: true,
     ...requestConfig
   })
@@ -108,7 +108,7 @@ export const exportSalesQQCacheIniZip = (payload, config = {}) => {
     url: '/qqCache/sales/extract',
     method: 'post',
     data: payload,
-    responseType: 'blob',
+    responseType: 'arraybuffer',
     donNotShowLoading: true,
     ...config
   })
@@ -127,6 +127,25 @@ export const getQQCacheSalesSummaryList = (params = {}) => {
     url: '/qqCache/sales/summaryList',
     method: 'get',
     params
+  })
+}
+
+export const getQQCacheSalesBatches = (params = {}) => {
+  return service({
+    url: '/qqCache/sales/batches',
+    method: 'get',
+    params
+  })
+}
+
+export const downloadQQCacheSalesBatch = (data, config = {}) => {
+  return service({
+    url: '/qqCache/sales/batch/download',
+    method: 'post',
+    data,
+    responseType: 'arraybuffer',
+    donNotShowLoading: true,
+    ...config
   })
 }
 

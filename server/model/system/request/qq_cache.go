@@ -64,6 +64,13 @@ type QQCacheSalesSettle struct {
 	ExtractorID uint `json:"extractorId" form:"extractorId"`
 }
 
+type QQCacheSalesBatchDownload struct {
+	ExtractorID    uint   `json:"extractorId" form:"extractorId"`
+	BatchID        uint   `json:"batchId" form:"batchId"`
+	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
+	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
+}
+
 type QQCacheExportAccountList struct {
 	IDs            []uint `json:"ids" form:"ids"`
 	QQNum          string `json:"qqNum" form:"qqNum"`

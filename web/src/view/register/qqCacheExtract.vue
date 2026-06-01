@@ -121,15 +121,20 @@ const qqCacheExtractZipName = (count) => {
   return `qq-${Number(count) || 0}个-${timestamp}.zip`
 }
 
+const responseDataToText = async (data) => {
+  if (data instanceof Blob) return data.text()
+  return new TextDecoder('utf-8').decode(data)
+}
+
 const handleZipDownload = async (res, fallbackName) => {
   const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
-  const blob = res?.data instanceof Blob ? res.data : null
-  if (!blob) {
+  const buffer = res?.data
+  if (!buffer) {
     ElMessage.error('提取失败')
     return false
   }
   if (ct.includes('application/json')) {
-    const text = await blob.text()
+    const text = await responseDataToText(buffer)
     let msg = '提取失败'
     try {
       const j = JSON.parse(text)
@@ -140,13 +145,18 @@ const handleZipDownload = async (res, fallbackName) => {
     ElMessage.error(msg)
     return false
   }
+  const blob = buffer instanceof Blob ? buffer : new Blob([buffer], { type: 'application/zip' })
   const name = pickZipFilename(res.headers?.['content-disposition']) || fallbackName
   const url = window.URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = name.endsWith('.zip') ? name : `${name}.zip`
+  document.body.appendChild(a)
   a.click()
-  window.URL.revokeObjectURL(url)
+  a.remove()
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(url)
+  }, 10000)
   ElMessage.success('已开始下载')
   return true
 }

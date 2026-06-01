@@ -97,3 +97,13 @@ type QQCacheSalesSettlementHistoryItem struct {
 	SettledAt    time.Time `json:"settledAt"`
 	SettledCount int64     `json:"settledCount"`
 }
+
+type QQCacheSalesAdminBatchItem struct {
+	ID                   uint       `json:"id"`
+	ExtractedAt          *time.Time `json:"extractedAt"`
+	ExtractCount         int64      `json:"extractCount"`
+	SettledCount         int64      `json:"settledCount"`
+	SettlementStatus     string     `json:"settlementStatus"`
+	SettlementStatusText string     `json:"settlementStatusText"`
+	SettledAt            *time.Time `json:"settledAt"`
+}

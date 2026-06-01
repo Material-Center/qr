@@ -194,7 +194,49 @@
         <span class="sales-summary-title">销售提取汇总</span>
         <el-button icon="refresh" @click="fetchSalesSummary">刷新</el-button>
       </div>
-      <el-table :data="salesSummaryList" row-key="extractorId" size="small">
+      <el-table
+        :data="salesSummaryList"
+        row-key="extractorId"
+        size="small"
+        @expand-change="onSalesSummaryExpand"
+      >
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="sales-batch-panel">
+              <el-table
+                v-loading="salesBatchLoading[row.extractorId]"
+                :data="salesBatchMap[row.extractorId] || []"
+                size="small"
+                empty-text="当前时间范围内暂无提取批次"
+              >
+                <el-table-column label="提取时间" min-width="170">
+                  <template #default="{ row: batch }">
+                    {{ batch.extractedAt ? formatDate(batch.extractedAt) : '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="时间范围内提取数量" prop="extractCount" min-width="150" />
+                <el-table-column label="已结算数量" prop="settledCount" min-width="110" />
+                <el-table-column label="结算状态" min-width="110">
+                  <template #default="{ row: batch }">
+                    {{ batch.settlementStatusText || '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="结算时间" min-width="170">
+                  <template #default="{ row: batch }">
+                    {{ batch.settledAt ? formatDate(batch.settledAt) : '-' }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="120" fixed="right">
+                  <template #default="{ row: batch }">
+                    <el-button type="primary" link @click="onDownloadSalesBatch(row, batch)">
+                      重新下载
+                    </el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column label="销售" min-width="160">
           <template #default="{ row }">
             {{ row.extractorName || row.nickName || row.username || `ID ${row.extractorId}` }}
@@ -259,12 +301,14 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/format'
 import {
+  downloadQQCacheSalesBatch,
   exportQQCacheAccountList,
   exportPendingQQCacheIniZip,
   exportQQCacheIniZipByQQFile,
   exportQQCacheIniZip,
   getQQCacheBillingHistory,
   getQQCacheList,
+  getQQCacheSalesBatches,
   getQQCacheSalesSettlementHistory,
   getQQCacheSalesSummaryList,
   importQQCacheZip,
@@ -299,6 +343,8 @@ const salesSettlementHistoryLoading = ref(false)
 const salesSettlementHistory = ref([])
 const salesSettlementHistoryTitle = ref('销售结算历史')
 const salesSummaryList = ref([])
+const salesBatchMap = ref({})
+const salesBatchLoading = ref({})
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
@@ -310,6 +356,14 @@ const searchInfo = ref({
 
 const onSelectionChange = (rows) => {
   selectedRows.value = rows || []
+}
+
+const buildCreatedAtRangeParams = () => {
+  const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
+  return {
+    createdAtStart: createdAtStart || undefined,
+    createdAtEnd: createdAtEnd || undefined
+  }
 }
 
 const pickZipFilename = (contentDisposition) => {
@@ -423,15 +477,20 @@ const createdAtShortcuts = [
   }
 ]
 
+const responseDataToText = async (data) => {
+  if (data instanceof Blob) return data.text()
+  return new TextDecoder('utf-8').decode(data)
+}
+
 const handleZipDownload = async (res, fallbackName) => {
   const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
-  const blob = res?.data instanceof Blob ? res.data : null
-  if (!blob) {
+  const buffer = res?.data
+  if (!buffer) {
     ElMessage.error('导出失败')
     return false
   }
   if (ct.includes('application/json')) {
-    const text = await blob.text()
+    const text = await responseDataToText(buffer)
     let msg = '导出失败'
     try {
       const j = JSON.parse(text)
@@ -442,13 +501,18 @@ const handleZipDownload = async (res, fallbackName) => {
     ElMessage.error(msg)
     return false
   }
+  const blob = buffer instanceof Blob ? buffer : new Blob([buffer], { type: 'application/zip' })
   const name = pickZipFilename(res.headers?.['content-disposition']) || fallbackName
   const url = window.URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = name.endsWith('.zip') ? name : `${name}.zip`
+  document.body.appendChild(a)
   a.click()
-  window.URL.revokeObjectURL(url)
+  a.remove()
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(url)
+  }, 10000)
   ElMessage.success('已开始下载')
   return true
 }
@@ -476,13 +540,13 @@ const countQQNumsFromTextFile = async (file) => {
 
 const handleFileDownload = async (res, fallbackName) => {
   const ct = String(res?.headers?.['content-type'] || '').toLowerCase()
-  const blob = res?.data instanceof Blob ? res.data : null
-  if (!blob) {
+  const buffer = res?.data
+  if (!buffer) {
     ElMessage.error('导出失败')
     return false
   }
   if (ct.includes('application/json')) {
-    const text = await blob.text()
+    const text = await responseDataToText(buffer)
     let msg = '导出失败'
     try {
       const j = JSON.parse(text)
@@ -493,13 +557,18 @@ const handleFileDownload = async (res, fallbackName) => {
     ElMessage.error(msg)
     return false
   }
+  const blob = buffer instanceof Blob ? buffer : new Blob([buffer], { type: 'text/plain;charset=utf-8' })
   const name = pickZipFilename(res.headers?.['content-disposition']) || fallbackName
   const url = window.URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = name
+  document.body.appendChild(a)
   a.click()
-  window.URL.revokeObjectURL(url)
+  a.remove()
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(url)
+  }, 10000)
   ElMessage.success('已开始下载')
   return true
 }
@@ -712,6 +781,45 @@ const onOpenSalesSettlementHistory = async (row) => {
   }
 }
 
+const loadSalesBatches = async (row, force = false) => {
+  const extractorId = row?.extractorId
+  if (!extractorId) return
+  if (!force && salesBatchMap.value[extractorId]) return
+  salesBatchLoading.value[extractorId] = true
+  try {
+    const { data } = await getQQCacheSalesBatches({
+      extractorId,
+      ...buildCreatedAtRangeParams()
+    })
+    salesBatchMap.value[extractorId] = data || []
+  } catch (e) {
+    ElMessage.error(e?.message || '销售提取批次加载失败')
+  } finally {
+    salesBatchLoading.value[extractorId] = false
+  }
+}
+
+const onSalesSummaryExpand = (row, expandedRows) => {
+  const opened = (expandedRows || []).some((item) => item.extractorId === row.extractorId)
+  if (opened) {
+    loadSalesBatches(row)
+  }
+}
+
+const onDownloadSalesBatch = async (row, batch) => {
+  if (!row?.extractorId || !batch?.id) return
+  try {
+    const res = await downloadQQCacheSalesBatch({
+      extractorId: row.extractorId,
+      batchId: batch.id,
+      ...buildCreatedAtRangeParams()
+    })
+    await handleZipDownload(res, qqCacheExtractZipName(batch.extractCount))
+  } catch (e) {
+    ElMessage.error(e?.message || '重新下载失败')
+  }
+}
+
 const onOpenBillingHistory = async () => {
   billingHistory.value = []
   billingHistoryVisible.value = true
@@ -759,12 +867,10 @@ const fetchList = async () => {
 
 const fetchSalesSummary = async () => {
   try {
-    const [createdAtStart, createdAtEnd] = searchInfo.value.createdAtRange || []
-    const { data } = await getQQCacheSalesSummaryList({
-      createdAtStart: createdAtStart || undefined,
-      createdAtEnd: createdAtEnd || undefined
-    })
+    const { data } = await getQQCacheSalesSummaryList(buildCreatedAtRangeParams())
     salesSummaryList.value = data || []
+    salesBatchMap.value = {}
+    salesBatchLoading.value = {}
   } catch (e) {
     ElMessage.error(e?.message || '销售汇总加载失败')
   }
@@ -885,6 +991,11 @@ onMounted(() => {
   color: var(--el-text-color-primary);
   font-size: 15px;
   font-weight: 600;
+}
+
+.sales-batch-panel {
+  padding: 8px 16px 8px 52px;
+  background: var(--el-fill-color-lighter);
 }
 
 @media (max-width: 900px) {
