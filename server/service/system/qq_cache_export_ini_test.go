@@ -38,7 +38,7 @@ func TestNormalizeQQCacheExportINI(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := normalizeQQCacheExportINI(raw, "abc123")
+	got := normalizeQQCacheExportINI(raw, "abc123", "")
 
 	if strings.Contains(got, "_device_token=") {
 		t.Fatalf("expected _device_token removed, got: %q", got)
@@ -46,8 +46,8 @@ func TestNormalizeQQCacheExportINI(t *testing.T) {
 	if strings.Contains(got, "_superKey=") {
 		t.Fatalf("expected _superKey removed, got: %q", got)
 	}
-	if !strings.Contains(got, "qqnum=3896349451\r\n") {
-		t.Fatalf("expected qqnum preserved, got: %q", got)
+	if strings.Contains(got, "qqnum=3896349451\r\n") {
+		t.Fatalf("expected qqnum removed, got: %q", got)
 	}
 	if !strings.Contains(got, "guid=2D2F4073897A69E82FA8124BB4293162\r\n") {
 		t.Fatalf("expected guid preserved, got: %q", got)
@@ -55,26 +55,21 @@ func TestNormalizeQQCacheExportINI(t *testing.T) {
 	if !strings.Contains(got, "qqpassword=abc123\r\n") {
 		t.Fatalf("expected missing qqpassword filled, got: %q", got)
 	}
-	if !strings.Contains(got, "\"model\":\"XiaoMi 17\"") {
-		t.Fatalf("expected deviceInfo model normalized, got: %q", got)
-	}
-	if strings.Contains(got, "\"model\":\"22041211AC\"") {
-		t.Fatalf("expected old model removed, got: %q", got)
+	if strings.Contains(got, "deviceInfo=") {
+		t.Fatalf("expected deviceInfo removed, got: %q", got)
 	}
 }
 
-func TestNormalizeQQCacheExportINIKeepDeviceInfoWhenJSONInvalid(t *testing.T) {
+func TestNormalizeQQCacheExportINIDropsDeviceInfoWhenJSONInvalid(t *testing.T) {
 	raw := strings.Join([]string{
 		"[3896349451]",
 		"deviceInfo={bad json}",
 		"",
 	}, "\n")
 
-	got := normalizeQQCacheExportINI(raw, "")
+	got := normalizeQQCacheExportINI(raw, "", "")
 
-	if !strings.Contains(got, "deviceInfo={bad json}\r\n") {
-		t.Fatalf("expected invalid json line kept as-is, got: %q", got)
-	}
+	require.NotContains(t, got, "deviceInfo=")
 }
 
 func TestNormalizeQQCacheExportINIKeepsExistingQQPassword(t *testing.T) {
@@ -84,10 +79,56 @@ func TestNormalizeQQCacheExportINIKeepsExistingQQPassword(t *testing.T) {
 		"",
 	}, "\n")
 
-	got := normalizeQQCacheExportINI(raw, "newpwd")
+	got := normalizeQQCacheExportINI(raw, "newpwd", "")
 
 	require.Contains(t, got, "qqpassword=oldpwd\r\n")
 	require.NotContains(t, got, "qqpassword=newpwd")
+}
+
+func TestNormalizeQQCacheExportINIAddsVersionAliases(t *testing.T) {
+	raw := strings.Join([]string{
+		"[3896349451]",
+		"clientVersion=9.2.75",
+		"",
+	}, "\n")
+
+	got := normalizeQQCacheExportINI(raw, "", "")
+
+	require.NotContains(t, got, "clientVersion=")
+	require.Contains(t, got, "版本=9.2.75\r\n")
+	require.Contains(t, got, "登录协议=9.2.75\r\n")
+}
+
+func TestNormalizeQQCacheExportINIUsesRecordClientVersionWhenMissing(t *testing.T) {
+	raw := strings.Join([]string{
+		"[3896349451]",
+		"guid=GUID001",
+		"",
+	}, "\n")
+
+	got := normalizeQQCacheExportINI(raw, "", "9.2.70")
+
+	require.Contains(t, got, "版本=9.2.70\r\n")
+	require.Contains(t, got, "登录协议=9.2.70\r\n")
+}
+
+func TestNormalizeQQCacheExportINIDropsMetadataAndDuplicateKeys(t *testing.T) {
+	raw := strings.Join([]string{
+		"[3896349451]",
+		"clientId=first",
+		"extractTime=1780307037496",
+		"clientId=second",
+		"deviceInfo={\"model\":\"picasso\"}",
+		"",
+	}, "\n")
+
+	got := normalizeQQCacheExportINI(raw, "", "")
+
+	require.Equal(t, 1, strings.Count(got, "clientId="))
+	require.Contains(t, got, "clientId=first\r\n")
+	require.NotContains(t, got, "clientId=second")
+	require.NotContains(t, got, "extractTime=")
+	require.NotContains(t, got, "deviceInfo=")
 }
 
 func TestInternalToolImportQQCacheSkipsExistingByDefault(t *testing.T) {

@@ -20,6 +20,7 @@ import (
 )
 
 const qqCacheExportIniMaxIDs = 100
+
 const (
 	qqCacheServiceRoleSuperAdmin = uint(888)
 	qqCacheServiceRoleAdmin      = uint(100)
@@ -1152,7 +1153,7 @@ func buildQQCacheIniZip(records []system.SysQQCacheRecord) ([]byte, int, error) 
 			_ = zw.Close()
 			return nil, 0, err
 		}
-		normalizedINI := normalizeQQCacheExportINI(*rec.INI, rec.QQPwd)
+		normalizedINI := normalizeQQCacheExportINI(*rec.INI, rec.QQPwd, rec.ClientVersion)
 		if _, err := w.Write([]byte(normalizedINI)); err != nil {
 			_ = zw.Close()
 			return nil, 0, err
@@ -1233,11 +1234,15 @@ func formatQQCacheRegisterTime(t time.Time) string {
 	return t.Format("2006-01-02 15:04:05")
 }
 
-func normalizeQQCacheExportINI(raw string, qqPwd string) string {
+func normalizeQQCacheExportINI(raw string, qqPwd string, cacheClientVersion string) string {
 	raw = strings.ReplaceAll(raw, "\r\n", "\n")
 	lines := strings.Split(raw, "\n")
 	output := make([]string, 0, len(lines)+1)
 	hasQQPassword := false
+	clientVersion := strings.TrimSpace(cacheClientVersion)
+	hasVersionAlias := false
+	hasLoginProtocol := false
+	seenKeys := make(map[string]struct{}, len(lines))
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -1253,8 +1258,27 @@ func normalizeQQCacheExportINI(raw string, qqPwd string) string {
 		if strings.HasPrefix(key, "_") {
 			continue
 		}
+		if shouldDropQQCacheExportINIKey(key) {
+			if strings.EqualFold(key, "clientVersion") {
+				if value := extractQQCacheINIValue(line, key); value != "" {
+					clientVersion = value
+				}
+			}
+			continue
+		}
+		normalizedKey := normalizeQQCacheExportINIKey(key)
+		if _, ok := seenKeys[normalizedKey]; ok {
+			continue
+		}
+		seenKeys[normalizedKey] = struct{}{}
 		if strings.EqualFold(key, "qqpassword") {
 			hasQQPassword = true
+		}
+		if key == "版本" {
+			hasVersionAlias = true
+		}
+		if key == "登录协议" {
+			hasLoginProtocol = true
 		}
 		if strings.EqualFold(key, "deviceInfo") {
 			output = append(output, normalizeQQCacheDeviceInfoLine(key, line))
@@ -1274,10 +1298,32 @@ func normalizeQQCacheExportINI(raw string, qqPwd string) string {
 			text += "\r\nqqpassword=" + qqPwd
 		}
 	}
+	if clientVersion != "" {
+		text = strings.TrimRight(text, "\r\n")
+		if !hasVersionAlias {
+			text += "\r\n版本=" + clientVersion
+		}
+		if !hasLoginProtocol {
+			text += "\r\n登录协议=" + clientVersion
+		}
+	}
 	if !strings.HasSuffix(text, "\r\n") {
 		text += "\r\n"
 	}
 	return text
+}
+
+func shouldDropQQCacheExportINIKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "qqnum", "clientversion", "extracttime", "deviceinfo":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeQQCacheExportINIKey(key string) string {
+	return strings.ToLower(strings.TrimSpace(key))
 }
 
 func normalizeQQCacheDeviceInfoLine(key string, line string) string {
