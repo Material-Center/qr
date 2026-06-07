@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -91,7 +92,7 @@ func (a *QQCacheApi) UploadPhoneRegister(c *gin.Context) {
 // @Param     qqNum     formData  string  true   "QQ账号"
 // @Param     qqPwd     formData  string  false  "QQ密码"
 // @Param     force     formData  bool    false  "是否强制覆盖缓存字段"
-// @Param     cacheZip  formData  file    true   "缓存zip，支持同字段传多个文件"
+// @Param     cacheZip  formData  file    true   "缓存zip，支持同字段传多个文件；文件名可用 {qq uin}----{pwd}.zip 补齐账号和密码"
 // @Success   200       {object}  response.Response{data=systemRes.InternalToolQQCacheImportResponse,msg=string}
 // @Router    /internalTool/qqCache/importZip [post]
 func (a *QQCacheApi) InternalToolImportQQCacheZip(c *gin.Context) {
@@ -109,7 +110,7 @@ func (a *QQCacheApi) InternalToolImportQQCacheZip(c *gin.Context) {
 // @Security  ApiKeyAuth
 // @accept    multipart/form-data
 // @Produce   application/json
-// @Param     cacheZip  formData  file  true  "缓存zip，支持同字段传多个文件"
+// @Param     cacheZip  formData  file  true  "缓存zip，支持同字段传多个文件；文件名可用 {qq uin}----{pwd}.zip 补齐账号和密码"
 // @Success   200       {object}  response.Response{data=systemRes.InternalToolQQCacheImportResponse,msg=string}
 // @Router    /qqCache/importZip [post]
 func (a *QQCacheApi) AdminImportQQCacheZip(c *gin.Context) {
@@ -154,12 +155,17 @@ func (a *QQCacheApi) importQQCacheZip(c *gin.Context, force bool, skipExistingBe
 		return
 	}
 
+	resolvedQQNum, resolvedQQPwd, err := resolveQQCacheImportZipCredentials(qqNum, c.PostForm("qqPwd"), files[0].Filename)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
 	zipBytes, err := readQQCacheZipFile(files[0])
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	record, action, err := a.importQQCacheZipBytes(c, zipBytes, force, qqNum)
+	record, action, err := a.importQQCacheZipBytes(c, zipBytes, force, resolvedQQNum, resolvedQQPwd)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -180,11 +186,15 @@ func (a *QQCacheApi) importQQCacheZipBatch(c *gin.Context, files []*multipart.Fi
 			FileName: file.Filename,
 			Force:    force,
 		}
-		zipBytes, err := readQQCacheZipFile(file)
+		qqNum, qqPwd, err := resolveQQCacheImportZipCredentials("", c.PostForm("qqPwd"), file.Filename)
+		var zipBytes []byte
+		if err == nil {
+			zipBytes, err = readQQCacheZipFile(file)
+		}
 		if err == nil {
 			var record systemModel.SysQQCacheRecord
 			var action string
-			record, action, err = a.importQQCacheZipBytes(c, zipBytes, force, "")
+			record, action, err = a.importQQCacheZipBytes(c, zipBytes, force, qqNum, qqPwd)
 			if err == nil {
 				item.QQCacheRecordID = record.ID
 				item.QQNum = record.QQNum
@@ -207,7 +217,7 @@ func (a *QQCacheApi) importQQCacheZipBatch(c *gin.Context, files []*multipart.Fi
 	}, fmt.Sprintf("导入完成，成功%d个，失败%d个", success, failed), c)
 }
 
-func (a *QQCacheApi) importQQCacheZipBytes(c *gin.Context, zipBytes []byte, force bool, qqNum string) (systemModel.SysQQCacheRecord, string, error) {
+func (a *QQCacheApi) importQQCacheZipBytes(c *gin.Context, zipBytes []byte, force bool, qqNum string, qqPwd string) (systemModel.SysQQCacheRecord, string, error) {
 	extracted, err := callQQCacheExtractor(zipBytes, c.PostForm("clientId"), c.PostForm("deviceInfo"))
 	if err != nil {
 		return systemModel.SysQQCacheRecord{}, "", err
@@ -220,7 +230,7 @@ func (a *QQCacheApi) importQQCacheZipBytes(c *gin.Context, zipBytes []byte, forc
 	}
 	req := systemReq.InternalToolQQCacheImport{
 		QQNum:    qqNum,
-		QQPwd:    c.PostForm("qqPwd"),
+		QQPwd:    qqPwd,
 		INI:      extracted.INI,
 		DeviceID: c.PostForm("deviceId"),
 		Force:    force,
@@ -229,6 +239,48 @@ func (a *QQCacheApi) importQQCacheZipBytes(c *gin.Context, zipBytes []byte, forc
 		return qqCacheService.AdminImportQQCache(req)
 	}
 	return qqCacheService.InternalToolImportQQCache(req)
+}
+
+func resolveQQCacheImportZipCredentials(formQQNum string, formQQPwd string, fileName string) (string, string, error) {
+	qqNum := strings.TrimSpace(formQQNum)
+	qqPwd := strings.TrimSpace(formQQPwd)
+	fileQQNum, fileQQPwd, hasCredentials, err := parseQQCacheImportZipFileName(fileName)
+	if err != nil {
+		return "", "", err
+	}
+	if hasCredentials {
+		if qqNum != "" && fileQQNum != "" && qqNum != fileQQNum {
+			return "", "", errors.New("文件名账号与请求账号不一致")
+		}
+		if qqNum == "" {
+			qqNum = fileQQNum
+		}
+		if qqPwd == "" {
+			qqPwd = fileQQPwd
+		}
+	}
+	return qqNum, qqPwd, nil
+}
+
+func parseQQCacheImportZipFileName(fileName string) (string, string, bool, error) {
+	name := filepath.Base(strings.TrimSpace(fileName))
+	if name == "" {
+		return "", "", false, nil
+	}
+	base := strings.TrimSuffix(name, filepath.Ext(name))
+	parts := strings.SplitN(base, "----", 2)
+	if len(parts) != 2 {
+		return "", "", false, nil
+	}
+	qqNum := strings.TrimSpace(parts[0])
+	qqPwd := strings.TrimSpace(parts[1])
+	if qqNum == "" {
+		return "", "", true, errors.New("文件名缺少QQ账号")
+	}
+	if qqPwd == "" {
+		return "", "", true, errors.New("文件名缺少密码")
+	}
+	return qqNum, qqPwd, true, nil
 }
 
 // InternalToolCheckQQCache
