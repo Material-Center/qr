@@ -353,7 +353,12 @@ func (a *QQCacheApi) List(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	pending, extracted, statsTotal, err := qqCacheService.CountExtractStatsByCreatedRange(req.CreatedAtStart, req.CreatedAtEnd)
+	var pending, extracted, statsTotal int64
+	if req.RecentMinutes != 0 {
+		pending, extracted, statsTotal, err = qqCacheService.CountExtractStatsByRecentMinutes(req.RecentMinutes)
+	} else {
+		pending, extracted, statsTotal, err = qqCacheService.CountExtractStatsByCreatedRange(req.CreatedAtStart, req.CreatedAtEnd)
+	}
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -444,7 +449,12 @@ func (a *QQCacheApi) GetSalesSummary(c *gin.Context) {
 		response.FailWithMessage("仅销售可查看缓存提取汇总", c)
 		return
 	}
-	summary, err := qqCacheService.GetSalesSummary(utils.GetUserID(c), c.Query("date"))
+	recentMinutes, err := parseQQCacheRecentMinutesQuery(c.Query("recentMinutes"))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	summary, err := qqCacheService.GetSalesSummaryWithRecentMinutes(utils.GetUserID(c), c.Query("date"), recentMinutes)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -472,7 +482,14 @@ func (a *QQCacheApi) SalesExtract(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	zipBytes, count, _, err := qqCacheService.ExportSalesPendingIniZipByCount(req.Count, utils.GetUserID(c))
+	var zipBytes []byte
+	var count int
+	var err error
+	if req.RecentMinutes != 0 {
+		zipBytes, count, _, err = qqCacheService.ExportSalesPendingIniZipByCountWithRecentMinutes(req.Count, utils.GetUserID(c), req.RecentMinutes)
+	} else {
+		zipBytes, count, _, err = qqCacheService.ExportSalesPendingIniZipByCount(req.Count, utils.GetUserID(c))
+	}
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -755,7 +772,14 @@ func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	zipBytes, count, err := qqCacheService.ExportPendingIniZipByCount(req.Count, utils.GetUserID(c), req.CreatedAtStart, req.CreatedAtEnd)
+	var zipBytes []byte
+	var count int
+	var err error
+	if req.RecentMinutes != 0 {
+		zipBytes, count, err = qqCacheService.ExportPendingIniZipByCountWithRecentMinutes(req.Count, utils.GetUserID(c), req.RecentMinutes)
+	} else {
+		zipBytes, count, err = qqCacheService.ExportPendingIniZipByCount(req.Count, utils.GetUserID(c), req.CreatedAtStart, req.CreatedAtEnd)
+	}
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -855,6 +879,18 @@ func (a *QQCacheApi) ExportIniZipByQQFile(c *gin.Context) {
 	c.Header("Content-Transfer-Encoding", "binary")
 	c.Header("Content-Disposition", qqCacheAttachmentDisposition(filename))
 	c.Data(200, "application/zip", zipBytes)
+}
+
+func parseQQCacheRecentMinutesQuery(raw string) (int, error) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return 0, nil
+	}
+	recentMinutes, err := strconv.Atoi(text)
+	if err != nil {
+		return 0, errors.New("提取时间范围参数格式错误")
+	}
+	return recentMinutes, nil
 }
 
 func qqCacheExtractZipFilename(count int) string {

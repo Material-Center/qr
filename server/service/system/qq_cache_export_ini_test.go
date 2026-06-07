@@ -416,6 +416,120 @@ func TestExportPendingIniZipByCountUsesOldestCreatedRecords(t *testing.T) {
 	require.Equal(t, "80002", extracted[1].QQNum)
 }
 
+func TestExportPendingIniZipByCountFiltersRecentMinutesWindow(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	now := time.Now()
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour)},
+			QQNum:     "81001",
+			INI:       stringPtr("qqnum=81001\nguid=GUID001\n"),
+		},
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-30 * time.Minute), UpdatedAt: now.Add(-30 * time.Minute)},
+			QQNum:     "81002",
+			INI:       stringPtr("qqnum=81002\nguid=GUID002\n"),
+		},
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-20 * time.Minute), UpdatedAt: now.Add(-20 * time.Minute)},
+			QQNum:     "81003",
+		},
+	}).Error)
+
+	pending, extracted, total, err := (&QQCacheService{}).CountExtractStatsByRecentMinutes(60)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, pending)
+	require.EqualValues(t, 0, extracted)
+	require.EqualValues(t, 2, total)
+
+	pending, extracted, total, err = (&QQCacheService{}).CountExtractStatsByRecentMinutes(240)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, pending)
+	require.EqualValues(t, 0, extracted)
+	require.EqualValues(t, 3, total)
+
+	_, count, err := (&QQCacheService{}).ExportPendingIniZipByCountWithRecentMinutes(2, 99, 60)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
+	var extractedRecords []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", 99).Find(&extractedRecords).Error)
+	require.Len(t, extractedRecords, 1)
+	require.Equal(t, "81002", extractedRecords[0].QQNum)
+}
+
+func TestExportPendingIniZipByCountFiltersRecentMinutes(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	now := time.Now()
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-40 * time.Minute), UpdatedAt: now.Add(-40 * time.Minute)},
+			QQNum:     "82001",
+			INI:       stringPtr("qqnum=82001\nguid=GUID001\n"),
+		},
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-20 * time.Minute), UpdatedAt: now.Add(-20 * time.Minute)},
+			QQNum:     "82002",
+			INI:       stringPtr("qqnum=82002\nguid=GUID002\n"),
+		},
+	}).Error)
+
+	pending, extracted, total, err := (&QQCacheService{}).CountExtractStatsByRecentMinutes(30)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, pending)
+	require.EqualValues(t, 0, extracted)
+	require.EqualValues(t, 1, total)
+
+	_, count, err := (&QQCacheService{}).ExportPendingIniZipByCountWithRecentMinutes(2, 99, 30)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
+	var extractedRecords []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", 99).Find(&extractedRecords).Error)
+	require.Len(t, extractedRecords, 1)
+	require.Equal(t, "82002", extractedRecords[0].QQNum)
+}
+
+func TestExportPendingIniZipByCountFiltersOlderThanRecentMinutes(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	now := time.Now()
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-4 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour)},
+			QQNum:     "83001",
+			INI:       stringPtr("qqnum=83001\nguid=GUID001\n"),
+		},
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour)},
+			QQNum:     "83002",
+			INI:       stringPtr("qqnum=83002\nguid=GUID002\n"),
+		},
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-20 * time.Minute), UpdatedAt: now.Add(-20 * time.Minute)},
+			QQNum:     "83003",
+			INI:       stringPtr("qqnum=83003\nguid=GUID003\n"),
+		},
+	}).Error)
+
+	pending, extracted, total, err := (&QQCacheService{}).CountExtractStatsByRecentMinutes(-180)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, pending)
+	require.EqualValues(t, 0, extracted)
+	require.EqualValues(t, 1, total)
+
+	_, count, err := (&QQCacheService{}).ExportPendingIniZipByCountWithRecentMinutes(2, 99, -180)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
+	var extractedRecords []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", 99).Find(&extractedRecords).Error)
+	require.Len(t, extractedRecords, 1)
+	require.Equal(t, "83001", extractedRecords[0].QQNum)
+}
+
 func TestExportAccountListTextBySelectedIDs(t *testing.T) {
 	setupQQCacheTestDB(t)
 

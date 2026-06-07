@@ -14,6 +14,38 @@
       </el-row>
 
       <div class="extract-panel">
+        <span class="extract-label">提取范围</span>
+        <el-button-group>
+          <el-button
+            size="small"
+            :type="!extractRecentMinutesValue ? 'primary' : 'default'"
+            @click="setExtractRecentMinutes(undefined)"
+          >
+            不限
+          </el-button>
+          <el-button
+            v-for="item in recentMinuteOptions"
+            :key="item.value"
+            size="small"
+            :type="extractRecentMinutesValue === item.value ? 'primary' : 'default'"
+            @click="setExtractRecentMinutes(item.value)"
+          >
+            {{ item.shortLabel }}
+          </el-button>
+        </el-button-group>
+        <el-input-number
+          v-model="extractCustomHours"
+          :min="1"
+          :precision="0"
+          :step="1"
+          controls-position="right"
+          placeholder="自定义小时"
+          style="width: 150px"
+          @change="onExtractCustomHoursChange"
+        />
+        <el-tag v-if="extractRangeAvailableText" class="extract-range-count" type="info" effect="plain">
+          {{ extractRangeAvailableText }}
+        </el-tag>
         <span class="extract-label">提取数量</span>
         <el-input-number
           v-model="extractCount"
@@ -89,13 +121,59 @@ const summary = ref({
   todayUnsettled: 0
 })
 const extractCount = ref(1)
+const extractRecentMinutes = ref(undefined)
+const extractCustomHours = ref(undefined)
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const historyData = ref([])
 const extracting = ref(false)
 
+const recentMinuteOptions = [
+  { label: '最近15分钟', shortLabel: '15分钟', value: 15 },
+  { label: '最近30分钟', shortLabel: '30分钟', value: 30 },
+  { label: '最近1小时', shortLabel: '1小时', value: 60 },
+  { label: '最近2小时', shortLabel: '2小时', value: 120 },
+  { label: '3小时以上', shortLabel: '3小时以上', value: -180 }
+]
+
+const normalizePositiveInteger = (value) => {
+  if (value === undefined || value === null || value === '') return undefined
+  const text = String(value).trim()
+  if (!/^[1-9]\d*$/.test(text)) return null
+  return Number(text)
+}
+
+const recentMinutesParam = () => {
+  const customHours = normalizePositiveInteger(extractCustomHours.value)
+  if (customHours) return customHours * 60
+  const value = Number(extractRecentMinutes.value)
+  return Number.isInteger(value) && value !== 0 ? value : undefined
+}
+
 const extractMax = computed(() => Math.max(Number(summary.value.available) || 0, 0))
+
+const extractRecentMinutesValue = computed(() => recentMinutesParam())
+
+const recentMinutesText = (minutes) => {
+  if (!minutes) return ''
+  if (minutes < 0) return `${Math.abs(minutes) / 60}小时以上`
+  if (minutes < 60) return `${minutes}分钟`
+  if (minutes % 60 === 0) return `${minutes / 60}小时`
+  return `${minutes}分钟`
+}
+
+const extractRangeAvailableText = computed(() => {
+  if (!extractRecentMinutesValue.value) return ''
+  const prefix = extractRecentMinutesValue.value < 0 ? '' : '最近'
+  return `${prefix}${recentMinutesText(extractRecentMinutesValue.value)}可提取：${extractMax.value} 个`
+})
+
+const setExtractRecentMinutes = async (value) => {
+  extractRecentMinutes.value = value
+  extractCustomHours.value = undefined
+  await fetchSummary()
+}
 
 const settlementStatusText = (status) => {
   return status === 'settled' ? '已结算' : '待结算'
@@ -162,7 +240,9 @@ const handleZipDownload = async (res, fallbackName) => {
 }
 
 const fetchSummary = async () => {
-  const { data } = await getQQCacheSalesSummary()
+  const { data } = await getQQCacheSalesSummary({
+    recentMinutes: recentMinutesParam()
+  })
   summary.value = {
     available: Number(data?.available) || 0,
     todayExtracted: Number(data?.todayExtracted) || 0,
@@ -208,7 +288,10 @@ const onExtract = async () => {
       type: 'warning'
     })
     extracting.value = true
-    const res = await exportSalesQQCacheIniZip({ count })
+    const res = await exportSalesQQCacheIniZip({
+      count,
+      recentMinutes: recentMinutesParam()
+    })
     const ok = await handleZipDownload(res, qqCacheExtractZipName(count))
     if (ok) {
       page.value = 1
@@ -233,6 +316,18 @@ const handleSizeChange = async (val) => {
   await fetchHistory()
 }
 
+const onExtractCustomHoursChange = async () => {
+  const normalized = normalizePositiveInteger(extractCustomHours.value)
+  if (normalized === null) {
+    ElMessage.warning('自定义范围请输入正整数小时')
+    extractCustomHours.value = undefined
+  } else {
+    extractCustomHours.value = normalized
+    extractRecentMinutes.value = undefined
+  }
+  await fetchSummary()
+}
+
 onMounted(() => {
   fetchAll()
 })
@@ -248,6 +343,10 @@ onMounted(() => {
 .extract-label {
   color: #606266;
   font-size: 14px;
+}
+
+.extract-range-count {
+  white-space: nowrap;
 }
 
 .table-header {

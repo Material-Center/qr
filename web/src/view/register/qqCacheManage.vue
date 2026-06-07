@@ -89,6 +89,38 @@
           </el-tooltip>
         </div>
         <div class="extract-tool">
+          <span class="extract-label">提取范围</span>
+          <el-button-group>
+            <el-button
+              size="small"
+              :type="!extractRecentMinutesValue ? 'primary' : 'default'"
+              @click="setExtractRecentMinutes(undefined)"
+            >
+              不限
+            </el-button>
+            <el-button
+              v-for="item in recentMinuteOptions"
+              :key="item.value"
+              size="small"
+              :type="extractRecentMinutesValue === item.value ? 'primary' : 'default'"
+              @click="setExtractRecentMinutes(item.value)"
+            >
+              {{ item.shortLabel }}
+            </el-button>
+          </el-button-group>
+          <el-input-number
+            v-model="extractCustomHours"
+            :min="1"
+            :precision="0"
+            :step="1"
+            controls-position="right"
+            placeholder="自定义小时"
+            style="width: 150px"
+            @change="onExtractCustomHoursChange"
+          />
+          <el-tag v-if="extractRangeAvailableText" class="extract-range-count" type="info" effect="plain">
+            {{ extractRangeAvailableText }}
+          </el-tag>
           <span class="extract-label">提取数量</span>
           <el-input-number
             v-model="extractCount"
@@ -198,6 +230,7 @@
         :data="salesSummaryList"
         row-key="extractorId"
         size="small"
+        :expand-row-keys="salesSummaryExpandedKeys"
         @expand-change="onSalesSummaryExpand"
       >
         <el-table-column type="expand">
@@ -328,6 +361,8 @@ const tableData = ref([])
 const selectedRows = ref([])
 const importZipInputRef = ref(null)
 const extractCount = ref(1)
+const extractRecentMinutes = ref(undefined)
+const extractCustomHours = ref(undefined)
 const extractStats = ref({
   pending: 0,
   extracted: 0,
@@ -345,6 +380,7 @@ const salesSettlementHistoryTitle = ref('销售结算历史')
 const salesSummaryList = ref([])
 const salesBatchMap = ref({})
 const salesBatchLoading = ref({})
+const salesSummaryExpandedKeys = ref([])
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
@@ -353,6 +389,50 @@ const searchInfo = ref({
   extracted: undefined,
   extractorId: undefined
 })
+
+const recentMinuteOptions = [
+  { label: '最近15分钟', shortLabel: '15分钟', value: 15 },
+  { label: '最近30分钟', shortLabel: '30分钟', value: 30 },
+  { label: '最近1小时', shortLabel: '1小时', value: 60 },
+  { label: '最近2小时', shortLabel: '2小时', value: 120 },
+  { label: '3小时以上', shortLabel: '3小时以上', value: -180 }
+]
+
+const normalizePositiveInteger = (value) => {
+  if (value === undefined || value === null || value === '') return undefined
+  const text = String(value).trim()
+  if (!/^[1-9]\d*$/.test(text)) return null
+  return Number(text)
+}
+
+const recentMinutesParam = () => {
+  const customHours = normalizePositiveInteger(extractCustomHours.value)
+  if (customHours) return customHours * 60
+  const value = Number(extractRecentMinutes.value)
+  return Number.isInteger(value) && value !== 0 ? value : undefined
+}
+
+const extractRecentMinutesValue = computed(() => recentMinutesParam())
+
+const recentMinutesText = (minutes) => {
+  if (!minutes) return ''
+  if (minutes < 0) return `${Math.abs(minutes) / 60}小时以上`
+  if (minutes < 60) return `${minutes}分钟`
+  if (minutes % 60 === 0) return `${minutes / 60}小时`
+  return `${minutes}分钟`
+}
+
+const extractRangeAvailableText = computed(() => {
+  if (!extractRecentMinutesValue.value) return ''
+  const prefix = extractRecentMinutesValue.value < 0 ? '' : '最近'
+  return `${prefix}${recentMinutesText(extractRecentMinutesValue.value)}可提取：${extractMax.value} 个`
+})
+
+const setExtractRecentMinutes = async (value) => {
+  extractRecentMinutes.value = value
+  extractCustomHours.value = undefined
+  await fetchList()
+}
 
 const onSelectionChange = (rows) => {
   selectedRows.value = rows || []
@@ -630,7 +710,8 @@ const onExportPendingIniZip = async () => {
       type: 'warning'
     })
     const res = await exportPendingQQCacheIniZip({
-      count
+      count,
+      recentMinutes: recentMinutesParam()
     })
     const ok = await handleZipDownload(res, qqCacheExtractZipName(count))
     if (ok) {
@@ -800,6 +881,7 @@ const loadSalesBatches = async (row, force = false) => {
 }
 
 const onSalesSummaryExpand = (row, expandedRows) => {
+  salesSummaryExpandedKeys.value = (expandedRows || []).map((item) => item.extractorId)
   const opened = (expandedRows || []).some((item) => item.extractorId === row.extractorId)
   if (opened) {
     loadSalesBatches(row)
@@ -846,7 +928,8 @@ const fetchList = async () => {
       extractorId: searchInfo.value.extractorId || undefined,
       extracted: searchInfo.value.extracted,
       createdAtStart: createdAtStart || undefined,
-      createdAtEnd: createdAtEnd || undefined
+      createdAtEnd: createdAtEnd || undefined,
+      recentMinutes: recentMinutesParam()
     })
     tableData.value = data?.list || []
     total.value = data?.total || 0
@@ -865,12 +948,25 @@ const fetchList = async () => {
   }
 }
 
+const onExtractCustomHoursChange = async () => {
+  const normalized = normalizePositiveInteger(extractCustomHours.value)
+  if (normalized === null) {
+    ElMessage.warning('自定义范围请输入正整数小时')
+    extractCustomHours.value = undefined
+  } else {
+    extractCustomHours.value = normalized
+    extractRecentMinutes.value = undefined
+  }
+  await fetchList()
+}
+
 const fetchSalesSummary = async () => {
   try {
     const { data } = await getQQCacheSalesSummaryList(buildCreatedAtRangeParams())
     salesSummaryList.value = data || []
     salesBatchMap.value = {}
     salesBatchLoading.value = {}
+    salesSummaryExpandedKeys.value = []
   } catch (e) {
     ElMessage.error(e?.message || '销售汇总加载失败')
   }
@@ -959,6 +1055,10 @@ onMounted(() => {
 .extract-label {
   color: var(--el-text-color-regular);
   font-size: 14px;
+  white-space: nowrap;
+}
+
+.extract-range-count {
   white-space: nowrap;
 }
 

@@ -33,6 +33,7 @@ type QQCacheList struct {
 	Extracted      *bool  `json:"extracted" form:"extracted"`
 	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
 	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
+	RecentMinutes  int    `json:"recentMinutes" form:"recentMinutes"`
 }
 
 type QQCacheResetExtract struct {
@@ -49,10 +50,12 @@ type QQCacheExportPendingIniZip struct {
 	Count          int    `json:"count" form:"count"`
 	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
 	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
+	RecentMinutes  int    `json:"recentMinutes" form:"recentMinutes"`
 }
 
 type QQCacheSalesExtract struct {
-	Count int `json:"count" form:"count"`
+	Count         int `json:"count" form:"count"`
+	RecentMinutes int `json:"recentMinutes" form:"recentMinutes"`
 }
 
 type QQCacheSalesHistory struct {

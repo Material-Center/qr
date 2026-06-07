@@ -33,6 +33,8 @@ const (
 	qqCacheInternalToolActionUpdated = "updated"
 )
 
+const qqCacheRecentMinutesMax = int64(1<<63-1) / int64(time.Minute)
+
 type QQCacheService struct{}
 type qqCacheBillingSettleResult struct {
 	SettledAt    time.Time
@@ -358,6 +360,43 @@ func (s *QQCacheService) CountExtractStatsByCreatedRange(createdAtStart string, 
 	return
 }
 
+func (s *QQCacheService) CountExtractStatsByRecentMinutes(recentMinutes int) (pending int64, extracted int64, total int64, err error) {
+	if recentMinutes == 0 {
+		return s.CountExtractStats()
+	}
+	base, err := applyQQCacheRecentMinutesFilter(global.GVA_DB.Model(&system.SysQQCacheRecord{}), recentMinutes)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if err = base.Count(&total).Error; err != nil {
+		return
+	}
+	pendingDB, err := applyQQCacheRecentMinutesFilter(
+		global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+			Where("extractor IS NULL").
+			Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
+		recentMinutes,
+	)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if err = pendingDB.Count(&pending).Error; err != nil {
+		return
+	}
+	extractedDB, err := applyQQCacheRecentMinutesFilter(
+		global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+			Where("extractor IS NOT NULL"),
+		recentMinutes,
+	)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if err = extractedDB.Count(&extracted).Error; err != nil {
+		return
+	}
+	return
+}
+
 func (s *QQCacheService) CountBillingSettlementStats() (unsettled int64, settled int64, err error) {
 	if err = global.GVA_DB.Model(&system.SysQQCacheRecord{}).
 		Where("billing_settled_at IS NULL").
@@ -419,6 +458,56 @@ func applyQQCacheCreatedAtRangeFilter(db *gorm.DB, startRaw string, endRaw strin
 		db = db.Where("created_at <= ?", endAt)
 	}
 	return db
+}
+
+func qqCacheRecentMinutesRange(recentMinutes int) (time.Time, time.Time, bool, error) {
+	if recentMinutes == 0 {
+		return time.Time{}, time.Time{}, false, nil
+	}
+	if recentMinutes < 0 {
+		return time.Time{}, time.Time{}, false, errors.New("提取时间范围必须为正整数分钟")
+	}
+	if int64(recentMinutes) > qqCacheRecentMinutesMax {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("提取时间范围不能超过%d分钟", qqCacheRecentMinutesMax)
+	}
+	endAt := time.Now()
+	return endAt.Add(-time.Duration(recentMinutes) * time.Minute), endAt, true, nil
+}
+
+func validateQQCacheRecentMinutes(recentMinutes int) error {
+	if recentMinutes == 0 {
+		return nil
+	}
+	value := int64(recentMinutes)
+	if value < 0 {
+		const minInt64 = -1 << 63
+		if value == minInt64 {
+			return fmt.Errorf("提取时间范围不能超过%d分钟", qqCacheRecentMinutesMax)
+		}
+		value = -value
+	}
+	if value > qqCacheRecentMinutesMax {
+		return fmt.Errorf("提取时间范围不能超过%d分钟", qqCacheRecentMinutesMax)
+	}
+	return nil
+}
+
+func applyQQCacheRecentMinutesFilter(db *gorm.DB, recentMinutes int) (*gorm.DB, error) {
+	if err := validateQQCacheRecentMinutes(recentMinutes); err != nil {
+		return nil, err
+	}
+	if recentMinutes < 0 {
+		cutoffAt := time.Now().Add(time.Duration(recentMinutes) * time.Minute)
+		return db.Where("created_at < ?", cutoffAt), nil
+	}
+	startAt, endAt, ok, err := qqCacheRecentMinutesRange(recentMinutes)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return db, nil
+	}
+	return db.Where("created_at >= ? AND created_at <= ?", startAt, endAt), nil
 }
 
 func (s *QQCacheService) ResetExtractByID(id uint) error {
@@ -498,16 +587,84 @@ func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint,
 	return zipBytes, exportedCount, nil
 }
 
+func (s *QQCacheService) ExportPendingIniZipByCountWithRecentMinutes(count int, extractorID uint, recentMinutes int) ([]byte, int, error) {
+	if count <= 0 {
+		return nil, 0, errors.New("提取数量必须大于0")
+	}
+	if err := validateQQCacheRecentMinutes(recentMinutes); err != nil {
+		return nil, 0, err
+	}
+	if recentMinutes == 0 {
+		return s.ExportPendingIniZipByCount(count, extractorID, "", "")
+	}
+	var records []system.SysQQCacheRecord
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		query, err := applyQQCacheRecentMinutesFilter(
+			tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("extractor IS NULL").
+				Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
+			recentMinutes,
+		)
+		if err != nil {
+			return err
+		}
+		if err := query.
+			Order("created_at asc").
+			Order("id asc").
+			Limit(count).
+			Find(&records).Error; err != nil {
+			return err
+		}
+		if len(records) == 0 {
+			return errors.New("暂无待提取缓存")
+		}
+		now := time.Now()
+		for _, rec := range records {
+			if err := tx.Model(&system.SysQQCacheRecord{}).
+				Where("id = ?", rec.ID).
+				Where("extractor IS NULL").
+				Updates(map[string]any{
+					"extractor":         extractorID,
+					"extract_record_id": rec.ID,
+					"extraction_at":     now,
+					"updated_at":        now,
+				}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	zipBytes, exportedCount, err := buildQQCacheIniZip(records)
+	if err != nil {
+		return nil, 0, err
+	}
+	return zipBytes, exportedCount, nil
+}
+
 func (s *QQCacheService) ExportSalesPendingIniZipByCount(count int, extractorID uint) ([]byte, int, system.SysQQCacheExtractBatch, error) {
+	return s.ExportSalesPendingIniZipByCountWithRecentMinutes(count, extractorID, 0)
+}
+
+func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count int, extractorID uint, recentMinutes int) ([]byte, int, system.SysQQCacheExtractBatch, error) {
 	if count <= 0 {
 		return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("提取数量必须大于0")
 	}
 	var records []system.SysQQCacheRecord
 	var batch system.SysQQCacheExtractBatch
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-			Where("extractor IS NULL").
-			Where("ini IS NOT NULL AND TRIM(ini) <> ''").
+		query, err := applyQQCacheRecentMinutesFilter(
+			tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("extractor IS NULL").
+				Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
+			recentMinutes,
+		)
+		if err != nil {
+			return err
+		}
+		if err := query.
 			Order("created_at asc").
 			Order("id asc").
 			Limit(count).
@@ -576,10 +733,21 @@ func (s *QQCacheService) salesExtractorName(tx *gorm.DB, extractorID uint) strin
 }
 
 func (s *QQCacheService) GetSalesSummary(extractorID uint, date string) (systemRes.QQCacheSalesSummary, error) {
+	return s.GetSalesSummaryWithRecentMinutes(extractorID, date, 0)
+}
+
+func (s *QQCacheService) GetSalesSummaryWithRecentMinutes(extractorID uint, date string, recentMinutes int) (systemRes.QQCacheSalesSummary, error) {
 	var summary systemRes.QQCacheSalesSummary
-	if err := global.GVA_DB.Model(&system.SysQQCacheRecord{}).
-		Where("extractor IS NULL").
-		Where("ini IS NOT NULL AND TRIM(ini) <> ''").
+	availableDB, err := applyQQCacheRecentMinutesFilter(
+		global.GVA_DB.Model(&system.SysQQCacheRecord{}).
+			Where("extractor IS NULL").
+			Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
+		recentMinutes,
+	)
+	if err != nil {
+		return summary, err
+	}
+	if err := availableDB.
 		Count(&summary.Available).Error; err != nil {
 		return summary, err
 	}

@@ -55,6 +55,48 @@ func TestQQCacheSalesSummaryUsesGlobalAvailableAndTodaySalesCounts(t *testing.T)
 	require.EqualValues(t, 1, summary.TodayUnsettled)
 }
 
+func TestQQCacheSalesSummaryAndExtractFilterRecentMinutes(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6012)
+	now := time.Now()
+	iniOld := "qqnum=10101\nguid=GUID101\n"
+	iniRecent := "qqnum=10102\nguid=GUID102\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_recent",
+		NickName:    "最近提取销售",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour)},
+			QQNum:     "10101",
+			INI:       &iniOld,
+		},
+		{
+			GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-30 * time.Minute), UpdatedAt: now.Add(-30 * time.Minute)},
+			QQNum:     "10102",
+			INI:       &iniRecent,
+		},
+	}).Error)
+
+	summary, err := (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", 60)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.Available)
+
+	_, count, batch, err := (&QQCacheService{}).ExportSalesPendingIniZipByCountWithRecentMinutes(2, salesID, 60)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.EqualValues(t, 1, batch.ExtractCount)
+
+	var extracted []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", salesID).Find(&extracted).Error)
+	require.Len(t, extracted, 1)
+	require.Equal(t, "10102", extracted[0].QQNum)
+}
+
 func TestQQCacheSalesExtractCreatesBatchAndHistory(t *testing.T) {
 	setupQQCacheSalesTestDB(t)
 
