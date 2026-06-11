@@ -142,6 +142,9 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	if !enabled {
 		return system.SysPhoneRegisterTask{}, errors.New("手机号注册已关闭")
 	}
+	if err := s.ensureTaskCreationModeEnabled(smsReceiveMode); err != nil {
+		return system.SysPhoneRegisterTask{}, err
+	}
 
 	var promoter system.SysUser
 	if err = global.GVA_DB.Select("id, leader_id, phone_register_task_disabled").Where("id = ?", promoterID).First(&promoter).Error; err != nil {
@@ -248,6 +251,30 @@ func (s *PhoneRegisterTaskService) IsSubmitEnabled() (bool, error) {
 		return false, err
 	}
 	return cfg.PhoneRegisterEnabled == nil || *cfg.PhoneRegisterEnabled, nil
+}
+
+func (s *PhoneRegisterTaskService) ensureTaskCreationModeEnabled(smsReceiveMode string) error {
+	var cfg system.SysRegisterConfig
+	err := global.GVA_DB.Select("phone_register_user_sent_task_disabled, phone_register_receive_task_disabled").
+		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
+		First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	switch smsReceiveMode {
+	case system.PhoneRegisterSMSModeUserSentToTX:
+		if cfg.PhoneRegisterUserSentTaskDisabled {
+			return errors.New("自己发码任务创建已关闭")
+		}
+	case system.PhoneRegisterSMSModePlatformSend:
+		if cfg.PhoneRegisterReceiveTaskDisabled {
+			return errors.New("收码任务创建已关闭")
+		}
+	}
+	return nil
 }
 
 func (s *PhoneRegisterTaskService) IsSubmitEnabledForUser(userID uint) (bool, string, error) {

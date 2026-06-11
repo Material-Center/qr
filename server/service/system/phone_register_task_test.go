@@ -106,6 +106,42 @@ func TestCreateTaskRejectsWhenPhoneRegisterDisabled(t *testing.T) {
 	require.EqualError(t, err, "手机号注册已关闭")
 }
 
+func TestCreateTaskRejectsUserSentModeWhenDisabledByConfig(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	createPhoneRegisterTaskTestPromoter(t, 1)
+
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                         modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                           0,
+		PhoneRegisterUserSentTaskDisabled: true,
+	}).Error)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModeUserSentToTX)
+	require.EqualError(t, err, "自己发码任务创建已关闭")
+
+	task, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterSMSModePlatformSend, task.SMSReceiveMode)
+}
+
+func TestCreateTaskRejectsPlatformSendModeWhenDisabledByConfig(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	createPhoneRegisterTaskTestPromoter(t, 1)
+
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                        modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                          0,
+		PhoneRegisterReceiveTaskDisabled: true,
+	}).Error)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "收码任务创建已关闭")
+
+	task, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModeUserSentToTX)
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterSMSModeUserSentToTX, task.SMSReceiveMode)
+}
+
 func TestCreateTaskRejectsInvalidPhoneFormat(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 

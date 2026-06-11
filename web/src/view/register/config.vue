@@ -10,12 +10,26 @@
           class="register-config-card"
         >
           <template #header>手机号注册开关</template>
-          <el-form label-width="86px">
+          <el-form label-width="110px">
             <el-form-item label="提交验证">
               <el-switch
                 v-model="form.phoneRegisterEnabled"
                 active-text="允许提交"
                 inactive-text="关闭提交"
+              />
+            </el-form-item>
+            <el-form-item label="禁止自己发码">
+              <el-switch
+                v-model="form.phoneRegisterUserSentTaskDisabled"
+                active-text="禁止创建"
+                inactive-text="允许创建"
+              />
+            </el-form-item>
+            <el-form-item label="禁止收码">
+              <el-switch
+                v-model="form.phoneRegisterReceiveTaskDisabled"
+                active-text="禁止创建"
+                inactive-text="允许创建"
               />
             </el-form-item>
             <el-form-item label="禁用号段">
@@ -207,6 +221,8 @@ const form = ref({
   phoneImageProviderPassword: '',
   phoneImageProviderSecretKey: '',
   phoneRegisterEnabled: true,
+  phoneRegisterUserSentTaskDisabled: false,
+  phoneRegisterReceiveTaskDisabled: false,
   phoneRegisterBlockedPrefixes: '133,149,153,173,177,180,181,189,190,193,199'
 })
 
@@ -336,6 +352,8 @@ const loadConfig = async () => {
     phoneImageProviderPassword: data?.phoneImageProviderPassword || '',
     phoneImageProviderSecretKey: data?.phoneImageProviderSecretKey || '',
     phoneRegisterEnabled: data?.phoneRegisterEnabled !== false,
+    phoneRegisterUserSentTaskDisabled: data?.phoneRegisterUserSentTaskDisabled === true,
+    phoneRegisterReceiveTaskDisabled: data?.phoneRegisterReceiveTaskDisabled === true,
     phoneRegisterBlockedPrefixes: data?.phoneRegisterBlockedPrefixes || '133,149,153,173,177,180,181,189,190,193,199'
   }
 }

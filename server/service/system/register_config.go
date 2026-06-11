@@ -91,6 +91,8 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		data["phone_image_provider_username"] = strings.TrimSpace(req.PhoneImageProviderUsername)
 		data["phone_image_provider_password"] = strings.TrimSpace(req.PhoneImageProviderPassword)
 		data["phone_image_provider_secret_key"] = strings.TrimSpace(req.PhoneImageProviderSecretKey)
+		data["phone_register_user_sent_task_disabled"] = req.PhoneRegisterUserSentTaskDisabled
+		data["phone_register_receive_task_disabled"] = req.PhoneRegisterReceiveTaskDisabled
 		data["phone_register_blocked_prefixes"] = normalizePhoneRegisterBlockedPrefixes(req.PhoneRegisterBlockedPrefixes)
 		if req.PhoneRegisterEnabled != nil {
 			data["phone_register_enabled"] = *req.PhoneRegisterEnabled
@@ -130,6 +132,8 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.PhoneImageProviderUsername = strings.TrimSpace(req.PhoneImageProviderUsername)
 			cfg.PhoneImageProviderPassword = strings.TrimSpace(req.PhoneImageProviderPassword)
 			cfg.PhoneImageProviderSecretKey = strings.TrimSpace(req.PhoneImageProviderSecretKey)
+			cfg.PhoneRegisterUserSentTaskDisabled = req.PhoneRegisterUserSentTaskDisabled
+			cfg.PhoneRegisterReceiveTaskDisabled = req.PhoneRegisterReceiveTaskDisabled
 			cfg.PhoneRegisterBlockedPrefixes = normalizePhoneRegisterBlockedPrefixes(req.PhoneRegisterBlockedPrefixes)
 			enabled := true
 			if req.PhoneRegisterEnabled != nil {
