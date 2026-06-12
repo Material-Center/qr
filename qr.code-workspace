@@ -33,6 +33,10 @@
       "name": "phoneworker"
     },
     {
+      "path": "phonecodeworker",
+      "name": "phonecodeworker"
+    },
+    {
       "path": "test",
       "name": "test"
     },
