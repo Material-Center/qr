@@ -381,6 +381,13 @@ func (s *PhoneRegisterTaskService) GetActiveTasks(promoterID uint) ([]system.Sys
 	return tasks, err
 }
 
+func (s *PhoneRegisterTaskService) GetTaskForPromoter(promoterID uint, taskID uint) (system.SysPhoneRegisterTask, error) {
+	_ = s.timeoutUnfinishedTasks()
+	var task system.SysPhoneRegisterTask
+	err := global.GVA_DB.Where("id = ? AND promoter_id = ?", taskID, promoterID).First(&task).Error
+	return task, err
+}
+
 func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskList) (phoneRegisterTaskListResult, error) {
 	_ = s.timeoutUnfinishedTasks()
 	req.DayScoped = shouldUsePhoneRegisterTaskDayScoped(operatorRole, req.DayScoped)

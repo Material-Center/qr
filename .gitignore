@@ -46,3 +46,4 @@ web/pnpm-lock.yaml
 test/qq_pull_*
 
 phoneworker/dist
+phonecodeworker/dist

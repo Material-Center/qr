@@ -3,6 +3,7 @@ package system
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,94 @@ func (a *PhoneRegisterTaskApi) PromoterOpenAPICreateTask(c *gin.Context) {
 		return
 	}
 	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "创建成功", c)
+}
+
+// PromoterOpenAPICreateReceiveTask
+// @Tags      PhoneRegisterTask
+// @Summary   用户Token OpenAPI创建收码手机号注册任务
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.PhoneRegisterTaskCreate  true  "创建参数"
+// @Success   200   {object}  response.Response{data=gin.H,msg=string}
+// @Router    /phoneRegisterTask/open-api/promoter/receive-task [post]
+func (a *PhoneRegisterTaskApi) PromoterOpenAPICreateReceiveTask(c *gin.Context) {
+	auth, ok := requirePhoneRegisterPromoterOpenAPIToken(c)
+	if !ok {
+		return
+	}
+	var req systemReq.PhoneRegisterTaskCreate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	if req.StartDelaySeconds < 0 {
+		response.FailWithMessage("startDelaySeconds不能小于0", c)
+		return
+	}
+	if req.StartDelaySeconds > 600 {
+		response.FailWithMessage("startDelaySeconds不能超过600", c)
+		return
+	}
+	task, err := phoneRegisterTaskService.CreateTask(auth.userID, req.Phone, system.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptionsForOpenAPI(req))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "创建成功", c)
+}
+
+// PromoterOpenAPIGetTask
+// @Tags      PhoneRegisterTask
+// @Summary   用户Token OpenAPI查询自己创建的手机号注册任务
+// @Produce   application/json
+// @Success   200  {object}  response.Response{data=gin.H,msg=string}
+// @Router    /phoneRegisterTask/open-api/promoter/task/{taskId} [get]
+func (a *PhoneRegisterTaskApi) PromoterOpenAPIGetTask(c *gin.Context) {
+	auth, ok := requirePhoneRegisterPromoterOpenAPIToken(c)
+	if !ok {
+		return
+	}
+	taskID, err := strconv.ParseUint(strings.TrimSpace(c.Param("taskId")), 10, 64)
+	if err != nil || taskID == 0 {
+		response.FailWithMessage("任务ID不能为空", c)
+		return
+	}
+	task, err := phoneRegisterTaskService.GetTaskForPromoter(auth.userID, uint(taskID))
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.FailWithMessage("任务不存在", c)
+			return
+		}
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "获取成功", c)
+}
+
+// PromoterOpenAPISubmitCode
+// @Tags      PhoneRegisterTask
+// @Summary   用户Token OpenAPI提交手机号注册验证码
+// @accept    application/json
+// @Produce   application/json
+// @Param     data  body      systemReq.PhoneRegisterTaskSubmitCode  true  "验证码参数"
+// @Success   200   {object}  response.Response{data=gin.H,msg=string}
+// @Router    /phoneRegisterTask/open-api/promoter/submit-code [post]
+func (a *PhoneRegisterTaskApi) PromoterOpenAPISubmitCode(c *gin.Context) {
+	auth, ok := requirePhoneRegisterPromoterOpenAPIToken(c)
+	if !ok {
+		return
+	}
+	var req systemReq.PhoneRegisterTaskSubmitCode
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	task, err := phoneRegisterTaskService.SubmitCode(auth.userID, req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "提交成功", c)
 }
 
 func PhoneRegisterTaskCreateOptionsForOpenAPI(req systemReq.PhoneRegisterTaskCreate) systemService.PhoneRegisterTaskCreateOptions {

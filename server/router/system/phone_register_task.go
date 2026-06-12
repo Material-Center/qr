@@ -40,5 +40,8 @@ func (r *PhoneRegisterTaskRouter) InitPhoneRegisterTaskRouter(PrivateGroup *gin.
 		publicPhoneRegisterTaskRouter.POST("open-api/cache", phoneRegisterTaskApi.OpenAPIUploadPhoneRegisterCache)
 		publicPhoneRegisterTaskRouter.GET("open-api/promoter/device-stats", phoneRegisterTaskApi.PromoterOpenAPIDeviceStats)
 		publicPhoneRegisterTaskRouter.POST("open-api/promoter/task", phoneRegisterTaskApi.PromoterOpenAPICreateTask)
+		publicPhoneRegisterTaskRouter.POST("open-api/promoter/receive-task", phoneRegisterTaskApi.PromoterOpenAPICreateReceiveTask)
+		publicPhoneRegisterTaskRouter.GET("open-api/promoter/task/:taskId", phoneRegisterTaskApi.PromoterOpenAPIGetTask)
+		publicPhoneRegisterTaskRouter.POST("open-api/promoter/submit-code", phoneRegisterTaskApi.PromoterOpenAPISubmitCode)
 	}
 }

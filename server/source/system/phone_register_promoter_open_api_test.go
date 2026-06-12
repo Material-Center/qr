@@ -26,10 +26,16 @@ func TestPhoneRegisterPromoterOpenAPIApiSeededWithoutCasbinPermissions(t *testin
 
 	requireSeededAPI(t, db, "GET", "/phoneRegisterTask/open-api/promoter/device-stats")
 	requireSeededAPI(t, db, "POST", "/phoneRegisterTask/open-api/promoter/task")
+	requireSeededAPI(t, db, "POST", "/phoneRegisterTask/open-api/promoter/receive-task")
+	requireSeededAPI(t, db, "GET", "/phoneRegisterTask/open-api/promoter/task/:taskId")
+	requireSeededAPI(t, db, "POST", "/phoneRegisterTask/open-api/promoter/submit-code")
 
 	for _, role := range []string{"888", "300"} {
 		requireNoSeededPermission(t, db, role, "GET", "/phoneRegisterTask/open-api/promoter/device-stats")
 		requireNoSeededPermission(t, db, role, "POST", "/phoneRegisterTask/open-api/promoter/task")
+		requireNoSeededPermission(t, db, role, "POST", "/phoneRegisterTask/open-api/promoter/receive-task")
+		requireNoSeededPermission(t, db, role, "GET", "/phoneRegisterTask/open-api/promoter/task/:taskId")
+		requireNoSeededPermission(t, db, role, "POST", "/phoneRegisterTask/open-api/promoter/submit-code")
 	}
 }
 
