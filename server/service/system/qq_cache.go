@@ -1237,22 +1237,119 @@ func (s *QQCacheService) ExportAccountListText(req systemReq.QQCacheExportAccoun
 	if len(records) == 0 {
 		return "", 0, errors.New("暂无可导出的账号")
 	}
+	return s.buildQQCacheExportAccountListText(records)
+}
+
+func (s *QQCacheService) ExportAccountListTextByQQText(raw string) (string, int, error) {
+	records, err := s.qqCacheRecordsByQQText(global.GVA_DB, raw)
+	if err != nil {
+		return "", 0, err
+	}
+	return s.buildQQCacheExportAccountListText(records)
+}
+
+func (s *QQCacheService) buildQQCacheExportAccountListText(records []system.SysQQCacheRecord) (string, int, error) {
+	taskMap, err := s.qqCacheExportAccountTaskMap(records)
+	if err != nil {
+		return "", 0, err
+	}
 	lines := make([]string, 0, len(records))
 	for _, record := range records {
 		qqNum := strings.TrimSpace(record.QQNum)
 		if qqNum == "" {
 			continue
 		}
-		clientVersion := strings.TrimSpace(record.ClientVersion)
-		if clientVersion == "" {
-			clientVersion = "-"
-		}
-		lines = append(lines, fmt.Sprintf("%s----%s", qqNum, clientVersion))
+		lines = append(lines, buildQQCacheExportAccountListLine(record, taskMap[record.ID]))
 	}
 	if len(lines) == 0 {
 		return "", 0, errors.New("暂无可导出的账号")
 	}
 	return strings.Join(lines, "\r\n") + "\r\n", len(lines), nil
+}
+
+type qqCacheExportAccountTaskInfo struct {
+	SMSReceiveMode string
+	LeaderName     string
+	LeaderUsername string
+}
+
+func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCacheRecord) (map[uint]qqCacheExportAccountTaskInfo, error) {
+	ids := make([]uint, 0, len(records))
+	for _, record := range records {
+		if record.ID != 0 {
+			ids = append(ids, record.ID)
+		}
+	}
+	result := map[uint]qqCacheExportAccountTaskInfo{}
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	type row struct {
+		QQCacheRecordID uint   `gorm:"column:qq_cache_record_id"`
+		SMSReceiveMode  string `gorm:"column:sms_receive_mode"`
+		LeaderName      string `gorm:"column:leader_name"`
+		LeaderUsername  string `gorm:"column:leader_username"`
+	}
+	var rows []row
+	if err := global.GVA_DB.Table("sys_phone_register_tasks AS t").
+		Select("t.qq_cache_record_id, t.sms_receive_mode, leader.nick_name AS leader_name, leader.username AS leader_username").
+		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id AND leader.deleted_at IS NULL").
+		Where("t.deleted_at IS NULL AND t.qq_cache_record_id IN ?", ids).
+		Order("t.id desc").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row.QQCacheRecordID == 0 {
+			continue
+		}
+		if _, exists := result[row.QQCacheRecordID]; exists {
+			continue
+		}
+		result[row.QQCacheRecordID] = qqCacheExportAccountTaskInfo{
+			SMSReceiveMode: row.SMSReceiveMode,
+			LeaderName:     row.LeaderName,
+			LeaderUsername: row.LeaderUsername,
+		}
+	}
+	return result, nil
+}
+
+func buildQQCacheExportAccountListLine(record system.SysQQCacheRecord, task qqCacheExportAccountTaskInfo) string {
+	return strings.Join([]string{
+		qqCacheExportTextValue(record.QQNum),
+		qqCacheExportTextValue(record.ClientVersion),
+		qqCacheExportTextValue(stringValue(record.DeviceID)),
+		qqCacheExportTextValue(qqCacheExportLeaderName(task)),
+		qqCacheExportTextValue(qqCacheExportSMSModeName(task.SMSReceiveMode)),
+	}, "----")
+}
+
+func qqCacheExportLeaderName(task qqCacheExportAccountTaskInfo) string {
+	if nickName := strings.TrimSpace(task.LeaderName); nickName != "" {
+		return nickName
+	}
+	return strings.TrimSpace(task.LeaderUsername)
+}
+
+func qqCacheExportSMSModeName(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case system.PhoneRegisterSMSModePlatformSend:
+		return "收码"
+	case system.PhoneRegisterSMSModeUserSentToTX:
+		return "发码"
+	default:
+		return strings.TrimSpace(mode)
+	}
+}
+
+func qqCacheExportTextValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	return value
 }
 
 func uniqueQQCacheExportIDs(ids []uint) []uint {

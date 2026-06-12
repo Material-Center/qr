@@ -88,6 +88,15 @@
             <el-button type="primary" plain @click="onExportAccountList">导出账号列表</el-button>
           </el-tooltip>
         </div>
+        <el-upload
+          class="qq-file-upload"
+          accept=".txt,text/plain"
+          :show-file-list="false"
+          :auto-upload="false"
+          :on-change="onExportAccountListByQQFile"
+        >
+          <el-button type="primary" plain>按TXT导出账号</el-button>
+        </el-upload>
         <div class="extract-tool">
           <span class="extract-label">提取范围</span>
           <el-button-group>
@@ -336,6 +345,7 @@ import { formatDate } from '@/utils/format'
 import {
   downloadQQCacheSalesBatch,
   exportQQCacheAccountList,
+  exportQQCacheAccountListByQQFile,
   exportPendingQQCacheIniZip,
   exportQQCacheIniZipByQQFile,
   exportQQCacheIniZip,
@@ -688,6 +698,21 @@ const onExportAccountList = async () => {
   try {
     const res = await exportQQCacheAccountList(buildAccountListExportPayload())
     await handleFileDownload(res, `qq_account_list_${Date.now()}.txt`)
+  } catch (e) {
+    ElMessage.error(e?.message || '导出失败')
+  }
+}
+
+const onExportAccountListByQQFile = async (uploadFile) => {
+  const file = uploadFile?.raw
+  if (!file) {
+    ElMessage.warning('请先选择TXT文件')
+    return
+  }
+  try {
+    const fallbackCount = await countQQNumsFromTextFile(file)
+    const res = await exportQQCacheAccountListByQQFile(file)
+    await handleFileDownload(res, `qq_account_list_${fallbackCount || Date.now()}.txt`)
   } catch (e) {
     ElMessage.error(e?.message || '导出失败')
   }

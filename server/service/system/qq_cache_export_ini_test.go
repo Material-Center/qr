@@ -23,7 +23,11 @@ func setupQQCacheTestDB(t *testing.T) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.SysQQCacheRecord{}))
+	require.NoError(t, db.AutoMigrate(
+		&model.SysQQCacheRecord{},
+		&model.SysPhoneRegisterTask{},
+		&model.SysUser{},
+	))
 	global.GVA_DB = db
 }
 
@@ -543,7 +547,7 @@ func TestExportAccountListTextBySelectedIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "40001----9.2.70\r\n", text)
+	require.Equal(t, "40001----9.2.70---------------\r\n", text)
 }
 
 func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
@@ -557,12 +561,94 @@ func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "50001----9.2.70\r\n", text)
+	require.Equal(t, "50001----9.2.70---------------\r\n", text)
 
 	var stored model.SysQQCacheRecord
 	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "50001").First(&stored).Error)
 	require.Nil(t, stored.Extractor)
 	require.Nil(t, stored.ExtractionAt)
+}
+
+func TestExportAccountListTextIncludesDeviceLeaderAndReceiveMode(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	leader := model.SysUser{NickName: "团长A", Username: "leader-a", AuthorityId: 200}
+	require.NoError(t, global.GVA_DB.Create(&leader).Error)
+	deviceID := "device-a"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum:         "60001",
+		ClientVersion: "9.2.70",
+		DeviceID:      &deviceID,
+	}).Error)
+	var record model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "60001").First(&record).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysPhoneRegisterTask{
+		QQCacheRecordID: &record.ID,
+		LeaderID:        &leader.ID,
+		SMSReceiveMode:  model.PhoneRegisterSMSModePlatformSend,
+		QQNum:           record.QQNum,
+	}).Error)
+
+	text, count, err := (&QQCacheService{}).ExportAccountListText(systemReq.QQCacheExportAccountList{
+		IDs: []uint{record.ID},
+	})
+
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.Equal(t, "60001----9.2.70----device-a----团长A----收码\r\n", text)
+}
+
+func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	leader := model.SysUser{NickName: "团长B", Username: "leader-b", AuthorityId: 200}
+	require.NoError(t, global.GVA_DB.Create(&leader).Error)
+	deviceID := "device-b"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum:         "60002",
+		ClientVersion: "9.2.75",
+		DeviceID:      &deviceID,
+	}).Error)
+	var record model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "60002").First(&record).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysPhoneRegisterTask{
+		QQCacheRecordID: &record.ID,
+		LeaderID:        &leader.ID,
+		SMSReceiveMode:  model.PhoneRegisterSMSModeUserSentToTX,
+		QQNum:           record.QQNum,
+	}).Error)
+
+	text, count, err := (&QQCacheService{}).ExportAccountListText(systemReq.QQCacheExportAccountList{
+		IDs: []uint{record.ID},
+	})
+
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.Equal(t, "60002----9.2.75----device-b----团长B----发码\r\n", text)
+}
+
+func TestExportAccountListTextByQQTextKeepsInputOrder(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	deviceA := "device-a"
+	deviceB := "device-b"
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "70001", ClientVersion: "9.2.70", DeviceID: &deviceA},
+		{QQNum: "70002", ClientVersion: "9.2.75", DeviceID: &deviceB},
+	}).Error)
+
+	text, count, err := (&QQCacheService{}).ExportAccountListTextByQQText(strings.Join([]string{
+		"70002----旧状态",
+		"70001",
+	}, "\n"))
+
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+	require.Equal(t, strings.Join([]string{
+		"70002----9.2.75----device-b----------",
+		"70001----9.2.70----device-a----------",
+		"",
+	}, "\r\n"), text)
 }
 
 func TestQQCacheBillingSettlementStatsIgnoreCreatedAtFilter(t *testing.T) {

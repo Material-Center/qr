@@ -38,6 +38,19 @@ export const exportQQCacheAccountList = (payload, config = {}) => {
   })
 }
 
+export const exportQQCacheAccountListByQQFile = (file, config = {}) => {
+  const form = new FormData()
+  form.append('qqFile', file)
+  return service({
+    url: '/qqCache/exportAccountListByQQFile',
+    method: 'post',
+    data: form,
+    responseType: 'arraybuffer',
+    donNotShowLoading: true,
+    ...config
+  })
+}
+
 export const exportPendingQQCacheIniZip = (payload, config = {}) => {
   return service({
     url: '/qqCache/exportPendingIniZip',

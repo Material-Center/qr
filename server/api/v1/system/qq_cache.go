@@ -933,6 +933,54 @@ func (a *QQCacheApi) ExportIniZipByQQFile(c *gin.Context) {
 	c.Data(200, "application/zip", zipBytes)
 }
 
+// ExportAccountListByQQFile
+// @Tags      QQCache
+// @Summary   管理端按上传TXT内QQ账号导出账号列表（txt）
+// @Security  ApiKeyAuth
+// @accept    multipart/form-data
+// @Produce   text/plain
+// @Param     qqFile  formData  file  true   "TXT文件，每行格式：QQ----状态"
+// @Success   200     file      txt
+// @Router    /qqCache/exportAccountListByQQFile [post]
+func (a *QQCacheApi) ExportAccountListByQQFile(c *gin.Context) {
+	role := utils.GetUserAuthorityId(c)
+	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+		response.FailWithMessage("仅管理员可导出账号列表", c)
+		return
+	}
+	raw, err := readQQCacheExportQQFile(c)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	text, count, err := qqCacheService.ExportAccountListTextByQQText(string(raw))
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	filename := fmt.Sprintf("qq_account_list_%d_%s.txt", count, time.Now().Format("20060102_150405"))
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Transfer-Encoding", "binary")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.Data(200, "text/plain; charset=utf-8", []byte(text))
+}
+
+func readQQCacheExportQQFile(c *gin.Context) ([]byte, error) {
+	file, _, err := c.Request.FormFile("qqFile")
+	if err != nil {
+		return nil, errors.New("请上传TXT文件")
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, qqCacheExportQQFileMaxBytes+1))
+	if err != nil {
+		return nil, errors.New("读取TXT文件失败")
+	}
+	if len(raw) > qqCacheExportQQFileMaxBytes {
+		return nil, errors.New("TXT文件不能超过512KB")
+	}
+	return raw, nil
+}
+
 func parseQQCacheRecentMinutesQuery(raw string) (int, error) {
 	text := strings.TrimSpace(raw)
 	if text == "" {
