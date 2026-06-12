@@ -2,6 +2,7 @@ package system
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 func setupPhoneRegisterTaskTestDB(t *testing.T) {
 	t.Helper()
 	global.GVA_REDIS = nil
+	resetPhoneRegisterDeviceStatsCache()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
@@ -35,6 +37,7 @@ func setupPhoneRegisterTaskTestDB(t *testing.T) {
 func setupPhoneRegisterTaskTestDBWithoutRiskStat(t *testing.T) {
 	t.Helper()
 	global.GVA_REDIS = nil
+	resetPhoneRegisterDeviceStatsCache()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
@@ -469,6 +472,91 @@ func TestGetCurrentDeviceStatsIgnoresTaskHeartbeatWithoutDeviceHeartbeat(t *test
 	require.NoError(t, err)
 	require.EqualValues(t, 0, stats.Online)
 	require.EqualValues(t, 0, stats.Idle)
+}
+
+func TestGetCurrentDeviceStatsUsesShortCache(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	resetPhoneRegisterDeviceStatsCache()
+	defer resetPhoneRegisterDeviceStatsCache()
+
+	var onlineCalls int
+	var busyCalls int
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			onlineCalls++
+			return []string{"device-a", "device-b"}
+		},
+		func() []string {
+			busyCalls++
+			return []string{"device-b"}
+		},
+	)
+	defer restore()
+
+	first, err := (&PhoneRegisterTaskService{}).GetCurrentDeviceStats()
+	require.NoError(t, err)
+	second, err := (&PhoneRegisterTaskService{}).GetCurrentDeviceStats()
+	require.NoError(t, err)
+
+	require.Equal(t, first, second)
+	require.EqualValues(t, 2, first.Online)
+	require.EqualValues(t, 1, first.Idle)
+	require.Equal(t, 1, onlineCalls)
+	require.Equal(t, 1, busyCalls)
+}
+
+func TestGetCurrentDeviceStatsRefreshesOnceUnderConcurrentMiss(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	resetPhoneRegisterDeviceStatsCache()
+	defer resetPhoneRegisterDeviceStatsCache()
+
+	started := make(chan struct{}, 5)
+	release := make(chan struct{})
+	var onlineCalls int
+	var busyCalls int
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			onlineCalls++
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-release
+			return []string{"device-a", "device-b"}
+		},
+		func() []string {
+			busyCalls++
+			return []string{"device-b"}
+		},
+	)
+	defer restore()
+
+	start := make(chan struct{})
+	results := make([]phoneRegisterDeviceStats, 5)
+	errs := make([]error, 5)
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			<-start
+			results[index], errs[index] = (&PhoneRegisterTaskService{}).GetCurrentDeviceStats()
+		}(i)
+	}
+
+	close(start)
+	<-started
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	for i := range results {
+		require.NoError(t, errs[i])
+		require.EqualValues(t, 2, results[i].Online)
+		require.EqualValues(t, 1, results[i].Idle)
+	}
+	require.Equal(t, 1, onlineCalls)
+	require.Equal(t, 1, busyCalls)
 }
 
 func TestOpenAPIReportSuccessDoesNotRiskBeforeWarmup(t *testing.T) {
@@ -921,6 +1009,17 @@ func stubPhoneRegisterRiskRandom(value float64) func() {
 	}
 	return func() {
 		phoneRegisterRiskRandomFloat = original
+	}
+}
+
+func stubPhoneRegisterDeviceIDs(online func() []string, busy func() []string) func() {
+	originalOnline := phoneRegisterListOnlineDeviceIDs
+	originalBusy := phoneRegisterListBusyDeviceIDs
+	phoneRegisterListOnlineDeviceIDs = online
+	phoneRegisterListBusyDeviceIDs = busy
+	return func() {
+		phoneRegisterListOnlineDeviceIDs = originalOnline
+		phoneRegisterListBusyDeviceIDs = originalBusy
 	}
 }
 

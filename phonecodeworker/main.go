@@ -53,6 +53,8 @@ func run() error {
 		return err
 	}
 	logger := log.New(os.Stdout, "", log.LstdFlags)
+	logger.Printf("loaded import input=%s state=%s phones=%d baseURL=%s interval=%s idleThreshold=%d createDelay=%s timeout=%s once=%t",
+		*input, *statePath, len(state.Records), *baseURL, *interval, *idleThreshold, *createDelay, *timeout, *once)
 	worker := NewWorker(workerConfig{
 		System:        NewSystemClient(*baseURL, *token, *timeout),
 		CodeSource:    NewCodeSourceClient(state.CodeAPI, *timeout),

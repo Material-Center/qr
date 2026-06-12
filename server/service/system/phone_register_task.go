@@ -28,6 +28,7 @@ const (
 	phoneRegisterCacheWaitTimeout = 3 * time.Minute
 	reservedClaimGracePeriod      = 30 * time.Second
 	phoneRegisterReserveSafetyTTL = 30 * time.Second
+	phoneRegisterDeviceStatsTTL   = 2 * time.Second
 
 	phoneRoleSuperAdmin = uint(888)
 	phoneRoleAdmin      = uint(100)
@@ -79,6 +80,20 @@ type PhoneRegisterTaskCreateOptions struct {
 var phoneRegisterTaskDaemonOnce sync.Once
 
 var phoneRegisterRiskRandomFloat = defaultPhoneRegisterRiskRandomFloat
+
+var phoneRegisterListOnlineDeviceIDs = func() []string {
+	return (&DeviceService{}).ListOnlineDeviceIDs()
+}
+
+var phoneRegisterListBusyDeviceIDs = func() []string {
+	return (&DeviceService{}).ListBusyDeviceIDs()
+}
+
+var phoneRegisterDeviceStatsCache struct {
+	sync.Mutex
+	stats     phoneRegisterDeviceStats
+	expiresAt time.Time
+}
 
 type phoneRegisterRiskDecision struct {
 	Hit        bool
@@ -462,8 +477,16 @@ func (s *PhoneRegisterTaskService) GetCurrentDeviceStats() (phoneRegisterDeviceS
 	if global.GVA_DB == nil {
 		return phoneRegisterDeviceStats{}, nil
 	}
+	now := time.Now()
+	phoneRegisterDeviceStatsCache.Lock()
+	defer phoneRegisterDeviceStatsCache.Unlock()
+	if now.Before(phoneRegisterDeviceStatsCache.expiresAt) {
+		stats := phoneRegisterDeviceStatsCache.stats
+		return stats, nil
+	}
+
 	onlineDevices := map[string]struct{}{}
-	for _, deviceID := range (&DeviceService{}).ListOnlineDeviceIDs() {
+	for _, deviceID := range phoneRegisterListOnlineDeviceIDs() {
 		deviceID = strings.TrimSpace(deviceID)
 		if deviceID != "" {
 			onlineDevices[deviceID] = struct{}{}
@@ -471,7 +494,7 @@ func (s *PhoneRegisterTaskService) GetCurrentDeviceStats() (phoneRegisterDeviceS
 	}
 
 	busyDevices := map[string]struct{}{}
-	for _, deviceID := range (&DeviceService{}).ListBusyDeviceIDs() {
+	for _, deviceID := range phoneRegisterListBusyDeviceIDs() {
 		deviceID = strings.TrimSpace(deviceID)
 		if deviceID != "" {
 			busyDevices[deviceID] = struct{}{}
@@ -484,10 +507,20 @@ func (s *PhoneRegisterTaskService) GetCurrentDeviceStats() (phoneRegisterDeviceS
 			idle++
 		}
 	}
-	return phoneRegisterDeviceStats{
+	stats := phoneRegisterDeviceStats{
 		Online: int64(len(onlineDevices)),
 		Idle:   idle,
-	}, nil
+	}
+	phoneRegisterDeviceStatsCache.stats = stats
+	phoneRegisterDeviceStatsCache.expiresAt = time.Now().Add(phoneRegisterDeviceStatsTTL)
+	return stats, nil
+}
+
+func resetPhoneRegisterDeviceStatsCache() {
+	phoneRegisterDeviceStatsCache.Lock()
+	phoneRegisterDeviceStatsCache.stats = phoneRegisterDeviceStats{}
+	phoneRegisterDeviceStatsCache.expiresAt = time.Time{}
+	phoneRegisterDeviceStatsCache.Unlock()
 }
 
 func buildPhoneRegisterTaskListItems(tasks []system.SysPhoneRegisterTask, includeQQNum bool) []systemRes.PhoneRegisterTaskListItem {

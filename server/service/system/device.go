@@ -52,7 +52,11 @@ func (s *DeviceService) MarkBusyWithTTL(deviceID string, business string, ttl ti
 	if err := global.GVA_REDIS.Set(ctx, deviceHeartbeatKey(deviceID), time.Now().Unix(), deviceHeartbeatTTL).Err(); err != nil {
 		return err
 	}
-	return global.GVA_REDIS.Set(ctx, deviceBusyKey(deviceID), value, ttl).Err()
+	if err := global.GVA_REDIS.Set(ctx, deviceBusyKey(deviceID), value, ttl).Err(); err != nil {
+		return err
+	}
+	resetPhoneRegisterDeviceStatsCache()
+	return nil
 }
 
 func (s *DeviceService) TryReserveIdleDevice(business string, ttl time.Duration) (string, error) {
@@ -77,6 +81,7 @@ func (s *DeviceService) TryReserveIdleDevice(business string, ttl time.Duration)
 			return "", err
 		}
 		if ok {
+			resetPhoneRegisterDeviceStatsCache()
 			return deviceID, nil
 		}
 	}
@@ -127,7 +132,11 @@ func (s *DeviceService) ClearBusy(deviceID string, businesses ...string) error {
 			return nil
 		}
 	}
-	return global.GVA_REDIS.Del(ctx, key).Err()
+	if err := global.GVA_REDIS.Del(ctx, key).Err(); err != nil {
+		return err
+	}
+	resetPhoneRegisterDeviceStatsCache()
+	return nil
 }
 
 func (s *DeviceService) MarkOffline(deviceID string) error {
@@ -138,7 +147,11 @@ func (s *DeviceService) MarkOffline(deviceID string) error {
 	if global.GVA_REDIS == nil {
 		return nil
 	}
-	return global.GVA_REDIS.Del(context.Background(), deviceHeartbeatKey(deviceID), deviceBusyKey(deviceID)).Err()
+	if err := global.GVA_REDIS.Del(context.Background(), deviceHeartbeatKey(deviceID), deviceBusyKey(deviceID)).Err(); err != nil {
+		return err
+	}
+	resetPhoneRegisterDeviceStatsCache()
+	return nil
 }
 
 func (s *DeviceService) ListOnlineDeviceIDs() []string {

@@ -48,6 +48,30 @@ func TestUpdateBusyIfMatchingReturnsErrorWhenBusyValueChanged(t *testing.T) {
 	require.Equal(t, 0, server.count("set"))
 }
 
+func TestDeviceStateChangeInvalidatesPhoneRegisterDeviceStatsCache(t *testing.T) {
+	server := newFakeRedisServer(t, nil)
+	originalRedis := global.GVA_REDIS
+	global.GVA_REDIS = redis.NewClient(&redis.Options{Addr: server.addr, Protocol: 2})
+	t.Cleanup(func() {
+		_ = global.GVA_REDIS.Close()
+		global.GVA_REDIS = originalRedis
+		server.close()
+		resetPhoneRegisterDeviceStatsCache()
+	})
+
+	phoneRegisterDeviceStatsCache.Lock()
+	phoneRegisterDeviceStatsCache.stats = phoneRegisterDeviceStats{Online: 2, Idle: 1}
+	phoneRegisterDeviceStatsCache.expiresAt = time.Now().Add(time.Minute)
+	phoneRegisterDeviceStatsCache.Unlock()
+
+	require.NoError(t, (&DeviceService{}).MarkBusy("9130dbc0", "phone_register"))
+
+	phoneRegisterDeviceStatsCache.Lock()
+	expiresAt := phoneRegisterDeviceStatsCache.expiresAt
+	phoneRegisterDeviceStatsCache.Unlock()
+	require.True(t, expiresAt.IsZero())
+}
+
 type fakeRedisServer struct {
 	addr   string
 	ln     net.Listener

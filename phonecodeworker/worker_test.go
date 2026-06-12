@@ -244,6 +244,127 @@ func TestRunOnceDoesNotSubmitCodeAgainAfterCodeSubmitted(t *testing.T) {
 	}
 }
 
+func TestRunOnceMarksMissingActiveTaskFailed(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351", "18507561314"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			_ = json.NewEncoder(w).Encode(apiResponse{Code: 7, Msg: "任务不存在"})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("654321"))
+	}))
+	defer codeServer.Close()
+
+	var logs bytes.Buffer
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:     NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource: NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:      loaded,
+		StatePath:  statePath,
+		Logger:     log.New(&logs, "", 0),
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[0].Status != recordStatusFailed || saved.Records[0].LastError != "任务不存在" {
+		t.Fatalf("first record = %#v", saved.Records[0])
+	}
+	if saved.activeRecord() != nil {
+		t.Fatalf("missing task should no longer block active record: %#v", saved.activeRecord())
+	}
+	if !strings.Contains(logs.String(), "active task missing task=9 phone=18507561351") {
+		t.Fatalf("logs missing active task missing entry:\n%s", logs.String())
+	}
+}
+
+func TestRunOnceLogsActiveTaskWaitingForPromoterCode(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351", "18507561314"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	var codeCalled bool
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"phone":            "18507561351",
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "running",
+				"needPromoterCode": false,
+				"lastError":        "等待设备进入验证码阶段",
+			})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		codeCalled = true
+		_, _ = w.Write([]byte("654321"))
+	}))
+	defer codeServer.Close()
+
+	var logs bytes.Buffer
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:     NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource: NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:      loaded,
+		StatePath:  statePath,
+		Logger:     log.New(&logs, "", 0),
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if codeCalled {
+		t.Fatal("code api should not be called before promoter code is needed")
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"cycle start records=2",
+		"active task phone=18507561351 task=9 localStatus=created",
+		"task status task=9 phone=18507561351 remoteStatus=running needPromoterCode=false",
+		"waiting promoter code task=9 phone=18507561351 remoteStatus=running lastError=\"等待设备进入验证码阶段\"",
+		"state saved path=" + statePath,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("logs missing %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestFetchCodeLogsRawTextResponseAndParseSource(t *testing.T) {
 	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
