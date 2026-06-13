@@ -7,6 +7,7 @@ OUT="${OUT:-"${ROOT_DIR}/dist/miserver-windows-amd64.exe"}"
 mkdir -p "$(dirname "${OUT}")"
 
 cd "${ROOT_DIR}"
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o "${OUT}" .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" -o "${OUT}" .
 
 echo "Windows binary built: ${OUT}"

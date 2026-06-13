@@ -26,6 +26,7 @@ func run() error {
 		token         = flag.String("token", "", "promoter OpenAPI token")
 		input         = flag.String("input", "", "import file path; first non-empty line is code API, remaining lines are phones")
 		statePath     = flag.String("state", "", "state file path; default is <input>.state.json")
+		failedPath    = flag.String("failed-output", "", "failed import output path; default is <input>.failed.txt")
 		interval      = flag.Duration("interval", 3*time.Second, "poll interval")
 		idleThreshold = flag.Int64("idle-threshold", 1, "create a task only when idle device count is greater than this value")
 		createDelay   = flag.Duration("create-delay", 0, "server-side delay before task can be claimed")
@@ -43,6 +44,9 @@ func run() error {
 	if *statePath == "" {
 		*statePath = *input + ".state.json"
 	}
+	if *failedPath == "" {
+		*failedPath = *input + ".failed.txt"
+	}
 
 	data, err := LoadImportFile(*input)
 	if err != nil {
@@ -53,13 +57,14 @@ func run() error {
 		return err
 	}
 	logger := log.New(os.Stdout, "", log.LstdFlags)
-	logger.Printf("loaded import input=%s state=%s phones=%d baseURL=%s interval=%s idleThreshold=%d createDelay=%s timeout=%s once=%t",
-		*input, *statePath, len(state.Records), *baseURL, *interval, *idleThreshold, *createDelay, *timeout, *once)
+	logger.Printf("loaded import input=%s state=%s failedOutput=%s phones=%d baseURL=%s interval=%s idleThreshold=%d createDelay=%s timeout=%s once=%t",
+		*input, *statePath, *failedPath, len(state.Records), *baseURL, *interval, *idleThreshold, *createDelay, *timeout, *once)
 	worker := NewWorker(workerConfig{
 		System:        NewSystemClient(*baseURL, *token, *timeout),
 		CodeSource:    NewCodeSourceClient(state.CodeAPI, *timeout),
 		State:         state,
 		StatePath:     *statePath,
+		FailedPath:    *failedPath,
 		IdleThreshold: *idleThreshold,
 		Interval:      *interval,
 		CreateDelay:   *createDelay,

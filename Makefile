@@ -53,7 +53,7 @@ build-server-local:
 	@cd server/ && if [ -f "server" ];then rm -rf server; else echo "OK!"; fi \
 	&& go env -w GO111MODULE=on && go env -w GOPROXY=https://goproxy.cn,direct \
 	&& go env -w CGO_ENABLED=0 && go env  && go mod tidy \
-	&& go build -ldflags "-B 0x$(shell head -c20 /dev/urandom|od -An -tx1|tr -d ' \n') -X main.Version=${TAGS_OPT}" -v
+	&& go build -buildvcs=false -trimpath -ldflags "-s -w -buildid= -B 0x$(shell head -c20 /dev/urandom|od -An -tx1|tr -d ' \n') -X main.Version=${TAGS_OPT}" -v
 
 #打包前后端二合一镜像
 image: build

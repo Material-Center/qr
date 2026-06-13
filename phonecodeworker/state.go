@@ -3,7 +3,11 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,13 +26,16 @@ type State struct {
 }
 
 type PhoneRecord struct {
-	Phone      string    `json:"phone"`
-	TaskID     uint      `json:"taskId,omitempty"`
-	Status     string    `json:"status"`
-	VerifyCode string    `json:"verifyCode,omitempty"`
-	LastError  string    `json:"lastError,omitempty"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	Phone        string    `json:"phone"`
+	TaskID       uint      `json:"taskId,omitempty"`
+	Status       string    `json:"status"`
+	VerifyCode   string    `json:"verifyCode,omitempty"`
+	LastError    string    `json:"lastError,omitempty"`
+	TaskAttempts int       `json:"taskAttempts,omitempty"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
+
+var stateFileSaveMu sync.Mutex
 
 func NewState(inputFile string, codeAPI string, phones []string) *State {
 	now := time.Now()
@@ -74,11 +81,69 @@ func LoadStateFile(path string) (*State, error) {
 }
 
 func SaveStateFile(path string, state *State) error {
+	stateFileSaveMu.Lock()
+	defer stateFileSaveMu.Unlock()
+
 	raw, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, raw, 0o644)
+	return writeFileAtomic(path, raw, ".phonecodeworker-state-*.tmp")
+}
+
+func SaveFailedImportFile(path string, state *State) error {
+	if strings.TrimSpace(path) == "" || state == nil {
+		return nil
+	}
+	phones := state.failedPhones()
+	if len(phones) == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	var builder strings.Builder
+	builder.WriteString(strings.TrimSpace(state.CodeAPI))
+	builder.WriteByte('\n')
+	for _, phone := range phones {
+		builder.WriteString(phone)
+		builder.WriteByte('\n')
+	}
+	return writeFileAtomic(path, []byte(builder.String()), ".phonecodeworker-failed-*.tmp")
+}
+
+func writeFileAtomic(path string, raw []byte, pattern string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename %s to %s: %w", tmpPath, path, err)
+	}
+	return nil
 }
 
 func (s *State) MergePhones(phones []string) {
@@ -101,25 +166,62 @@ func (s *State) MergePhones(phones []string) {
 }
 
 func (s *State) activeRecord() *PhoneRecord {
-	for i := range s.Records {
-		rec := &s.Records[i]
-		if rec.TaskID > 0 && !isTerminalRecordStatus(rec.Status) {
-			return rec
-		}
+	records := s.activeRecords()
+	if len(records) == 0 {
+		return nil
 	}
-	return nil
+	return records[0]
 }
 
 func (s *State) nextPendingRecord() *PhoneRecord {
+	records := s.pendingRecords(1)
+	if len(records) == 0 {
+		return nil
+	}
+	return records[0]
+}
+
+func (s *State) activeRecords() []*PhoneRecord {
+	records := []*PhoneRecord{}
+	for i := range s.Records {
+		rec := &s.Records[i]
+		if rec.TaskID > 0 && !isTerminalRecordStatus(rec.Status) {
+			records = append(records, rec)
+		}
+	}
+	return records
+}
+
+func (s *State) pendingRecords(limit int) []*PhoneRecord {
+	records := []*PhoneRecord{}
 	for i := range s.Records {
 		rec := &s.Records[i]
 		if rec.Status == "" || rec.Status == recordStatusPending {
-			return rec
+			records = append(records, rec)
+			if limit > 0 && len(records) >= limit {
+				break
+			}
 		}
 	}
-	return nil
+	return records
+}
+
+func (s *State) failedPhones() []string {
+	phones := []string{}
+	if s == nil {
+		return phones
+	}
+	for _, rec := range s.Records {
+		if rec.Status == recordStatusFailed {
+			phone := strings.TrimSpace(rec.Phone)
+			if phone != "" {
+				phones = append(phones, phone)
+			}
+		}
+	}
+	return phones
 }
 
 func isTerminalRecordStatus(status string) bool {
-	return status == recordStatusSucceeded || status == recordStatusFailed
+	return status == recordStatusSucceeded || status == recordStatusFailed || status == recordStatusCodeSubmitted
 }

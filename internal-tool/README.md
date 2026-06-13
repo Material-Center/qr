@@ -40,11 +40,11 @@ dist/internal-tool-windows.zip
 只编译 exe：
 
 ```bash
-GOOS=windows GOARCH=amd64 go build -o dist/internal-tool.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" -o dist/internal-tool.exe .
 ```
 
 在 Windows PowerShell 中编译：
 
 ```powershell
-$env:GOOS="windows"; $env:GOARCH="amd64"; go build -o dist\internal-tool.exe .
+$env:CGO_ENABLED="0"; $env:GOOS="windows"; $env:GOARCH="amd64"; go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" -o dist\internal-tool.exe .
 ```

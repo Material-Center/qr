@@ -41,7 +41,7 @@ func main() {
 		fatal(err)
 	}
 
-	cmd := exec.Command("go", "build", "-o", exePath, ".")
+	cmd := exec.Command("go", "build", "-buildvcs=false", "-trimpath", "-ldflags=-s -w -buildid=", "-o", exePath, ".")
 	cmd.Env = append(os.Environ(), "GOOS=windows", "GOARCH=amd64")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

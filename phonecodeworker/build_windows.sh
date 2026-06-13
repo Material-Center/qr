@@ -8,7 +8,8 @@ OUT_DIR="$(dirname "${OUT}")"
 mkdir -p "${OUT_DIR}"
 cd "${ROOT_DIR}"
 
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -o "${OUT}" .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+  go build -buildvcs=false -trimpath -ldflags="-s -w -buildid=" -o "${OUT}" .
 cp "${ROOT_DIR}/run_phonecodeworker.bat" "${OUT_DIR}/run_phonecodeworker.bat"
 echo "built ${OUT}"
 echo "copied ${OUT_DIR}/run_phonecodeworker.bat"

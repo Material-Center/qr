@@ -22,6 +22,10 @@ go run . \
 
 状态文件默认保存为 `<input>.state.json`。程序退出后再次启动会读取状态文件，优先恢复已创建但未完成的任务，避免重复创建。
 
+如果服务端任务已经超时失效，工具会清掉旧任务并把手机号重新放回待创建队列，默认额外重建 1 次；普通失败不会自动重建。
+
+失败手机号会自动输出到 `<input>.failed.txt`，格式和原导入文件一致：第一行是验证码 API，后续每行一个执行失败的手机号，可直接作为下一批导入文件使用。
+
 ## 参数
 
 ```text
@@ -29,6 +33,7 @@ go run . \
 -token           地推用户 OpenAPI token，必填
 -input           导入文件路径，必填
 -state           状态文件路径，默认 <input>.state.json
+-failed-output   失败手机号导出路径，默认 <input>.failed.txt
 -interval        检查间隔，默认 3s
 -idle-threshold  空闲设备阈值，默认 1；只有 deviceIdleCount > 1 才创建任务
 -create-delay    服务端延迟多久后允许设备领取任务，默认 0；例如 10s、2m
@@ -49,6 +54,6 @@ go run . \
 run_phonecodeworker.bat your-openapi-token phones.txt
 ```
 
-如果需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
+bat 默认不向服务端传延迟或预占设备参数，`INTERVAL=3s` 用于客户端轮询补位频率，并用于同一轮内连续创建多个任务时的本地间隔。如果需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
 
 可以用 `OUT=/path/phonecodeworker-windows-amd64.exe ./build_windows.sh` 指定输出路径；bat 默认执行同目录下的 `phonecodeworker-windows-amd64.exe`。
