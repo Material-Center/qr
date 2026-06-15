@@ -7,6 +7,7 @@ set "DEFAULT_INPUT=%~dp0phones.txt"
 set "TOKEN=%~1"
 set "INPUT_FILE=%~2"
 set "INTERVAL=3s"
+set "IDLE_THRESHOLD=1"
 set "CREATE_DELAY=0s"
 
 if not exist "%EXE%" (
@@ -36,6 +37,7 @@ if not exist "%INPUT_FILE%" (
   -token "%TOKEN%" ^
   -input "%INPUT_FILE%" ^
   -interval "%INTERVAL%" ^
+  -idle-threshold "%IDLE_THRESHOLD%" ^
   -create-delay "%CREATE_DELAY%"
 
 echo.
