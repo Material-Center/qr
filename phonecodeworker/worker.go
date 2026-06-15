@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 )
@@ -23,6 +24,7 @@ type workerConfig struct {
 	State          *State
 	StatePath      string
 	FailedPath     string
+	PauseFile      string
 	IdleThreshold  int64
 	Interval       time.Duration
 	CreateDelay    time.Duration
@@ -36,6 +38,7 @@ type Worker struct {
 	State          *State
 	StatePath      string
 	FailedPath     string
+	PauseFile      string
 	IdleThreshold  int64
 	Interval       time.Duration
 	CreateDelay    time.Duration
@@ -76,6 +79,7 @@ func NewWorker(cfg workerConfig) *Worker {
 		State:          cfg.State,
 		StatePath:      cfg.StatePath,
 		FailedPath:     strings.TrimSpace(cfg.FailedPath),
+		PauseFile:      strings.TrimSpace(cfg.PauseFile),
 		IdleThreshold:  idleThreshold,
 		Interval:       interval,
 		CreateDelay:    createDelay,
@@ -133,6 +137,11 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 	pendingCount := len(w.State.pendingRecords(0))
 	if pendingCount == 0 {
 		w.logger.Printf("no pending records %s", w.stateSummary())
+		return firstErr
+	}
+	if w.isPaused() {
+		w.logger.Printf("paused pauseFile=%s pending=%d active=%d",
+			w.PauseFile, pendingCount, len(w.State.activeRecords()))
 		return firstErr
 	}
 	w.logger.Printf("pending records=%d checking idle devices", pendingCount)
@@ -398,6 +407,14 @@ func (w *Worker) exportFailedImportFile() error {
 		w.logger.Printf("failed import file updated path=%s failed=%d", w.FailedPath, failedCount)
 	}
 	return nil
+}
+
+func (w *Worker) isPaused() bool {
+	if strings.TrimSpace(w.PauseFile) == "" {
+		return false
+	}
+	_, err := os.Stat(w.PauseFile)
+	return err == nil
 }
 
 func (w *Worker) stateSummary() string {

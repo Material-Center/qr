@@ -828,6 +828,73 @@ func TestRunOnceReplenishesOneIdleSlotAfterActiveTaskSucceeds(t *testing.T) {
 	}
 }
 
+func TestRunOnceSyncsActiveButDoesNotCreatePendingWhenPaused(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	pauseFile := filepath.Join(dir, "phonecodeworker.pause")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351", "18507561352"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	if err := os.WriteFile(pauseFile, []byte("pause"), 0o644); err != nil {
+		t.Fatalf("write pause file: %v", err)
+	}
+
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"phone":            "18507561351",
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "succeeded",
+				"needPromoterCode": false,
+			})
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			t.Fatal("device stats should not be called while paused")
+		case "/phoneRegisterTask/open-api/promoter/receive-task":
+			t.Fatal("receive task should not be created while paused")
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("code api should not be called")
+	}))
+	defer codeServer.Close()
+
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:      NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource:  NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:       loaded,
+		StatePath:   statePath,
+		PauseFile:   pauseFile,
+		FailedPath:  filepath.Join(dir, "failed.txt"),
+		CreateDelay: 0,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[0].Status != recordStatusSucceeded {
+		t.Fatalf("active record = %#v", saved.Records[0])
+	}
+	if saved.Records[1].Status != recordStatusPending || saved.Records[1].TaskID != 0 {
+		t.Fatalf("pending record should remain pending: %#v", saved.Records[1])
+	}
+}
+
 func TestRunOnceResumesExistingTaskWithoutCreatingDuplicate(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")

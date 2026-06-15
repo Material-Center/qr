@@ -34,6 +34,7 @@ go run . \
 -input           导入文件路径，必填
 -state           状态文件路径，默认 <input>.state.json
 -failed-output   失败手机号导出路径，默认 <input>.failed.txt
+-pause-file      暂停控制文件路径，默认同程序目录 phonecodeworker.pause；文件存在时不创建新任务，但会继续同步已创建任务
 -interval        检查间隔，默认 3s
 -idle-threshold  空闲设备阈值，默认 1；只有 deviceIdleCount > 1 才创建任务
 -create-delay    服务端延迟多久后允许设备领取任务，默认 0；例如 10s、2m
@@ -54,6 +55,6 @@ go run . \
 run_phonecodeworker.bat your-openapi-token phones.txt
 ```
 
-bat 默认不向服务端传延迟或预占设备参数，`INTERVAL=3s` 用于客户端轮询补位频率，并用于同一轮内连续创建多个任务时的本地间隔。如果需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
+bat 默认不向服务端传延迟或预占设备参数，`INTERVAL=3s` 用于客户端轮询补位频率，并用于同一轮内连续创建多个任务时的本地间隔。用 `start_phonecodeworker.bat` 启动工具，它会先删除暂停文件再打开运行窗口；运行中可以用 `pause_phonecodeworker.bat` 创建暂停文件，暂停后会继续处理已创建任务，但不会创建新任务。如果需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
 
 可以用 `OUT=/path/phonecodeworker-windows-amd64.exe ./build_windows.sh` 指定输出路径；bat 默认执行同目录下的 `phonecodeworker-windows-amd64.exe`。

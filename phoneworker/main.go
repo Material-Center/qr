@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -26,6 +27,7 @@ func run() error {
 		baseURL       = flag.String("base-url", defaultSystemBaseURL, "system API base URL")
 		token         = flag.String("token", "", "promoter OpenAPI token")
 		phoneURL      = flag.String("phone-url", defaultPhoneSourceURL, "phone source API URL")
+		pauseFile     = flag.String("pause-file", defaultPauseFile("phoneworker.pause"), "pause control file path; when present, no new tasks are created")
 		interval      = flag.Duration("interval", 3*time.Second, "poll interval")
 		idleThreshold = flag.Int64("idle-threshold", 1, "create a task only when idle device count is greater than this value")
 		createDelay   = flag.Duration("create-delay", 0, "server-side delay before task can be claimed")
@@ -48,6 +50,7 @@ func run() error {
 	worker := NewWorker(workerConfig{
 		System:        system,
 		PhoneSource:   source,
+		PauseFile:     *pauseFile,
 		IdleThreshold: *idleThreshold,
 		Interval:      *interval,
 		CreateDelay:   *createDelay,
@@ -63,4 +66,12 @@ func run() error {
 		return worker.WaitIdle(ctx)
 	}
 	return worker.Run(ctx)
+}
+
+func defaultPauseFile(name string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return name
+	}
+	return filepath.Join(filepath.Dir(exe), name)
 }

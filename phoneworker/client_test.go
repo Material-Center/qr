@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -85,6 +87,33 @@ func TestRunOnceSkipsSourceWhenIdleDeviceCountIsNotAboveThreshold(t *testing.T) 
 	}
 	if createCalled {
 		t.Fatal("create task should not be called")
+	}
+}
+
+func TestRunOnceSkipsSourceWhenPaused(t *testing.T) {
+	dir := t.TempDir()
+	pauseFile := filepath.Join(dir, "phoneworker.pause")
+	if err := os.WriteFile(pauseFile, []byte("pause"), 0o644); err != nil {
+		t.Fatalf("write pause file: %v", err)
+	}
+
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("system api should not be called while paused: %s", r.URL.Path)
+	}))
+	defer system.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("phone source should not be called while paused")
+	}))
+	defer source.Close()
+
+	worker := NewWorker(workerConfig{
+		System:      NewSystemClient(system.URL, "openapi-token", time.Second),
+		PhoneSource: NewPhoneSourceClient(source.URL, time.Second),
+		PauseFile:   pauseFile,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
 	}
 }
 

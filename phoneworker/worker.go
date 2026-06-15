@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"time"
 )
 
 type workerConfig struct {
 	System        *SystemClient
 	PhoneSource   *PhoneSourceClient
+	PauseFile     string
 	IdleThreshold int64
 	Interval      time.Duration
 	CreateDelay   time.Duration
@@ -19,6 +22,7 @@ type workerConfig struct {
 type Worker struct {
 	System        *SystemClient
 	PhoneSource   *PhoneSourceClient
+	PauseFile     string
 	IdleThreshold int64
 	Interval      time.Duration
 	CreateDelay   time.Duration
@@ -45,6 +49,7 @@ func NewWorker(cfg workerConfig) *Worker {
 	return &Worker{
 		System:        cfg.System,
 		PhoneSource:   cfg.PhoneSource,
+		PauseFile:     strings.TrimSpace(cfg.PauseFile),
 		IdleThreshold: idleThreshold,
 		Interval:      interval,
 		CreateDelay:   createDelay,
@@ -71,6 +76,10 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) RunOnce(ctx context.Context) error {
+	if w.isPaused() {
+		w.logger.Printf("paused pauseFile=%s", w.PauseFile)
+		return nil
+	}
 	idle, err := w.System.IdleDeviceCount(ctx)
 	if err != nil {
 		return fmt.Errorf("check idle devices: %w", err)
@@ -95,4 +104,12 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 
 func (w *Worker) WaitIdle(ctx context.Context) error {
 	return nil
+}
+
+func (w *Worker) isPaused() bool {
+	if strings.TrimSpace(w.PauseFile) == "" {
+		return false
+	}
+	_, err := os.Stat(w.PauseFile)
+	return err == nil
 }

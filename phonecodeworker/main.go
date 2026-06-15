@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -27,6 +28,7 @@ func run() error {
 		input         = flag.String("input", "", "import file path; first non-empty line is code API, remaining lines are phones")
 		statePath     = flag.String("state", "", "state file path; default is <input>.state.json")
 		failedPath    = flag.String("failed-output", "", "failed import output path; default is <input>.failed.txt")
+		pauseFile     = flag.String("pause-file", defaultPauseFile("phonecodeworker.pause"), "pause control file path; when present, no new tasks are created")
 		interval      = flag.Duration("interval", 3*time.Second, "poll interval")
 		idleThreshold = flag.Int64("idle-threshold", 1, "create a task only when idle device count is greater than this value")
 		createDelay   = flag.Duration("create-delay", 0, "server-side delay before task can be claimed")
@@ -65,6 +67,7 @@ func run() error {
 		State:         state,
 		StatePath:     *statePath,
 		FailedPath:    *failedPath,
+		PauseFile:     *pauseFile,
 		IdleThreshold: *idleThreshold,
 		Interval:      *interval,
 		CreateDelay:   *createDelay,
@@ -77,4 +80,12 @@ func run() error {
 		return worker.RunOnce(ctx)
 	}
 	return worker.Run(ctx)
+}
+
+func defaultPauseFile(name string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		return name
+	}
+	return filepath.Join(filepath.Dir(exe), name)
 }
