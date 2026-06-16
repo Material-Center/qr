@@ -295,22 +295,6 @@ func TestRunOnceRetriesCodeNotReadyRecordsAfterCreateBatch(t *testing.T) {
 				"status":           "waiting_promoter_code",
 				"needPromoterCode": true,
 			})
-		case "/phoneRegisterTask/open-api/promoter/task/101":
-			writeAPIResponse(t, w, 0, map[string]any{
-				"id":               float64(101),
-				"phone":            "18507561351",
-				"smsReceiveMode":   smsReceiveModePlatformSend,
-				"status":           "waiting_promoter_code",
-				"needPromoterCode": true,
-			})
-		case "/phoneRegisterTask/open-api/promoter/task/102":
-			writeAPIResponse(t, w, 0, map[string]any{
-				"id":               float64(102),
-				"phone":            "18507561352",
-				"smsReceiveMode":   smsReceiveModePlatformSend,
-				"status":           "waiting_promoter_code",
-				"needPromoterCode": true,
-			})
 		case "/phoneRegisterTask/open-api/promoter/submit-code":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -527,6 +511,7 @@ func TestRunOnceRequeuesAfterSubmitCodeTimeout(t *testing.T) {
 	}))
 	defer systemServer.Close()
 
+	var logs bytes.Buffer
 	worker := NewWorker(workerConfig{
 		System:         NewSystemClient(systemServer.URL, "openapi-token", time.Second),
 		CodeSource:     NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
@@ -534,6 +519,7 @@ func TestRunOnceRequeuesAfterSubmitCodeTimeout(t *testing.T) {
 		StatePath:      statePath,
 		IdleThreshold:  0,
 		MaxTaskRetries: 1,
+		Logger:         log.New(&logs, "", 0),
 	})
 
 	if err := worker.RunOnce(t.Context()); err != nil {
@@ -549,6 +535,46 @@ func TestRunOnceRequeuesAfterSubmitCodeTimeout(t *testing.T) {
 	}
 	if rec.LastError != "验证码已超时" {
 		t.Fatalf("last error = %q", rec.LastError)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"submit code start phone=18507561351 task=11 codeMasked=65****",
+		"system api submit-code request phone=18507561351 task=11",
+		"system api submit-code response phone=18507561351 task=11 status=200",
+		"system api submit-code api error phone=18507561351 task=11 code=7 msg=\"验证码已超时\"",
+		"submit code error phone=18507561351 task=11",
+		"retryable=true next=reset_pending",
+		"server task timed out phone=18507561351 oldTask=11 retry=1/1 reason=\"验证码已超时\"",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("logs missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestSystemClientSubmitCodeLogsHTTPTimeout(t *testing.T) {
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		writeAPIResponse(t, w, 0, map[string]any{"id": float64(9), "status": "running"})
+	}))
+	defer systemServer.Close()
+
+	var logs bytes.Buffer
+	client := NewSystemClient(systemServer.URL, "openapi-token", 10*time.Millisecond)
+	client.logger = log.New(&logs, "", 0)
+
+	if _, err := client.SubmitCode(t.Context(), "18507561351", 9, "654321"); err == nil {
+		t.Fatal("submit code should time out")
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"system api submit-code request phone=18507561351 task=9",
+		"system api submit-code error phone=18507561351 task=9",
+		"timeout=true",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("logs missing %q in:\n%s", want, out)
+		}
 	}
 }
 
@@ -670,6 +696,65 @@ func TestRunOnceSyncsAllActiveTasks(t *testing.T) {
 	}
 	if !synced["9"] || !synced["10"] {
 		t.Fatalf("synced tasks = %#v", synced)
+	}
+}
+
+func TestRunOnceLimitsActiveTaskSyncsToOldestRecords(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{
+		"18507561351",
+		"18507561352",
+		"18507561353",
+		"18507561354",
+		"18507561355",
+	})
+	now := time.Now()
+	for i := range state.Records {
+		state.Records[i].TaskID = uint(9 + i)
+		state.Records[i].Status = recordStatusCreated
+		state.Records[i].UpdatedAt = now.Add(time.Duration(i) * time.Minute)
+	}
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	synced := []string{}
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/phoneRegisterTask/open-api/promoter/task/") {
+			taskID := strings.TrimPrefix(r.URL.Path, "/phoneRegisterTask/open-api/promoter/task/")
+			synced = append(synced, taskID)
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"status":           "running",
+				"needPromoterCode": false,
+			})
+			return
+		}
+		t.Fatalf("unexpected system path: %s", r.URL.Path)
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("code api should not be called before promoter code is needed")
+	}))
+	defer codeServer.Close()
+
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:     NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource: NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:      loaded,
+		StatePath:  statePath,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if got, want := strings.Join(synced, ","), "9,10,11"; got != want {
+		t.Fatalf("synced tasks = %s, want %s", got, want)
 	}
 }
 
@@ -889,6 +974,187 @@ func TestRunOnceSyncsActiveButDoesNotCreatePendingWhenPaused(t *testing.T) {
 	}
 	if saved.Records[0].Status != recordStatusSucceeded {
 		t.Fatalf("active record = %#v", saved.Records[0])
+	}
+	if saved.Records[1].Status != recordStatusPending || saved.Records[1].TaskID != 0 {
+		t.Fatalf("pending record should remain pending: %#v", saved.Records[1])
+	}
+}
+
+func TestRunOnceHonorsPauseCreatedDuringActiveSyncBeforeIdleCheck(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	pauseFile := filepath.Join(dir, "phonecodeworker.pause")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351", "18507561352"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			if err := os.WriteFile(pauseFile, []byte("pause"), 0o644); err != nil {
+				t.Fatalf("write pause file: %v", err)
+			}
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"phone":            "18507561351",
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "running",
+				"needPromoterCode": false,
+			})
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			t.Fatal("device stats should not be called after pause is requested")
+		case "/phoneRegisterTask/open-api/promoter/receive-task":
+			t.Fatal("receive task should not be created after pause is requested")
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("code api should not be called")
+	}))
+	defer codeServer.Close()
+
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:     NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource: NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:      loaded,
+		StatePath:  statePath,
+		PauseFile:  pauseFile,
+		FailedPath: filepath.Join(dir, "failed.txt"),
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[1].Status != recordStatusPending || saved.Records[1].TaskID != 0 {
+		t.Fatalf("pending record should remain pending after pause: %#v", saved.Records[1])
+	}
+}
+
+func TestRunOnceHonorsPauseCreatedDuringCreateInterval(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	pauseFile := filepath.Join(dir, "phonecodeworker.pause")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351", "18507561352"})
+
+	createdPhones := []string{}
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			if len(createdPhones) > 0 {
+				t.Fatal("device stats should not be rechecked after pause is requested")
+			}
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(2)})
+		case "/phoneRegisterTask/open-api/promoter/receive-task":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			phone := body["phone"].(string)
+			createdPhones = append(createdPhones, phone)
+			if err := os.WriteFile(pauseFile, []byte("pause"), 0o644); err != nil {
+				t.Fatalf("write pause file: %v", err)
+			}
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(10),
+				"phone":            phone,
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "running",
+				"needPromoterCode": false,
+			})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("code api should not be called before promoter code is needed")
+	}))
+	defer codeServer.Close()
+
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource:    NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:         state,
+		StatePath:     statePath,
+		PauseFile:     pauseFile,
+		IdleThreshold: 0,
+		Interval:      time.Millisecond,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if got, want := strings.Join(createdPhones, ","), "18507561351"; got != want {
+		t.Fatalf("created phones = %s, want %s", got, want)
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[1].Status != recordStatusPending || saved.Records[1].TaskID != 0 {
+		t.Fatalf("second record should remain pending after pause: %#v", saved.Records[1])
+	}
+}
+
+func TestRunOnceDoesNotSyncLocallyTimedOutActiveTaskWhenPaused(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	pauseFile := filepath.Join(dir, "phonecodeworker.pause")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351", "18507561352"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	state.Records[0].UpdatedAt = time.Now().Add(-phoneRegisterTaskLocalTimeout - time.Minute)
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+	if err := os.WriteFile(pauseFile, []byte("pause"), 0o644); err != nil {
+		t.Fatalf("write pause file: %v", err)
+	}
+
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("system api should not be called for locally timed out paused task: %s", r.URL.Path)
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("code api should not be called")
+	}))
+	defer codeServer.Close()
+
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:     NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource: NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:      loaded,
+		StatePath:  statePath,
+		PauseFile:  pauseFile,
+		FailedPath: filepath.Join(dir, "failed.txt"),
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[0].Status != recordStatusCreated || saved.Records[0].TaskID != 9 {
+		t.Fatalf("timed out active record should remain untouched: %#v", saved.Records[0])
 	}
 	if saved.Records[1].Status != recordStatusPending || saved.Records[1].TaskID != 0 {
 		t.Fatalf("pending record should remain pending: %#v", saved.Records[1])

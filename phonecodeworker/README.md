@@ -35,9 +35,11 @@ go run . \
 -state           状态文件路径，默认 <input>.state.json
 -failed-output   失败手机号导出路径，默认 <input>.failed.txt
 -pause-file      暂停控制文件路径，默认同程序目录 phonecodeworker.pause；文件存在时不创建新任务，但会继续同步已创建任务
+-log-dir         日志目录，默认同程序目录 logs；每次启动创建新日志文件，程序跨天运行时自动切换到新日期日志
 -interval        检查间隔，默认 3s
 -idle-threshold  空闲设备阈值，默认 1；只有 deviceIdleCount > 1 才创建任务
 -create-delay    服务端延迟多久后允许设备领取任务，默认 0；例如 10s、2m
+-task-sync-limit 每轮最多查询多少个已创建任务的服务端状态，默认 3
 -timeout         HTTP 超时，默认 10s
 -once            只执行一轮，便于测试
 ```
@@ -55,6 +57,20 @@ go run . \
 run_phonecodeworker.bat your-openapi-token phones.txt
 ```
 
-bat 默认不向服务端传延迟或预占设备参数，`INTERVAL=3s` 用于客户端轮询补位频率，并用于同一轮内连续创建多个任务时的本地间隔。用 `start_phonecodeworker.bat` 启动工具，它会先删除暂停文件再打开运行窗口；运行中可以用 `pause_phonecodeworker.bat` 创建暂停文件，暂停后会继续处理已创建任务，但不会创建新任务。如果需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
+bat 默认不向服务端传延迟或预占设备参数，`INTERVAL=3s` 用于客户端轮询补位频率，并用于同一轮内连续创建多个任务时的本地间隔。`TASK_SYNC_LIMIT=3` 用于限制每轮最多查询多少个已创建任务的服务端状态，active 任务多时会按最久未更新优先同步。用 `run_phonecodeworker.bat` 启动工具；运行中可以用 `pause_phonecodeworker.bat` 创建暂停文件，暂停后会继续处理已创建任务，但不会创建新任务；用 `start_phonecodeworker.bat` 删除暂停文件恢复执行，它不会启动新进程。如果需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
 
 可以用 `OUT=/path/phonecodeworker-windows-amd64.exe ./build_windows.sh` 指定输出路径；bat 默认执行同目录下的 `phonecodeworker-windows-amd64.exe`。
+
+## 日志
+
+日志同时输出到控制台和 `logs` 目录文件。文件名示例：
+
+```text
+logs/phonecodeworker-20260616-010203.log
+```
+
+每次启动都会创建新日志文件；如果程序一直运行到第二天，会自动切到新日期文件。排查单个手机号时可以按手机号搜索：
+
+```bat
+findstr "phone=18507561351" logs\phonecodeworker-20260616-010203.log
+```

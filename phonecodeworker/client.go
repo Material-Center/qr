@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -44,6 +45,7 @@ type SystemClient struct {
 	baseURL string
 	token   string
 	http    *http.Client
+	logger  *log.Logger
 }
 
 func NewSystemClient(baseURL, token string, timeout time.Duration) *SystemClient {
@@ -54,6 +56,7 @@ func NewSystemClient(baseURL, token string, timeout time.Duration) *SystemClient
 		baseURL: strings.TrimRight(strings.TrimSpace(baseURL), "/"),
 		token:   strings.TrimSpace(token),
 		http:    &http.Client{Timeout: timeout},
+		logger:  log.Default(),
 	}
 }
 
@@ -94,16 +97,82 @@ func (c *SystemClient) GetTask(ctx context.Context, taskID uint) (taskInfo, erro
 	return data, nil
 }
 
-func (c *SystemClient) SubmitCode(ctx context.Context, taskID uint, verifyCode string) (taskInfo, error) {
+func (c *SystemClient) SubmitCode(ctx context.Context, phone string, taskID uint, verifyCode string) (taskInfo, error) {
 	payload := map[string]any{
 		"taskId":     taskID,
 		"verifyCode": strings.TrimSpace(verifyCode),
 	}
 	var data taskInfo
-	if err := c.doJSON(ctx, http.MethodPost, "/phoneRegisterTask/open-api/promoter/submit-code", payload, &data); err != nil {
+	if err := c.doSubmitCodeJSON(ctx, strings.TrimSpace(phone), taskID, payload, &data); err != nil {
 		return taskInfo{}, err
 	}
 	return data, nil
+}
+
+func (c *SystemClient) doSubmitCodeJSON(ctx context.Context, phone string, taskID uint, payload any, out any) error {
+	const path = "/phoneRegisterTask/open-api/promoter/submit-code"
+	start := time.Now()
+	c.logf("system api submit-code request phone=%s task=%d method=%s path=%s", phone, taskID, http.MethodPost, path)
+	var reqBody io.Reader
+	if payload != nil {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			c.logf("system api submit-code marshal error phone=%s task=%d elapsed=%s err=%v", phone, taskID, time.Since(start).Round(time.Millisecond), err)
+			return err
+		}
+		reqBody = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, reqBody)
+	if err != nil {
+		c.logf("system api submit-code build request error phone=%s task=%d elapsed=%s err=%v", phone, taskID, time.Since(start).Round(time.Millisecond), err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		req.Header.Set("X-Open-Api-Token", c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		c.logf("system api submit-code error phone=%s task=%d elapsed=%s timeout=%t err=%v",
+			phone, taskID, time.Since(start).Round(time.Millisecond), isContextTimeout(err), err)
+		return err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logf("system api submit-code read body error phone=%s task=%d status=%d elapsed=%s err=%v",
+			phone, taskID, resp.StatusCode, time.Since(start).Round(time.Millisecond), err)
+		return err
+	}
+	elapsed := time.Since(start).Round(time.Millisecond)
+	c.logf("system api submit-code response phone=%s task=%d status=%d elapsed=%s bodyBytes=%d body=%q",
+		phone, taskID, resp.StatusCode, elapsed, len(body), compactLogText(string(body), 2000))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("%s %s failed: http %d: %s", http.MethodPost, path, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var wrapper apiResponse
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		c.logf("system api submit-code decode error phone=%s task=%d elapsed=%s err=%v body=%q",
+			phone, taskID, elapsed, err, compactLogText(string(body), 2000))
+		return fmt.Errorf("decode response: %w: %s", err, string(body))
+	}
+	if wrapper.Code != 0 {
+		c.logf("system api submit-code api error phone=%s task=%d code=%d msg=%q elapsed=%s",
+			phone, taskID, wrapper.Code, wrapper.Msg, elapsed)
+		if strings.TrimSpace(wrapper.Msg) != "" {
+			return errors.New(wrapper.Msg)
+		}
+		return fmt.Errorf("api code %d", wrapper.Code)
+	}
+	if out == nil || len(wrapper.Data) == 0 || string(wrapper.Data) == "null" {
+		return nil
+	}
+	if err := json.Unmarshal(wrapper.Data, out); err != nil {
+		c.logf("system api submit-code decode data error phone=%s task=%d elapsed=%s err=%v data=%q",
+			phone, taskID, elapsed, err, compactLogText(string(wrapper.Data), 2000))
+		return fmt.Errorf("decode data: %w: %s", err, string(wrapper.Data))
+	}
+	return nil
 }
 
 func (c *SystemClient) doJSON(ctx context.Context, method, path string, payload any, out any) error {
@@ -249,6 +318,23 @@ func (c *CodeSourceClient) logf(format string, args ...any) {
 	if c.logger != nil {
 		c.logger.Printf(format, args...)
 	}
+}
+
+func (c *SystemClient) logf(format string, args ...any) {
+	if c.logger != nil {
+		c.logger.Printf(format, args...)
+	}
+}
+
+func isContextTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func compactLogText(raw string, maxLen int) string {

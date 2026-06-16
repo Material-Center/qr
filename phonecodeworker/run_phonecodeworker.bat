@@ -9,6 +9,7 @@ set "INPUT_FILE=%~2"
 set "INTERVAL=3s"
 set "IDLE_THRESHOLD=1"
 set "CREATE_DELAY=0s"
+set "TASK_SYNC_LIMIT=3"
 
 if not exist "%EXE%" (
   echo phonecodeworker executable not found: "%EXE%"
@@ -38,7 +39,8 @@ if not exist "%INPUT_FILE%" (
   -input "%INPUT_FILE%" ^
   -interval "%INTERVAL%" ^
   -idle-threshold "%IDLE_THRESHOLD%" ^
-  -create-delay "%CREATE_DELAY%"
+  -create-delay "%CREATE_DELAY%" ^
+  -task-sync-limit "%TASK_SYNC_LIMIT%"
 
 echo.
 echo phonecodeworker exited with code %ERRORLEVEL%.

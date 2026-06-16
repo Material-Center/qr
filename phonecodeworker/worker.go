@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
 
 const (
-	defaultMaxTaskRetries = 1
+	defaultMaxTaskRetries         = 1
+	defaultTaskSyncLimit          = 3
+	phoneRegisterTaskLocalTimeout = 30 * time.Minute
 
 	phoneRegisterStatusCodeVerifyCodeTimeout = 1002
 	phoneRegisterStatusCodeHeartbeatTimeout  = 1003
@@ -29,6 +32,7 @@ type workerConfig struct {
 	Interval       time.Duration
 	CreateDelay    time.Duration
 	MaxTaskRetries int
+	TaskSyncLimit  int
 	Logger         *log.Logger
 }
 
@@ -43,6 +47,7 @@ type Worker struct {
 	Interval       time.Duration
 	CreateDelay    time.Duration
 	MaxTaskRetries int
+	TaskSyncLimit  int
 	logger         *log.Logger
 }
 
@@ -66,12 +71,19 @@ func NewWorker(cfg workerConfig) *Worker {
 	if maxTaskRetries < 0 {
 		maxTaskRetries = 0
 	}
+	taskSyncLimit := cfg.TaskSyncLimit
+	if taskSyncLimit <= 0 {
+		taskSyncLimit = defaultTaskSyncLimit
+	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = log.Default()
 	}
 	if cfg.CodeSource != nil {
 		cfg.CodeSource.logger = logger
+	}
+	if cfg.System != nil {
+		cfg.System.logger = logger
 	}
 	return &Worker{
 		System:         cfg.System,
@@ -84,6 +96,7 @@ func NewWorker(cfg workerConfig) *Worker {
 		Interval:       interval,
 		CreateDelay:    createDelay,
 		MaxTaskRetries: maxTaskRetries,
+		TaskSyncLimit:  taskSyncLimit,
 		logger:         logger,
 	}
 }
@@ -92,8 +105,8 @@ func (w *Worker) Run(ctx context.Context) error {
 	if err := w.validate(); err != nil {
 		return err
 	}
-	w.logger.Printf("worker start interval=%s idleThreshold=%d createDelay=%s maxTaskRetries=%d state=%s records=%d",
-		w.Interval, w.IdleThreshold, w.CreateDelay, w.MaxTaskRetries, w.StatePath, len(w.State.Records))
+	w.logger.Printf("worker start interval=%s idleThreshold=%d createDelay=%s maxTaskRetries=%d taskSyncLimit=%d state=%s records=%d",
+		w.Interval, w.IdleThreshold, w.CreateDelay, w.MaxTaskRetries, w.TaskSyncLimit, w.StatePath, len(w.State.Records))
 	ticker := time.NewTicker(w.Interval)
 	defer ticker.Stop()
 	for {
@@ -122,8 +135,28 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 	}()
 	w.logger.Printf("cycle start %s state=%s", w.stateSummary(), w.StatePath)
 	var firstErr error
+	paused := w.isPaused()
+	now := time.Now()
 	active := w.State.activeRecords()
+	sort.SliceStable(active, func(i, j int) bool {
+		if active[i].UpdatedAt.Equal(active[j].UpdatedAt) {
+			return active[i].TaskID < active[j].TaskID
+		}
+		return active[i].UpdatedAt.Before(active[j].UpdatedAt)
+	})
+	syncedActive := 0
+	deferredActive := 0
 	for _, rec := range active {
+		if paused && rec.isLocallyTimedOut(now) {
+			w.logger.Printf("paused skip locally timed out active task phone=%s task=%d updatedAt=%s timeout=%s",
+				rec.Phone, rec.TaskID, rec.UpdatedAt.Format(time.RFC3339), phoneRegisterTaskLocalTimeout)
+			continue
+		}
+		if syncedActive >= w.TaskSyncLimit {
+			deferredActive++
+			continue
+		}
+		syncedActive++
 		w.logger.Printf("active task phone=%s task=%d localStatus=%s lastError=%q",
 			rec.Phone, rec.TaskID, rec.Status, rec.LastError)
 		if err := w.syncTask(ctx, rec); err != nil {
@@ -133,13 +166,17 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 			w.logger.Printf("active task sync error phone=%s task=%d err=%v", rec.Phone, rec.TaskID, err)
 		}
 	}
+	if deferredActive > 0 {
+		w.logger.Printf("deferred active task sync count=%d limit=%d nextCheckIn=%s",
+			deferredActive, w.TaskSyncLimit, w.Interval)
+	}
 
 	pendingCount := len(w.State.pendingRecords(0))
 	if pendingCount == 0 {
 		w.logger.Printf("no pending records %s", w.stateSummary())
 		return firstErr
 	}
-	if w.isPaused() {
+	if paused || w.isPaused() {
 		w.logger.Printf("paused pauseFile=%s pending=%d active=%d",
 			w.PauseFile, pendingCount, len(w.State.activeRecords()))
 		return firstErr
@@ -165,12 +202,22 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 	}
 
 	for i, rec := range w.State.pendingRecords(int(slots)) {
+		if w.isPaused() {
+			w.logger.Printf("paused before create pauseFile=%s phone=%s pending=%d active=%d",
+				w.PauseFile, rec.Phone, len(w.State.pendingRecords(0)), len(w.State.activeRecords()))
+			break
+		}
 		if i > 0 {
 			w.logger.Printf("waiting create interval=%s before next pending phone=%s", w.Interval, rec.Phone)
 			if err := waitDuration(ctx, w.Interval); err != nil {
 				if firstErr == nil {
 					firstErr = err
 				}
+				break
+			}
+			if w.isPaused() {
+				w.logger.Printf("paused after create interval pauseFile=%s phone=%s pending=%d active=%d",
+					w.PauseFile, rec.Phone, len(w.State.pendingRecords(0)), len(w.State.activeRecords()))
 				break
 			}
 			idle, err := w.System.IdleDeviceCount(ctx)
@@ -188,6 +235,11 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 			if capacity <= 0 {
 				w.logger.Printf("stop creating pending records no idle capacity phone=%s idle=%d threshold=%d",
 					rec.Phone, idle, w.IdleThreshold)
+				break
+			}
+			if w.isPaused() {
+				w.logger.Printf("paused before next create pauseFile=%s phone=%s pending=%d active=%d",
+					w.PauseFile, rec.Phone, len(w.State.pendingRecords(0)), len(w.State.activeRecords()))
 				break
 			}
 		}
@@ -233,7 +285,7 @@ func (w *Worker) retryCodeNotReadyRecords(ctx context.Context) error {
 			continue
 		}
 		w.logger.Printf("retry code not ready task=%d phone=%s after create batch", rec.TaskID, rec.Phone)
-		if err := w.syncTask(ctx, rec); err != nil {
+		if err := w.fetchAndSubmitCode(ctx, rec); err != nil {
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -310,6 +362,10 @@ func (w *Worker) handleTask(ctx context.Context, rec *PhoneRecord, task taskInfo
 	}
 
 	w.logger.Printf("promoter code needed task=%d phone=%s fetching code", rec.TaskID, rec.Phone)
+	return w.fetchAndSubmitCode(ctx, rec)
+}
+
+func (w *Worker) fetchAndSubmitCode(ctx context.Context, rec *PhoneRecord) error {
 	code, err := w.CodeSource.FetchCode(ctx, rec.Phone)
 	if err != nil {
 		if errors.Is(err, errCodeNotReady) {
@@ -324,17 +380,32 @@ func (w *Worker) handleTask(ctx context.Context, rec *PhoneRecord, task taskInfo
 		_ = w.save()
 		return fmt.Errorf("fetch code phone=%s: %w", rec.Phone, err)
 	}
-	w.logger.Printf("submitting code task=%d phone=%s code=%s", rec.TaskID, rec.Phone, code)
-	if _, err := w.System.SubmitCode(ctx, rec.TaskID, code); err != nil {
-		w.logger.Printf("submit code error task=%d phone=%s err=%v", rec.TaskID, rec.Phone, err)
-		if w.isRetryableTimeoutError(rec, err) {
+	w.logger.Printf("submitting code task=%d phone=%s codeMasked=%s", rec.TaskID, rec.Phone, maskVerifyCode(code))
+	w.logger.Printf("submit code start phone=%s task=%d codeMasked=%s attempts=%d timeoutRetries=%d",
+		rec.Phone, rec.TaskID, maskVerifyCode(code), rec.TaskAttempts, rec.timeoutRetryCount())
+	submitStartedAt := time.Now()
+	task, err := w.System.SubmitCode(ctx, rec.Phone, rec.TaskID, code)
+	elapsed := time.Since(submitStartedAt).Round(time.Millisecond)
+	if err != nil {
+		retryable := w.isRetryableTimeoutError(rec, err)
+		next := "save_error"
+		if retryable {
+			next = "reset_pending"
+		}
+		w.logger.Printf("submit code error phone=%s task=%d elapsed=%s timeout=%t retryable=%t next=%s err=%v",
+			rec.Phone, rec.TaskID, elapsed, isContextTimeout(err), retryable, next, err)
+		if retryable {
 			return w.resetTaskForRetry(rec, err.Error())
 		}
 		rec.LastError = err.Error()
 		rec.UpdatedAt = time.Now()
 		_ = w.save()
+		w.logger.Printf("submit code failed state update phone=%s task=%d localStatus=%s lastError=%q",
+			rec.Phone, rec.TaskID, rec.Status, rec.LastError)
 		return fmt.Errorf("submit code task=%d phone=%s: %w", rec.TaskID, rec.Phone, err)
 	}
+	w.logger.Printf("submit code success phone=%s task=%d elapsed=%s remoteStatus=%s needPromoterCode=%t statusCode=%s lastError=%q",
+		rec.Phone, rec.TaskID, elapsed, task.Status, task.NeedPromoterCode, formatStatusCode(task.StatusCode), task.LastError)
 	rec.Status = recordStatusSucceeded
 	rec.VerifyCode = code
 	rec.LastError = ""
@@ -452,6 +523,24 @@ func (rec *PhoneRecord) timeoutRetryCount() int {
 		return 0
 	}
 	return rec.TaskAttempts - 1
+}
+
+func maskVerifyCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return ""
+	}
+	if len(code) <= 2 {
+		return strings.Repeat("*", len(code))
+	}
+	return code[:2] + strings.Repeat("*", len(code)-2)
+}
+
+func (rec *PhoneRecord) isLocallyTimedOut(now time.Time) bool {
+	if rec == nil || rec.UpdatedAt.IsZero() {
+		return false
+	}
+	return !rec.UpdatedAt.Add(phoneRegisterTaskLocalTimeout).After(now)
 }
 
 func isTaskTimeoutFailure(task taskInfo) bool {

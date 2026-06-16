@@ -47,7 +47,7 @@ run_phoneworker.bat your-openapi-token
 ```
 
 如果取手机号接口地址变化，修改 bat 里的 `PHONE_URL` 即可。
-用 `start_phoneworker.bat` 启动工具，它会先删除暂停文件再打开运行窗口；运行中可以用 `pause_phoneworker.bat` 创建暂停文件，暂停后不会继续取号或创建新任务。
+用 `run_phoneworker.bat` 启动工具；运行中可以用 `pause_phoneworker.bat` 创建暂停文件，暂停后不会继续取号或创建新任务；用 `start_phoneworker.bat` 删除暂停文件恢复执行，它不会启动新进程。
 如果取号后需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
 
 可以用 `OUT=/path/phoneworker-windows-amd64.exe ./build_windows.sh` 指定输出路径；bat 默认执行同目录下的 `phoneworker-windows-amd64.exe`。
