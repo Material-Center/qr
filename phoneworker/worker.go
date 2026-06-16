@@ -46,6 +46,12 @@ func NewWorker(cfg workerConfig) *Worker {
 	if logger == nil {
 		logger = log.Default()
 	}
+	if cfg.System != nil {
+		cfg.System.logger = logger
+	}
+	if cfg.PhoneSource != nil {
+		cfg.PhoneSource.logger = logger
+	}
 	return &Worker{
 		System:        cfg.System,
 		PhoneSource:   cfg.PhoneSource,
@@ -94,8 +100,10 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	w.logger.Printf("create task start phone=%s mode=%s createDelay=%s", phone, smsReceiveModeUserSent, w.CreateDelay)
 	taskID, err := w.System.CreateUserSentTask(ctx, phone, w.CreateDelay)
 	if err != nil {
+		w.logger.Printf("create task error phone=%s mode=%s createDelay=%s err=%v", phone, smsReceiveModeUserSent, w.CreateDelay, err)
 		return fmt.Errorf("create task phone=%s: %w", phone, err)
 	}
 	w.logger.Printf("created task id=%d phone=%s mode=%s", taskID, phone, smsReceiveModeUserSent)

@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -143,10 +146,12 @@ func TestRunOnceFetchesPhoneAndCreatesUserSentTaskWhenIdleDeviceCountIsAboveThre
 	}))
 	defer source.Close()
 
+	var logs bytes.Buffer
 	worker := NewWorker(workerConfig{
 		System:        NewSystemClient(system.URL, "openapi-token", time.Second),
 		PhoneSource:   NewPhoneSourceClient(source.URL, time.Second),
 		IdleThreshold: 1,
+		Logger:        log.New(&logs, "", 0),
 	})
 
 	if err := worker.RunOnce(t.Context()); err != nil {
@@ -163,6 +168,20 @@ func TestRunOnceFetchesPhoneAndCreatesUserSentTaskWhenIdleDeviceCountIsAboveThre
 	}
 	if _, ok := createdBody["reserveDevice"]; ok {
 		t.Fatal("reserveDevice should be omitted when create delay is zero")
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"phone source request url=",
+		"phone source response status=200",
+		"phone source parsed phone=18878309701",
+		"create task start phone=18878309701 mode=USER_SENT_TO_TX",
+		"system api create-task request phone=18878309701",
+		"system api create-task response phone=18878309701 status=200",
+		"created task id=9 phone=18878309701 mode=USER_SENT_TO_TX",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("logs missing %q in:\n%s", want, out)
+		}
 	}
 }
 
@@ -328,6 +347,32 @@ func TestRunOnceReturnsCreateFailureImmediatelyWithServerDelay(t *testing.T) {
 	}
 	if got := atomic.LoadInt64(&sourceCalls); got != 1 {
 		t.Fatalf("source calls = %d, want 1", got)
+	}
+}
+
+func TestSystemClientCreateTaskLogsHTTPTimeout(t *testing.T) {
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		writeAPIResponse(t, w, 0, map[string]any{"id": float64(9)})
+	}))
+	defer system.Close()
+
+	var logs bytes.Buffer
+	client := NewSystemClient(system.URL, "openapi-token", 10*time.Millisecond)
+	client.logger = log.New(&logs, "", 0)
+
+	if _, err := client.CreateUserSentTask(t.Context(), "18878309701", 0); err == nil {
+		t.Fatal("create task should time out")
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"system api create-task request phone=18878309701",
+		"system api create-task error phone=18878309701",
+		"timeout=true",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("logs missing %q in:\n%s", want, out)
+		}
 	}
 }
 

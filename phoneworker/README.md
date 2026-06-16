@@ -26,6 +26,7 @@ go run . \
 -token           地推用户 OpenAPI token，必填
 -phone-url       取号 API 地址
 -pause-file      暂停控制文件路径，默认同程序目录 phoneworker.pause；文件存在时不再取号或创建新任务
+-log-dir         日志目录，默认同程序目录 logs；每次启动创建新日志文件，程序跨天运行时自动切换到新日期日志
 -interval        检查间隔，默认 3s
 -idle-threshold  空闲设备阈值，默认 1；只有 deviceIdleCount > 1 才创建任务
 -create-delay    服务端延迟多久后允许设备领取任务，默认 0；例如 10s、2m
@@ -51,3 +52,17 @@ run_phoneworker.bat your-openapi-token
 如果取号后需要创建服务端延迟任务，修改 bat 里的 `CREATE_DELAY`，例如 `10s` 或 `2m`。
 
 可以用 `OUT=/path/phoneworker-windows-amd64.exe ./build_windows.sh` 指定输出路径；bat 默认执行同目录下的 `phoneworker-windows-amd64.exe`。
+
+## 日志
+
+日志同时输出到控制台和 `logs` 目录文件。文件名示例：
+
+```text
+logs/phoneworker-20260616-010203.log
+```
+
+每次启动都会创建新日志文件；如果程序一直运行到第二天，会自动切到新日期文件。排查单个手机号时可以按手机号搜索：
+
+```bat
+findstr "phone=18507561351" logs\phoneworker-20260616-010203.log
+```

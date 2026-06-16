@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -28,6 +29,7 @@ func run() error {
 		token         = flag.String("token", "", "promoter OpenAPI token")
 		phoneURL      = flag.String("phone-url", defaultPhoneSourceURL, "phone source API URL")
 		pauseFile     = flag.String("pause-file", defaultPauseFile("phoneworker.pause"), "pause control file path; when present, no new tasks are created")
+		logDir        = flag.String("log-dir", defaultLogDir(), "log directory; a new log file is created on startup and rotated daily")
 		interval      = flag.Duration("interval", 3*time.Second, "poll interval")
 		idleThreshold = flag.Int64("idle-threshold", 1, "create a task only when idle device count is greater than this value")
 		createDelay   = flag.Duration("create-delay", 0, "server-side delay before task can be claimed")
@@ -44,7 +46,15 @@ func run() error {
 		return fmt.Errorf("invalid -phone-url: %w", err)
 	}
 
-	logger := log.New(os.Stdout, "", log.LstdFlags)
+	logWriter, err := newDailyLogWriter(*logDir, "phoneworker", time.Now)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	defer logWriter.Close()
+	logger := log.New(io.MultiWriter(os.Stdout, logWriter), "", log.LstdFlags)
+	logger.Printf("log file=%s", logWriter.Path())
+	logger.Printf("loaded config baseURL=%s phoneURL=%s interval=%s idleThreshold=%d createDelay=%s timeout=%s logDir=%s once=%t",
+		*baseURL, sourceURL, *interval, *idleThreshold, *createDelay, *timeout, *logDir, *once)
 	system := NewSystemClient(*baseURL, *token, *timeout)
 	source := NewPhoneSourceClient(sourceURL, *timeout)
 	worker := NewWorker(workerConfig{
