@@ -16,19 +16,21 @@ import (
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 const (
-	phoneRegisterTaskTimeout      = 30 * time.Minute
-	phoneRegisterLeaseTimeout     = 5 * time.Minute
-	phoneRegisterTimeoutScanEvery = 1 * time.Minute
-	phoneRegisterCodeSubmitWindow = 3 * time.Minute
-	phoneRegisterCacheWaitTimeout = 3 * time.Minute
-	reservedClaimGracePeriod      = 30 * time.Second
-	phoneRegisterReserveSafetyTTL = 30 * time.Second
-	phoneRegisterDeviceStatsTTL   = 2 * time.Second
+	phoneRegisterTaskTimeout         = 30 * time.Minute
+	phoneRegisterLeaseTimeout        = 5 * time.Minute
+	phoneRegisterTimeoutScanEvery    = 1 * time.Minute
+	phoneRegisterTimeoutScanThrottle = 5 * time.Second
+	phoneRegisterCodeSubmitWindow    = 3 * time.Minute
+	phoneRegisterCacheWaitTimeout    = 3 * time.Minute
+	reservedClaimGracePeriod         = 30 * time.Second
+	phoneRegisterReserveSafetyTTL    = 30 * time.Second
+	phoneRegisterDeviceStatsTTL      = 2 * time.Second
 
 	phoneRoleSuperAdmin = uint(888)
 	phoneRoleAdmin      = uint(100)
@@ -94,6 +96,18 @@ var phoneRegisterDeviceStatsCache struct {
 	stats     phoneRegisterDeviceStats
 	expiresAt time.Time
 }
+
+var phoneRegisterTimeoutScanThrottleState struct {
+	sync.Mutex
+	lastRun time.Time
+}
+
+type phoneRegisterDeviceTaskLookupResult struct {
+	task  system.SysPhoneRegisterTask
+	found bool
+}
+
+var phoneRegisterDeviceTaskLookupGroup singleflight.Group
 
 type phoneRegisterRiskDecision struct {
 	Hit        bool
@@ -335,7 +349,7 @@ func (s *PhoneRegisterTaskService) SubmitCode(promoterID uint, req systemReq.Pho
 	if verifyCode == "" {
 		return system.SysPhoneRegisterTask{}, errors.New("验证码不能为空")
 	}
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 
 	var task system.SysPhoneRegisterTask
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
@@ -379,7 +393,7 @@ func (s *PhoneRegisterTaskService) SubmitCode(promoterID uint, req systemReq.Pho
 }
 
 func (s *PhoneRegisterTaskService) GetActiveTask(promoterID uint) (system.SysPhoneRegisterTask, error) {
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	var task system.SysPhoneRegisterTask
 	err := global.GVA_DB.Where("promoter_id = ? AND finished_at IS NULL", promoterID).
 		Order("id desc").
@@ -388,7 +402,7 @@ func (s *PhoneRegisterTaskService) GetActiveTask(promoterID uint) (system.SysPho
 }
 
 func (s *PhoneRegisterTaskService) GetActiveTasks(promoterID uint) ([]system.SysPhoneRegisterTask, error) {
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	var tasks []system.SysPhoneRegisterTask
 	err := global.GVA_DB.Where("promoter_id = ? AND finished_at IS NULL", promoterID).
 		Order("id desc").
@@ -397,14 +411,14 @@ func (s *PhoneRegisterTaskService) GetActiveTasks(promoterID uint) ([]system.Sys
 }
 
 func (s *PhoneRegisterTaskService) GetTaskForPromoter(promoterID uint, taskID uint) (system.SysPhoneRegisterTask, error) {
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	var task system.SysPhoneRegisterTask
 	err := global.GVA_DB.Where("id = ? AND promoter_id = ?", taskID, promoterID).First(&task).Error
 	return task, err
 }
 
 func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskList) (phoneRegisterTaskListResult, error) {
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	req.DayScoped = shouldUsePhoneRegisterTaskDayScoped(operatorRole, req.DayScoped)
 
 	db := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).Preload("Promoter").Preload("Leader")
@@ -571,7 +585,7 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 	if operatorRole != phoneRoleSuperAdmin && operatorRole != phoneRoleAdmin && operatorRole != phoneRoleLeader {
 		return systemRes.PhoneRegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
 	}
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	includeRiskFailCount := operatorRole == phoneRoleSuperAdmin || operatorRole == phoneRoleAdmin
 
 	type row struct {
@@ -776,7 +790,7 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 		return system.SysPhoneRegisterTask{}, false, errors.New("deviceId不能为空")
 	}
 	_ = (&DeviceService{}).MarkHeartbeat(deviceID)
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	_ = s.releaseExpiredReservations(time.Now())
 
 	var task system.SysPhoneRegisterTask
@@ -841,7 +855,7 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 	if err != nil {
 		return system.SysPhoneRegisterTask{}, false, err
 	}
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	_ = s.releaseExpiredReservations(time.Now())
 
 	var task system.SysPhoneRegisterTask
@@ -974,12 +988,30 @@ func (s *PhoneRegisterTaskService) DeviceTask(req systemReq.PhoneRegisterDeviceT
 		return system.SysPhoneRegisterTask{}, false, errors.New("deviceId不能为空")
 	}
 	_ = (&DeviceService{}).MarkHeartbeat(deviceID)
-	_ = s.timeoutUnfinishedTasks()
-	task, found, err := s.findUniqueOpenTaskByDeviceTx(global.GVA_DB, deviceID, false)
+	_ = s.timeoutUnfinishedTasksThrottled()
+	task, found, err := s.findUniqueOpenTaskByDevice(deviceID)
 	if err == nil && found {
 		_ = markPhoneRegisterDeviceBusy(deviceID)
 	}
 	return task, found, err
+}
+
+func (s *PhoneRegisterTaskService) findUniqueOpenTaskByDevice(deviceID string) (system.SysPhoneRegisterTask, bool, error) {
+	value, err, _ := phoneRegisterDeviceTaskLookupGroup.Do(deviceID, func() (any, error) {
+		task, found, err := s.findUniqueOpenTaskByDeviceTx(global.GVA_DB, deviceID, false)
+		if err != nil {
+			return phoneRegisterDeviceTaskLookupResult{}, err
+		}
+		return phoneRegisterDeviceTaskLookupResult{task: task, found: found}, nil
+	})
+	if err != nil {
+		return system.SysPhoneRegisterTask{}, false, err
+	}
+	result, ok := value.(phoneRegisterDeviceTaskLookupResult)
+	if !ok {
+		return system.SysPhoneRegisterTask{}, false, errors.New("当前设备任务查询结果异常")
+	}
+	return result.task, result.found, nil
 }
 
 func phoneRegisterSMSModeFromOpenAPIVerifyMode(verifyMode string) (string, error) {
@@ -1001,7 +1033,7 @@ func (s *PhoneRegisterTaskService) DeviceHeartbeat(req systemReq.PhoneRegisterDe
 		return errors.New("deviceId不能为空")
 	}
 	_ = (&DeviceService{}).MarkHeartbeat(deviceID)
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 	if err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		task, found, err := s.findUniqueOpenTaskByDeviceTx(tx, deviceID, true)
 		if err != nil {
@@ -1037,7 +1069,7 @@ func (s *PhoneRegisterTaskService) DeviceReport(req systemReq.PhoneRegisterDevic
 		return system.SysPhoneRegisterTask{}, errors.New("action不能为空")
 	}
 	_ = (&DeviceService{}).MarkHeartbeat(deviceID)
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 
 	var task system.SysPhoneRegisterTask
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
@@ -1127,7 +1159,7 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 	if taskID == 0 {
 		return system.SysPhoneRegisterTask{}, errors.New("taskId不能为空")
 	}
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 
 	var task system.SysPhoneRegisterTask
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
@@ -1191,7 +1223,7 @@ func (s *PhoneRegisterTaskService) OpenAPIReportFailure(deviceID string, taskID 
 		return system.SysPhoneRegisterTask{}, errors.New("taskId不能为空")
 	}
 	_ = (&DeviceService{}).MarkHeartbeat(deviceID)
-	_ = s.timeoutUnfinishedTasks()
+	_ = s.timeoutUnfinishedTasksThrottled()
 
 	var task system.SysPhoneRegisterTask
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
@@ -1700,6 +1732,35 @@ func isOpenAPICacheUploadAllowedTask(task system.SysPhoneRegisterTask) bool {
 		return false
 	}
 	return task.Status == system.PhoneRegisterStatusSucceeded || task.Status == system.PhoneRegisterStatusFailed
+}
+
+func (s *PhoneRegisterTaskService) timeoutUnfinishedTasksThrottled() error {
+	if global.GVA_DB == nil {
+		return nil
+	}
+	now := time.Now()
+	phoneRegisterTimeoutScanThrottleState.Lock()
+	if !phoneRegisterTimeoutScanThrottleState.lastRun.IsZero() &&
+		now.Sub(phoneRegisterTimeoutScanThrottleState.lastRun) < phoneRegisterTimeoutScanThrottle {
+		phoneRegisterTimeoutScanThrottleState.Unlock()
+		return nil
+	}
+	phoneRegisterTimeoutScanThrottleState.lastRun = now
+	phoneRegisterTimeoutScanThrottleState.Unlock()
+
+	if err := s.timeoutUnfinishedTasks(); err != nil {
+		phoneRegisterTimeoutScanThrottleState.Lock()
+		phoneRegisterTimeoutScanThrottleState.lastRun = time.Time{}
+		phoneRegisterTimeoutScanThrottleState.Unlock()
+		return err
+	}
+	return nil
+}
+
+func resetPhoneRegisterTimeoutScanThrottle() {
+	phoneRegisterTimeoutScanThrottleState.Lock()
+	phoneRegisterTimeoutScanThrottleState.lastRun = time.Time{}
+	phoneRegisterTimeoutScanThrottleState.Unlock()
 }
 
 func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {

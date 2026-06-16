@@ -77,7 +77,6 @@ func (a *PhoneRegisterTaskApi) OpenAPIPollPhoneRegisterTask(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	refreshPhoneRegisterOpenAPIHeartbeat(req.DeviceID, found)
 	response.OkWithDetailed(buildPhoneRegisterOpenAPITaskInfo(task, found), "获取成功", c)
 }
 
@@ -112,7 +111,6 @@ func (a *PhoneRegisterTaskApi) OpenAPIGetPhoneRegisterTask(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	refreshPhoneRegisterOpenAPIHeartbeat(req.DeviceID, found)
 	response.OkWithDetailed(buildPhoneRegisterOpenAPITaskInfo(task, found), "获取成功", c)
 }
 
@@ -538,14 +536,6 @@ func getPhoneRegisterOpenAPICacheUploadTask(deviceID string, taskID uint) (syste
 		return system.SysPhoneRegisterTask{}, errors.New("当前任务未处于可上传缓存状态")
 	}
 	return task, nil
-}
-
-func refreshPhoneRegisterOpenAPIHeartbeat(deviceID string, found bool) {
-	if !found {
-		_ = deviceService.MarkHeartbeat(deviceID)
-		return
-	}
-	_ = phoneRegisterTaskService.DeviceHeartbeat(systemReq.PhoneRegisterDeviceHeartbeat{DeviceID: deviceID})
 }
 
 func buildPhoneRegisterOpenAPITaskInfo(task system.SysPhoneRegisterTask, found bool) systemRes.PhoneRegisterOpenAPITaskInfo {

@@ -3,6 +3,7 @@ package system
 import (
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ func setupPhoneRegisterTaskTestDB(t *testing.T) {
 	t.Helper()
 	global.GVA_REDIS = nil
 	resetPhoneRegisterDeviceStatsCache()
+	resetPhoneRegisterTimeoutScanThrottle()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
@@ -38,6 +40,7 @@ func setupPhoneRegisterTaskTestDBWithoutRiskStat(t *testing.T) {
 	t.Helper()
 	global.GVA_REDIS = nil
 	resetPhoneRegisterDeviceStatsCache()
+	resetPhoneRegisterTimeoutScanThrottle()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
@@ -93,6 +96,110 @@ func TestTimeoutUnfinishedTasksFailsWaitingPromoterCodeAfterSubmitWindow(t *test
 	require.Nil(t, got.HolderDeviceID)
 	require.Empty(t, got.PendingCode)
 	require.Nil(t, got.CodeRequestedAt)
+}
+
+func TestRequestTriggeredTimeoutScanIsThrottled(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	first := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		Status:         modelSystem.PhoneRegisterStatusPending,
+		ExpiresAt:      now.Add(-time.Second),
+	}
+	require.NoError(t, global.GVA_DB.Create(&first).Error)
+
+	_, _, err := (&PhoneRegisterTaskService{}).DeviceTask(modelSystemReq.PhoneRegisterDeviceTask{DeviceID: "device-a"})
+	require.NoError(t, err)
+
+	var storedFirst modelSystem.SysPhoneRegisterTask
+	require.NoError(t, global.GVA_DB.First(&storedFirst, first.ID).Error)
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, storedFirst.Status)
+
+	second := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000002",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		Status:         modelSystem.PhoneRegisterStatusPending,
+		ExpiresAt:      now.Add(-time.Second),
+	}
+	require.NoError(t, global.GVA_DB.Create(&second).Error)
+
+	_, _, err = (&PhoneRegisterTaskService{}).DeviceTask(modelSystemReq.PhoneRegisterDeviceTask{DeviceID: "device-a"})
+	require.NoError(t, err)
+
+	var storedSecond modelSystem.SysPhoneRegisterTask
+	require.NoError(t, global.GVA_DB.First(&storedSecond, second.ID).Error)
+	require.Equal(t, modelSystem.PhoneRegisterStatusPending, storedSecond.Status)
+}
+
+func TestDeviceTaskCoalescesConcurrentCurrentTaskLookup(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	sqlDB, err := global.GVA_DB.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+
+	now := time.Now()
+	deviceID := "device-a"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:           "18800000003",
+		PromoterID:      1,
+		SMSReceiveMode:  modelSystem.PhoneRegisterSMSModePlatformSend,
+		Status:          modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID:  &deviceID,
+		LastHeartbeatAt: &now,
+		ExpiresAt:       now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	phoneRegisterTimeoutScanThrottleState.Lock()
+	phoneRegisterTimeoutScanThrottleState.lastRun = time.Now()
+	phoneRegisterTimeoutScanThrottleState.Unlock()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var lookupQueries atomic.Int32
+	callbackName := "phone_register_task_test:count_device_task_lookup"
+	require.NoError(t, global.GVA_DB.Callback().Query().Before("gorm:query").Register(callbackName, func(db *gorm.DB) {
+		if db.Statement != nil && db.Statement.Table == "sys_phone_register_tasks" {
+			if lookupQueries.Add(1) == 1 {
+				close(started)
+				<-release
+			}
+		}
+	}))
+	defer global.GVA_DB.Callback().Query().Remove(callbackName)
+
+	const workers = 5
+	results := make([]modelSystem.SysPhoneRegisterTask, workers)
+	found := make([]bool, workers)
+	errs := make([]error, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range results {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			<-start
+			results[index], found[index], errs[index] = (&PhoneRegisterTaskService{}).DeviceTask(modelSystemReq.PhoneRegisterDeviceTask{DeviceID: deviceID})
+		}(i)
+	}
+
+	close(start)
+	<-started
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	require.EqualValues(t, 1, lookupQueries.Load())
+	for i := range results {
+		require.NoError(t, errs[i])
+		require.True(t, found[i])
+		require.Equal(t, task.ID, results[i].ID)
+	}
 }
 
 func TestCreateTaskRejectsWhenPhoneRegisterDisabled(t *testing.T) {

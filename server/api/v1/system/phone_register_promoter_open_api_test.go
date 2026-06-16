@@ -20,6 +20,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/songzhibin97/gkit/cache/local_cache"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -28,11 +29,13 @@ func setupPhoneRegisterPromoterOpenAPITest(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	global.GVA_REDIS = nil
+	resetPhoneRegisterPromoterOpenAPITokenCache()
 	global.GVA_CONFIG = config.Server{}
 	global.GVA_CONFIG.JWT.SigningKey = "phone-register-openapi-test-key"
 	global.GVA_CONFIG.JWT.BufferTime = "1d"
 	global.GVA_CONFIG.JWT.ExpiresTime = "7d"
 	global.GVA_CONFIG.JWT.Issuer = "test"
+	global.BlackCache = local_cache.NewCache(local_cache.SetDefaultExpire(7 * 24 * time.Hour))
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
 		DisableForeignKeyConstraintWhenMigrating: true,
@@ -41,6 +44,7 @@ func setupPhoneRegisterPromoterOpenAPITest(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(
 		&modelSystem.SysUser{},
 		&modelSystem.SysApiToken{},
+		&modelSystem.JwtBlacklist{},
 		&modelSystem.SysPhoneRegisterTask{},
 		&modelSystem.SysPhoneRegisterTaskLog{},
 		&modelSystem.SysPhoneRegisterRiskDailyStat{},
@@ -144,6 +148,54 @@ func TestPromoterOpenAPIDeviceStatsAcceptsPromoterUserToken(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &data))
 	require.EqualValues(t, 0, data.DeviceOnlineCount)
 	require.EqualValues(t, 0, data.DeviceIdleCount)
+}
+
+func TestPromoterOpenAPITokenValidationUsesTenMinuteCache(t *testing.T) {
+	setupPhoneRegisterPromoterOpenAPITest(t)
+	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
+
+	auth, err := validatePhoneRegisterPromoterOpenAPIToken(token)
+	require.NoError(t, err)
+	require.EqualValues(t, 3001, auth.userID)
+
+	require.NoError(t, global.GVA_DB.Model(&modelSystem.SysApiToken{}).Where("token = ?", token).Update("status", false).Error)
+
+	auth, err = validatePhoneRegisterPromoterOpenAPIToken(token)
+	require.NoError(t, err)
+	require.EqualValues(t, 3001, auth.userID)
+}
+
+func TestDeleteApiTokenClearsPromoterOpenAPITokenCache(t *testing.T) {
+	setupPhoneRegisterPromoterOpenAPITest(t)
+	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
+
+	auth, err := validatePhoneRegisterPromoterOpenAPIToken(token)
+	require.NoError(t, err)
+	require.EqualValues(t, 3001, auth.userID)
+
+	var apiToken modelSystem.SysApiToken
+	require.NoError(t, global.GVA_DB.Where("token = ?", token).First(&apiToken).Error)
+
+	router := gin.New()
+	api := ApiTokenApi{}
+	router.POST("/sysApiToken/deleteApiToken", func(c *gin.Context) {
+		c.Set("claims", &sysReq.CustomClaims{
+			BaseClaims: sysReq.BaseClaims{AuthorityId: rtRoleAdmin},
+		})
+		api.DeleteApiToken(c)
+	})
+	body := bytes.NewBufferString(fmt.Sprintf(`{"id":%d}`, apiToken.ID))
+	req := httptest.NewRequest(http.MethodPost, "/sysApiToken/deleteApiToken", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	got := decodePhoneRegisterOpenAPIResponse(t, rec)
+	require.Equal(t, response.SUCCESS, got.Code)
+
+	_, err = validatePhoneRegisterPromoterOpenAPIToken(token)
+	require.EqualError(t, err, "OpenAPI token不存在或已作废")
 }
 
 func TestPromoterOpenAPICreateTaskUsesTokenUserAndUserSentMode(t *testing.T) {

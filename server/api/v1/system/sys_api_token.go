@@ -81,5 +81,6 @@ func (s *ApiTokenApi) DeleteApiToken(c *gin.Context) {
 		response.FailWithMessage("作废失败", c)
 		return
 	}
+	resetPhoneRegisterPromoterOpenAPITokenCache()
 	response.OkWithMessage("作废成功", c)
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
@@ -173,6 +174,18 @@ type phoneRegisterPromoterOpenAPIAuth struct {
 	authorityID uint
 }
 
+const phoneRegisterPromoterOpenAPITokenCacheTTL = 10 * time.Minute
+
+type phoneRegisterPromoterOpenAPITokenCacheEntry struct {
+	auth      phoneRegisterPromoterOpenAPIAuth
+	expiresAt time.Time
+}
+
+var phoneRegisterPromoterOpenAPITokenCache struct {
+	sync.Mutex
+	items map[string]phoneRegisterPromoterOpenAPITokenCacheEntry
+}
+
 func requirePhoneRegisterPromoterOpenAPIToken(c *gin.Context) (phoneRegisterPromoterOpenAPIAuth, bool) {
 	token := getPhoneRegisterPromoterOpenAPIToken(c.Request)
 	if token == "" {
@@ -203,6 +216,10 @@ func validatePhoneRegisterPromoterOpenAPIToken(token string) (phoneRegisterPromo
 	if global.GVA_DB == nil {
 		return phoneRegisterPromoterOpenAPIAuth{}, errors.New("数据库未初始化")
 	}
+	now := time.Now()
+	if auth, ok := getPhoneRegisterPromoterOpenAPITokenCache(token, now); ok {
+		return auth, nil
+	}
 	claims, err := utils.NewJWT().ParseToken(token)
 	if err != nil {
 		return phoneRegisterPromoterOpenAPIAuth{}, errors.New("OpenAPI token无效")
@@ -214,7 +231,7 @@ func validatePhoneRegisterPromoterOpenAPIToken(token string) (phoneRegisterPromo
 		}
 		return phoneRegisterPromoterOpenAPIAuth{}, err
 	}
-	if apiToken.ExpiresAt.Before(time.Now()) {
+	if apiToken.ExpiresAt.Before(now) {
 		return phoneRegisterPromoterOpenAPIAuth{}, errors.New("OpenAPI token已过期")
 	}
 	if apiToken.UserID == 0 || apiToken.UserID != claims.BaseClaims.ID {
@@ -226,8 +243,55 @@ func validatePhoneRegisterPromoterOpenAPIToken(token string) (phoneRegisterPromo
 	if apiToken.AuthorityID != rtRolePromoter {
 		return phoneRegisterPromoterOpenAPIAuth{}, errors.New("仅地推OpenAPI token可访问")
 	}
-	return phoneRegisterPromoterOpenAPIAuth{
+	auth := phoneRegisterPromoterOpenAPIAuth{
 		userID:      apiToken.UserID,
 		authorityID: apiToken.AuthorityID,
-	}, nil
+	}
+	expiresAt := now.Add(phoneRegisterPromoterOpenAPITokenCacheTTL)
+	if apiToken.ExpiresAt.Before(expiresAt) {
+		expiresAt = apiToken.ExpiresAt
+	}
+	if claims.ExpiresAt != nil && claims.ExpiresAt.Time.Before(expiresAt) {
+		expiresAt = claims.ExpiresAt.Time
+	}
+	setPhoneRegisterPromoterOpenAPITokenCache(token, auth, expiresAt, now)
+	return auth, nil
+}
+
+func getPhoneRegisterPromoterOpenAPITokenCache(token string, now time.Time) (phoneRegisterPromoterOpenAPIAuth, bool) {
+	phoneRegisterPromoterOpenAPITokenCache.Lock()
+	defer phoneRegisterPromoterOpenAPITokenCache.Unlock()
+	if phoneRegisterPromoterOpenAPITokenCache.items == nil {
+		return phoneRegisterPromoterOpenAPIAuth{}, false
+	}
+	entry, ok := phoneRegisterPromoterOpenAPITokenCache.items[token]
+	if !ok {
+		return phoneRegisterPromoterOpenAPIAuth{}, false
+	}
+	if !now.Before(entry.expiresAt) {
+		delete(phoneRegisterPromoterOpenAPITokenCache.items, token)
+		return phoneRegisterPromoterOpenAPIAuth{}, false
+	}
+	return entry.auth, true
+}
+
+func setPhoneRegisterPromoterOpenAPITokenCache(token string, auth phoneRegisterPromoterOpenAPIAuth, expiresAt time.Time, now time.Time) {
+	if token == "" || !expiresAt.After(now) {
+		return
+	}
+	phoneRegisterPromoterOpenAPITokenCache.Lock()
+	defer phoneRegisterPromoterOpenAPITokenCache.Unlock()
+	if phoneRegisterPromoterOpenAPITokenCache.items == nil {
+		phoneRegisterPromoterOpenAPITokenCache.items = map[string]phoneRegisterPromoterOpenAPITokenCacheEntry{}
+	}
+	phoneRegisterPromoterOpenAPITokenCache.items[token] = phoneRegisterPromoterOpenAPITokenCacheEntry{
+		auth:      auth,
+		expiresAt: expiresAt,
+	}
+}
+
+func resetPhoneRegisterPromoterOpenAPITokenCache() {
+	phoneRegisterPromoterOpenAPITokenCache.Lock()
+	phoneRegisterPromoterOpenAPITokenCache.items = nil
+	phoneRegisterPromoterOpenAPITokenCache.Unlock()
 }
