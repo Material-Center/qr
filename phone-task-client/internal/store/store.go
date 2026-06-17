@@ -96,6 +96,18 @@ func (s *Store) GetProfile(id int64) (domain.Profile, error) {
 	return model.toDomain(), nil
 }
 
+func (s *Store) ListProfiles() ([]domain.Profile, error) {
+	var models []profileModel
+	if err := s.db.Order("id asc").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	items := make([]domain.Profile, 0, len(models))
+	for _, model := range models {
+		items = append(items, model.toDomain())
+	}
+	return items, nil
+}
+
 func (s *Store) SaveAPITemplate(t domain.APITemplate) (domain.APITemplate, error) {
 	model, err := apiTemplateModelFromDomain(t)
 	if err != nil {
@@ -115,6 +127,22 @@ func (s *Store) GetAPITemplate(id int64) (domain.APITemplate, error) {
 	return model.toDomain()
 }
 
+func (s *Store) ListAPITemplates() ([]domain.APITemplate, error) {
+	var models []apiTemplateModel
+	if err := s.db.Order("id asc").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	items := make([]domain.APITemplate, 0, len(models))
+	for _, model := range models {
+		item, err := model.toDomain()
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
 func (s *Store) SaveTaskTemplate(t domain.TaskTemplate) (domain.TaskTemplate, error) {
 	model := taskTemplateModelFromDomain(t)
 	if err := s.db.Save(&model).Error; err != nil {
@@ -129,6 +157,18 @@ func (s *Store) GetTaskTemplate(id int64) (domain.TaskTemplate, error) {
 		return domain.TaskTemplate{}, err
 	}
 	return model.toDomain(), nil
+}
+
+func (s *Store) ListTaskTemplates() ([]domain.TaskTemplate, error) {
+	var models []taskTemplateModel
+	if err := s.db.Order("id asc").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	items := make([]domain.TaskTemplate, 0, len(models))
+	for _, model := range models {
+		items = append(items, model.toDomain())
+	}
+	return items, nil
 }
 
 func (s *Store) CreateJob(job domain.Job, items []domain.JobItem) (domain.Job, []domain.JobItem, error) {
@@ -171,6 +211,22 @@ func (s *Store) GetJob(id int64) (domain.Job, error) {
 		return domain.Job{}, err
 	}
 	return model.toDomain(), nil
+}
+
+func (s *Store) ListJobs(limit int) ([]domain.Job, error) {
+	q := s.db.Order("created_at desc, id desc")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	var models []jobModel
+	if err := q.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	jobs := make([]domain.Job, 0, len(models))
+	for _, model := range models {
+		jobs = append(jobs, model.toDomain())
+	}
+	return jobs, nil
 }
 
 func (s *Store) UpdateJob(job domain.Job) error {

@@ -1,6 +1,6 @@
 # Phone Task Client
 
-`phone-task-client` 是新的统一任务客户端核心程序，当前提供 CLI 入口，后续 Wails UI 会接入同一套核心包。
+`phone-task-client` 是新的统一任务客户端，提供 CLI 和 Wails 桌面 UI 两个入口，底层复用同一套任务调度、状态存储和 API 模板能力。
 
 ## 当前能力
 
@@ -14,6 +14,17 @@
 - SQLite 保存状态，可用 `-job-id` 恢复已有任务。
 - 支持暂停、继续、停止已有任务。
 - 支持失败文件导出，收码任务导出格式兼容 `phonecodeworker`。
+- Wails UI 支持全局配置、用户、API 模板、任务模板、任务创建、任务控制、明细查看和失败导出。
+
+## 桌面 UI
+
+本地运行：
+
+```bash
+wails dev
+```
+
+UI 数据库默认保存在当前系统用户配置目录下的 `phone-task-client/client.db`。程序启动时会自动恢复本地仍处于 running 状态的任务；暂停任务不会继续创建新任务，继续后会从本地状态继续执行。
 
 ## CLI 示例
 
@@ -81,6 +92,8 @@ go run ./cmd/phone-task-client -db phone-task-client.db -stop-job 1
 
 ## Windows 打包
 
+CLI：
+
 ```bash
 ./build_windows.sh
 ```
@@ -93,3 +106,17 @@ dist/run_phone_task_client.bat
 ```
 
 Go 编译参数包含 `-trimpath` 和 `-ldflags="-s -w -buildid="`，避免暴露本机路径和符号信息。
+
+Wails UI：
+
+```bash
+./build_windows_ui.sh
+```
+
+输出：
+
+```text
+build/bin/phone-task-client-ui-windows-amd64.exe
+```
+
+Wails UI 打包同样使用 `-trimpath` 和 `-ldflags="-s -w -buildid="`。

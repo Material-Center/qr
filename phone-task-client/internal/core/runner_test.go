@@ -163,3 +163,38 @@ func TestRunnerReceiveCodeCreatesFetchesAndSubmitsCode(t *testing.T) {
 		t.Fatalf("items = %#v", items)
 	}
 }
+
+func TestRunnerMarksTXTJobFinishedBeforeIdleQueryWhenNoWorkRemains(t *testing.T) {
+	st := newRunnerTestStore(t)
+	now := time.Unix(100, 0)
+	job, _, err := st.CreateJob(domain.Job{
+		Name:            "done",
+		ProfileID:       1,
+		TaskType:        domain.TaskTypeSendCode,
+		PhoneSourceType: domain.SourceTypeTXT,
+		CodeSourceType:  domain.SourceTypeNone,
+		BaseURLSnapshot: "https://server.test",
+		Status:          domain.JobStatusRunning,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, []domain.JobItem{{Phone: "18507561351", Status: domain.JobItemStatusSucceeded, SourceLineNo: 1}})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	fb := &fakeBackend{idle: 2, tasks: map[uint]backend.TaskInfo{}}
+	runner := NewRunner(st, fb, &fakeSource{}, func() time.Time { return now })
+
+	if err := runner.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	got, err := st.GetJob(job.ID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if got.Status != domain.JobStatusFinished || got.FinishedAt == nil {
+		t.Fatalf("job = %#v", got)
+	}
+	if fb.idleCalls != 0 {
+		t.Fatalf("idle calls = %d, want 0", fb.idleCalls)
+	}
+}

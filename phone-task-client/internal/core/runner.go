@@ -26,10 +26,11 @@ type SourceClient interface {
 }
 
 type Runner struct {
-	store   *store.Store
-	backend Backend
-	source  SourceClient
-	now     func() time.Time
+	store         *store.Store
+	backend       Backend
+	backendForJob func(domain.Job) Backend
+	source        SourceClient
+	now           func() time.Time
 }
 
 func NewRunner(store *store.Store, backend Backend, source SourceClient, now func() time.Time) *Runner {
@@ -37,6 +38,11 @@ func NewRunner(store *store.Store, backend Backend, source SourceClient, now fun
 		now = time.Now
 	}
 	return &Runner{store: store, backend: backend, source: source, now: now}
+}
+
+func (r *Runner) WithBackendForJob(fn func(domain.Job) Backend) *Runner {
+	r.backendForJob = fn
+	return r
 }
 
 func (r *Runner) RunOnce(ctx context.Context) error {
@@ -49,6 +55,13 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 	}
 	if err := r.syncActiveItems(ctx, jobs); err != nil {
 		return err
+	}
+	jobs, err = r.finishCompletedTXTJobs(jobs)
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		return nil
 	}
 
 	settings, err := r.store.LoadGlobalSettings()
@@ -91,7 +104,8 @@ func (r *Runner) syncActiveItems(ctx context.Context, jobs []domain.Job) error {
 			if item.RemoteTaskID == 0 {
 				continue
 			}
-			task, err := r.backend.GetTask(ctx, item.RemoteTaskID)
+			client := r.clientForJob(job)
+			task, err := client.GetTask(ctx, item.RemoteTaskID)
 			if err != nil {
 				item.LastError = err.Error()
 				item.UpdatedAt = r.now()
@@ -106,6 +120,37 @@ func (r *Runner) syncActiveItems(ctx context.Context, jobs []domain.Job) error {
 		}
 	}
 	return nil
+}
+
+func (r *Runner) finishCompletedTXTJobs(jobs []domain.Job) ([]domain.Job, error) {
+	now := r.now()
+	remaining := make([]domain.Job, 0, len(jobs))
+	for _, job := range jobs {
+		if job.PhoneSourceType != domain.SourceTypeTXT {
+			remaining = append(remaining, job)
+			continue
+		}
+		active, err := r.store.CountItemsByStatus(job.ID,
+			domain.JobItemStatusPending,
+			domain.JobItemStatusCreated,
+			domain.JobItemStatusWaitingCode,
+			domain.JobItemStatusCodeSubmitted,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if active > 0 {
+			remaining = append(remaining, job)
+			continue
+		}
+		job.Status = domain.JobStatusFinished
+		job.UpdatedAt = now
+		job.FinishedAt = &now
+		if err := r.store.UpdateJob(job); err != nil {
+			return nil, err
+		}
+	}
+	return remaining, nil
 }
 
 func (r *Runner) pendingJobs(jobs []domain.Job, capacity int64) ([]PendingJob, error) {
@@ -145,7 +190,8 @@ func (r *Runner) createForJob(ctx context.Context, job domain.Job, slots int) er
 		}
 		switch job.TaskType {
 		case domain.TaskTypeSendCode:
-			task, err := r.backend.CreateSendCodeTask(ctx, item.Phone, job.CreateDelaySnapshot)
+			client := r.clientForJob(job)
+			task, err := client.CreateSendCodeTask(ctx, item.Phone, job.CreateDelaySnapshot)
 			if err != nil {
 				item.LastError = err.Error()
 				item.UpdatedAt = r.now()
@@ -162,7 +208,8 @@ func (r *Runner) createForJob(ctx context.Context, job domain.Job, slots int) er
 				return err
 			}
 		case domain.TaskTypeReceiveCode:
-			task, err := r.backend.CreateReceiveCodeTask(ctx, item.Phone, job.CreateDelaySnapshot)
+			client := r.clientForJob(job)
+			task, err := client.CreateReceiveCodeTask(ctx, item.Phone, job.CreateDelaySnapshot)
 			if err != nil {
 				item.LastError = err.Error()
 				item.UpdatedAt = r.now()
@@ -244,7 +291,8 @@ func (r *Runner) handleTask(ctx context.Context, job domain.Job, item domain.Job
 			item.UpdatedAt = r.now()
 			return r.store.UpdateJobItem(item)
 		}
-		submittedTask, err := r.backend.SubmitCode(ctx, item.RemoteTaskID, code)
+		client := r.clientForJob(job)
+		submittedTask, err := client.SubmitCode(ctx, item.RemoteTaskID, code)
 		if err != nil {
 			item.LastError = err.Error()
 			item.UpdatedAt = r.now()
@@ -283,4 +331,11 @@ func findJob(jobs []domain.Job, id int64) domain.Job {
 		}
 	}
 	return domain.Job{}
+}
+
+func (r *Runner) clientForJob(job domain.Job) Backend {
+	if r.backendForJob != nil {
+		return r.backendForJob(job)
+	}
+	return r.backend
 }
