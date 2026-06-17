@@ -3,7 +3,7 @@ setlocal
 
 set "EXE=%~dp0phone-task-client-windows-amd64.exe"
 set "DB=%~dp0phone-task-client.db"
-set "BASE_URL="
+set "BASE_URL=http://210.16.170.132:1111/api"
 set "TOKEN="
 set "MODE=receive"
 set "PHONE_SOURCE=txt"

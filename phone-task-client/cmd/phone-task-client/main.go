@@ -21,6 +21,8 @@ import (
 	"phone-task-client/internal/store"
 )
 
+const defaultSystemBaseURL = "http://210.16.170.132:1111/api"
+
 func main() {
 	if err := run(); err != nil {
 		log.Printf("exit: %v", err)
@@ -31,7 +33,7 @@ func main() {
 func run() error {
 	var (
 		dbPath         = flag.String("db", "phone-task-client.db", "sqlite state database path")
-		baseURL        = flag.String("base-url", "", "system API base URL")
+		baseURL        = flag.String("base-url", defaultSystemBaseURL, "system API base URL")
 		token          = flag.String("token", "", "promoter OpenAPI token")
 		mode           = flag.String("mode", "receive", "task mode: send or receive")
 		phoneSource    = flag.String("phone-source", "txt", "phone source: txt or api")
@@ -154,7 +156,7 @@ type createJobOptions struct {
 
 func createJobFromFlags(st *store.Store, opts createJobOptions) (domain.Job, error) {
 	if strings.TrimSpace(opts.BaseURL) == "" {
-		return domain.Job{}, fmt.Errorf("-base-url is required")
+		opts.BaseURL = defaultSystemBaseURL
 	}
 	if strings.TrimSpace(opts.Token) == "" {
 		return domain.Job{}, fmt.Errorf("-token is required")

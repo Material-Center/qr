@@ -6,6 +6,7 @@
 
 - 发码任务：创建成功即本地成功。
 - 收码任务：创建任务、等待验证码阶段、获取验证码、提交验证码，提交成功即本地成功。
+- 主系统 API 默认使用 `http://210.16.170.132:1111/api`，UI 和 CLI 都可覆盖。
 - 手机号来源：TXT 或 API。
 - 验证码来源：API，支持 JSON 和纯文本响应。
 - TXT 导入支持 UTF-8 BOM 清理、空行跳过、手机号去重。
@@ -21,7 +22,7 @@
 本地运行：
 
 ```bash
-wails dev
+./dev.sh
 ```
 
 UI 数据库默认保存在当前系统用户配置目录下的 `phone-task-client/client.db`。程序启动时会自动恢复本地仍处于 running 状态的任务；暂停任务不会继续创建新任务，继续后会从本地状态继续执行。
@@ -32,7 +33,6 @@ UI 数据库默认保存在当前系统用户配置目录下的 `phone-task-clie
 
 ```bash
 go run ./cmd/phone-task-client \
-  -base-url 'https://server.example' \
   -token 'openapi-token' \
   -mode receive \
   -phone-source txt \
@@ -55,7 +55,6 @@ https://example.com/code?phone={phone}
 
 ```bash
 go run ./cmd/phone-task-client \
-  -base-url 'https://server.example' \
   -token 'openapi-token' \
   -mode send \
   -phone-source txt \
@@ -66,7 +65,6 @@ API 手机号来源：
 
 ```bash
 go run ./cmd/phone-task-client \
-  -base-url 'https://server.example' \
   -token 'openapi-token' \
   -mode receive \
   -phone-source api \
@@ -77,7 +75,7 @@ go run ./cmd/phone-task-client \
 恢复已有任务：
 
 ```bash
-go run ./cmd/phone-task-client -db phone-task-client.db -job-id 1 -base-url 'https://server.example' -token 'openapi-token'
+go run ./cmd/phone-task-client -db phone-task-client.db -job-id 1 -token 'openapi-token'
 ```
 
 暂停、继续、停止：

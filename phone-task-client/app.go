@@ -19,6 +19,8 @@ import (
 	"phone-task-client/internal/store"
 )
 
+const defaultSystemBaseURL = "http://210.16.170.132:1111/api"
+
 type App struct {
 	ctx    context.Context
 	store  *store.Store
@@ -82,6 +84,10 @@ func (a *App) startup(ctx context.Context) {
 	a.dbPath = path
 	settings, _ := st.LoadGlobalSettings()
 	changed := false
+	if strings.TrimSpace(settings.BaseURL) == "" {
+		settings.BaseURL = defaultSystemBaseURL
+		changed = true
+	}
 	if settings.ReserveDevices == 0 {
 		settings.ReserveDevices = 1
 		changed = true
