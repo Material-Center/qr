@@ -49,7 +49,7 @@ func NewState(inputFile string, codeAPI string, phones []string) *State {
 	}
 	return &State{
 		InputFile: inputFile,
-		CodeAPI:   codeAPI,
+		CodeAPI:   cleanCodeAPI(codeAPI),
 		Records:   records,
 	}
 }
@@ -63,7 +63,7 @@ func LoadOrCreateState(path string, inputFile string, data ImportData) (*State, 
 		return NewState(inputFile, data.CodeAPI, data.Phones), nil
 	}
 	state.InputFile = inputFile
-	state.CodeAPI = data.CodeAPI
+	state.CodeAPI = cleanCodeAPI(data.CodeAPI)
 	state.MergePhones(data.Phones)
 	return state, nil
 }
@@ -103,7 +103,7 @@ func SaveFailedImportFile(path string, state *State) error {
 		return nil
 	}
 	var builder strings.Builder
-	builder.WriteString(strings.TrimSpace(state.CodeAPI))
+	builder.WriteString(cleanCodeAPI(state.CodeAPI))
 	builder.WriteByte('\n')
 	for _, phone := range phones {
 		builder.WriteString(phone)
@@ -223,5 +223,5 @@ func (s *State) failedPhones() []string {
 }
 
 func isTerminalRecordStatus(status string) bool {
-	return status == recordStatusSucceeded || status == recordStatusFailed || status == recordStatusCodeSubmitted
+	return status == recordStatusSucceeded || status == recordStatusFailed
 }

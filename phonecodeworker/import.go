@@ -12,6 +12,16 @@ type ImportData struct {
 	Phones  []string
 }
 
+func cleanImportLine(raw string) string {
+	line := strings.TrimSpace(raw)
+	line = strings.TrimPrefix(line, "\ufeff")
+	return strings.TrimSpace(line)
+}
+
+func cleanCodeAPI(raw string) string {
+	return cleanImportLine(raw)
+}
+
 func LoadImportFile(path string) (ImportData, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -25,7 +35,7 @@ func LoadImportFile(path string) (ImportData, error) {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		lineNo++
-		line := strings.TrimSpace(scanner.Text())
+		line := cleanImportLine(scanner.Text())
 		if line == "" {
 			continue
 		}

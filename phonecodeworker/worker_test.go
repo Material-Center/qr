@@ -44,6 +44,22 @@ func TestLoadImportFileParsesCodeAPIAndPhones(t *testing.T) {
 	}
 }
 
+func TestLoadImportFileStripsBOMFromCodeAPI(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "phones.txt")
+	if err := os.WriteFile(path, []byte("\ufeffhttps://example.test/code?phone=\n18507561351\n"), 0o644); err != nil {
+		t.Fatalf("write import file: %v", err)
+	}
+
+	got, err := LoadImportFile(path)
+	if err != nil {
+		t.Fatalf("load import file: %v", err)
+	}
+	if got.CodeAPI != "https://example.test/code?phone=" {
+		t.Fatalf("code api = %q", got.CodeAPI)
+	}
+}
+
 func TestRunOnceCreatesReceiveTaskAndSubmitsFetchedCode(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
@@ -1221,7 +1237,128 @@ func TestRunOnceResumesExistingTaskWithoutCreatingDuplicate(t *testing.T) {
 	}
 }
 
-func TestRunOnceDoesNotSubmitCodeAgainAfterCodeSubmitted(t *testing.T) {
+func TestRunOnceSubmitsCodeWhenTaskStatusWaitingEvenIfNeedFlagMissing(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("验证码：654321"))
+	}))
+	defer codeServer.Close()
+
+	var submitCalled bool
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":             float64(9),
+				"phone":          "18507561351",
+				"smsReceiveMode": smsReceiveModePlatformSend,
+				"status":         "waiting_promoter_code",
+			})
+		case "/phoneRegisterTask/open-api/promoter/submit-code":
+			submitCalled = true
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode submit body: %v", err)
+			}
+			if body["verifyCode"] != "654321" {
+				t.Fatalf("verifyCode = %#v", body["verifyCode"])
+			}
+			writeAPIResponse(t, w, 0, map[string]any{"id": float64(9), "status": "waiting_promoter_code"})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:     NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource: NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:      loaded,
+		StatePath:  statePath,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if !submitCalled {
+		t.Fatal("submit-code should be called when remote status is waiting_promoter_code")
+	}
+}
+
+func TestRunOnceLogsCodeReceiveElapsed(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(10 * time.Millisecond)
+		_, _ = w.Write([]byte("验证码：654321"))
+	}))
+	defer codeServer.Close()
+
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"phone":            "18507561351",
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "waiting_promoter_code",
+				"needPromoterCode": true,
+			})
+		case "/phoneRegisterTask/open-api/promoter/submit-code":
+			writeAPIResponse(t, w, 0, map[string]any{"id": float64(9), "status": "waiting_promoter_code"})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+
+	var logs bytes.Buffer
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:     NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource: NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:      loaded,
+		StatePath:  statePath,
+		Logger:     log.New(&logs, "", 0),
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"code received phone=18507561351 task=9 elapsed=",
+		"codeMasked=65****",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("logs missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunOnceResubmitsSavedCodeSubmittedRecordWhenServerStillWaiting(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
 	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351"})
@@ -1241,10 +1378,28 @@ func TestRunOnceDoesNotSubmitCodeAgainAfterCodeSubmitted(t *testing.T) {
 	defer codeServer.Close()
 
 	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/phoneRegisterTask/open-api/promoter/submit-code" {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"phone":            "18507561351",
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "waiting_promoter_code",
+				"needPromoterCode": true,
+			})
+		case "/phoneRegisterTask/open-api/promoter/submit-code":
 			submitCalled = true
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode submit body: %v", err)
+			}
+			if body["verifyCode"] != "123456" {
+				t.Fatalf("verifyCode = %#v", body["verifyCode"])
+			}
+			writeAPIResponse(t, w, 0, map[string]any{"id": float64(9), "status": "waiting_promoter_code"})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
 		}
-		t.Fatalf("code_submitted record should not call system API, got path: %s", r.URL.Path)
 	}))
 	defer systemServer.Close()
 
@@ -1265,8 +1420,15 @@ func TestRunOnceDoesNotSubmitCodeAgainAfterCodeSubmitted(t *testing.T) {
 	if codeCalled {
 		t.Fatal("code api should not be called after code was already submitted")
 	}
-	if submitCalled {
-		t.Fatal("submit-code should not be called twice")
+	if !submitCalled {
+		t.Fatal("submit-code should be retried with saved code when server is still waiting")
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[0].Status != recordStatusSucceeded {
+		t.Fatalf("record status = %s", saved.Records[0].Status)
 	}
 }
 
@@ -1425,5 +1587,24 @@ func TestFetchCodeLogsRawTextResponseAndParseSource(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("logs missing %q in:\n%s", want, out)
 		}
+	}
+}
+
+func TestFetchCodeStripsBOMFromSavedCodeAPI(t *testing.T) {
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("phone") != "13238381229" {
+			t.Fatalf("phone query = %q", r.URL.Query().Get("phone"))
+		}
+		_, _ = w.Write([]byte("验证码220220"))
+	}))
+	defer codeServer.Close()
+
+	client := NewCodeSourceClient("\ufeff"+codeServer.URL+"?phone=", time.Second)
+	code, err := client.FetchCode(t.Context(), "13238381229")
+	if err != nil {
+		t.Fatalf("fetch code: %v", err)
+	}
+	if code != "220220" {
+		t.Fatalf("code = %q", code)
 	}
 }

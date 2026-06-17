@@ -349,11 +349,16 @@ func (w *Worker) handleTask(ctx context.Context, rec *PhoneRecord, task taskInfo
 		return w.save()
 	}
 	if rec.Status == recordStatusCodeSubmitted {
+		if taskNeedsPromoterCode(task) && strings.TrimSpace(rec.VerifyCode) != "" {
+			w.logger.Printf("code submitted record still waiting on server task=%d phone=%s resubmitting saved code codeMasked=%s",
+				rec.TaskID, rec.Phone, maskVerifyCode(rec.VerifyCode))
+			return w.submitCode(ctx, rec, rec.VerifyCode)
+		}
 		w.logger.Printf("code already submitted task=%d phone=%s waiting remote result", rec.TaskID, rec.Phone)
 		rec.UpdatedAt = time.Now()
 		return w.save()
 	}
-	if !task.NeedPromoterCode {
+	if !taskNeedsPromoterCode(task) {
 		w.logger.Printf("waiting promoter code task=%d phone=%s remoteStatus=%s lastError=%q",
 			rec.TaskID, rec.Phone, task.Status, task.LastError)
 		rec.Status = recordStatusCreated
@@ -365,22 +370,37 @@ func (w *Worker) handleTask(ctx context.Context, rec *PhoneRecord, task taskInfo
 	return w.fetchAndSubmitCode(ctx, rec)
 }
 
+func taskNeedsPromoterCode(task taskInfo) bool {
+	if task.NeedPromoterCode {
+		return true
+	}
+	return strings.TrimSpace(task.Status) == "waiting_promoter_code"
+}
+
 func (w *Worker) fetchAndSubmitCode(ctx context.Context, rec *PhoneRecord) error {
+	fetchStartedAt := time.Now()
 	code, err := w.CodeSource.FetchCode(ctx, rec.Phone)
+	fetchElapsed := time.Since(fetchStartedAt).Round(time.Millisecond)
 	if err != nil {
 		if errors.Is(err, errCodeNotReady) {
-			w.logger.Printf("code not ready task=%d phone=%s nextCheckIn=%s", rec.TaskID, rec.Phone, w.Interval)
+			w.logger.Printf("code not ready task=%d phone=%s elapsed=%s nextCheckIn=%s", rec.TaskID, rec.Phone, fetchElapsed, w.Interval)
 			rec.LastError = "验证码未就绪"
 			rec.UpdatedAt = time.Now()
 			return w.save()
 		}
-		w.logger.Printf("fetch code error task=%d phone=%s err=%v", rec.TaskID, rec.Phone, err)
+		w.logger.Printf("fetch code error task=%d phone=%s elapsed=%s err=%v", rec.TaskID, rec.Phone, fetchElapsed, err)
 		rec.LastError = err.Error()
 		rec.UpdatedAt = time.Now()
 		_ = w.save()
 		return fmt.Errorf("fetch code phone=%s: %w", rec.Phone, err)
 	}
+	w.logger.Printf("code received phone=%s task=%d elapsed=%s codeMasked=%s",
+		rec.Phone, rec.TaskID, fetchElapsed, maskVerifyCode(code))
 	w.logger.Printf("submitting code task=%d phone=%s codeMasked=%s", rec.TaskID, rec.Phone, maskVerifyCode(code))
+	return w.submitCode(ctx, rec, code)
+}
+
+func (w *Worker) submitCode(ctx context.Context, rec *PhoneRecord, code string) error {
 	w.logger.Printf("submit code start phone=%s task=%d codeMasked=%s attempts=%d timeoutRetries=%d",
 		rec.Phone, rec.TaskID, maskVerifyCode(code), rec.TaskAttempts, rec.timeoutRetryCount())
 	submitStartedAt := time.Now()

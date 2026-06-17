@@ -236,7 +236,7 @@ func NewCodeSourceClient(api string, timeout time.Duration) *CodeSourceClient {
 		timeout = 10 * time.Second
 	}
 	return &CodeSourceClient{
-		api:    strings.TrimSpace(api),
+		api:    cleanCodeAPI(api),
 		http:   &http.Client{Timeout: timeout},
 		logger: log.Default(),
 	}
@@ -279,6 +279,7 @@ func (c *CodeSourceClient) FetchCode(ctx context.Context, phone string) (string,
 }
 
 func buildCodeURL(api string, phone string) string {
+	api = cleanCodeAPI(api)
 	phone = url.QueryEscape(strings.TrimSpace(phone))
 	if strings.Contains(api, "{phone}") {
 		return strings.ReplaceAll(api, "{phone}", phone)
