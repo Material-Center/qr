@@ -98,3 +98,64 @@ type DevicePoolSnapshot struct {
 	LastError           string
 	CreatedAt           time.Time
 }
+
+type GlobalSettings struct {
+	BaseURL        string
+	ReserveDevices int64
+	Interval       time.Duration
+	Timeout        time.Duration
+	LogDir         string
+}
+
+type Job struct {
+	ID                       int64
+	ProfileID                int64
+	TaskTemplateID           int64
+	Name                     string
+	TaskType                 TaskType
+	PhoneSourceType          SourceType
+	CodeSourceType           SourceType
+	PhoneSourceConfigJSON    string
+	CodeSourceConfigJSON     string
+	APITemplateSnapshotJSON  string
+	TaskTemplateSnapshotJSON string
+	BaseURLSnapshot          string
+	ReserveDevicesSnapshot   int64
+	IntervalSnapshot         time.Duration
+	TimeoutSnapshot          time.Duration
+	CreateDelaySnapshot      time.Duration
+	Status                   JobStatus
+	Paused                   bool
+	Stopped                  bool
+	CreatedAt                time.Time
+	StartedAt                *time.Time
+	FinishedAt               *time.Time
+	UpdatedAt                time.Time
+}
+
+type JobItem struct {
+	ID           int64
+	JobID        int64
+	Phone        string
+	RemoteTaskID uint
+	Status       JobItemStatus
+	RemoteStatus string
+	VerifyCode   string
+	LastError    string
+	Attempts     int
+	SourceLineNo int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type Event struct {
+	ID         int64
+	JobID      int64
+	ItemID     int64
+	Phone      string
+	Level      string
+	EventType  string
+	Message    string
+	DetailJSON string
+	CreatedAt  time.Time
+}

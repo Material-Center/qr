@@ -1,0 +1,211 @@
+package store
+
+import (
+	"encoding/json"
+	"errors"
+	"time"
+
+	"phone-task-client/internal/domain"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+)
+
+type Store struct {
+	db *gorm.DB
+}
+
+func Open(path string) (*Store, error) {
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		return nil, err
+	}
+	if err := db.AutoMigrate(
+		&settingModel{},
+		&profileModel{},
+		&apiTemplateModel{},
+		&taskTemplateModel{},
+		&jobModel{},
+		&jobItemModel{},
+		&eventModel{},
+		&devicePoolSnapshotModel{},
+	); err != nil {
+		return nil, err
+	}
+	return &Store{db: db}, nil
+}
+
+func (s *Store) Close() error {
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
+}
+
+func (s *Store) SaveGlobalSettings(settings domain.GlobalSettings) error {
+	values := map[string]string{
+		"base_url":        settings.BaseURL,
+		"reserve_devices": int64String(settings.ReserveDevices),
+		"interval_ms":     int64String(settings.Interval.Milliseconds()),
+		"timeout_ms":      int64String(settings.Timeout.Milliseconds()),
+		"log_dir":         settings.LogDir,
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for key, value := range values {
+			model := settingModel{Key: key, Value: value, UpdatedAt: time.Now()}
+			if err := tx.Save(&model).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) LoadGlobalSettings() (domain.GlobalSettings, error) {
+	var rows []settingModel
+	if err := s.db.Find(&rows).Error; err != nil {
+		return domain.GlobalSettings{}, err
+	}
+	values := map[string]string{}
+	for _, row := range rows {
+		values[row.Key] = row.Value
+	}
+	return domain.GlobalSettings{
+		BaseURL:        values["base_url"],
+		ReserveDevices: parseInt64(values["reserve_devices"]),
+		Interval:       time.Duration(parseInt64(values["interval_ms"])) * time.Millisecond,
+		Timeout:        time.Duration(parseInt64(values["timeout_ms"])) * time.Millisecond,
+		LogDir:         values["log_dir"],
+	}, nil
+}
+
+func (s *Store) SaveProfile(profile domain.Profile) (domain.Profile, error) {
+	model := profileModelFromDomain(profile)
+	if err := s.db.Save(&model).Error; err != nil {
+		return domain.Profile{}, err
+	}
+	return model.toDomain(), nil
+}
+
+func (s *Store) GetProfile(id int64) (domain.Profile, error) {
+	var model profileModel
+	if err := s.db.First(&model, id).Error; err != nil {
+		return domain.Profile{}, err
+	}
+	return model.toDomain(), nil
+}
+
+func (s *Store) SaveAPITemplate(t domain.APITemplate) (domain.APITemplate, error) {
+	model, err := apiTemplateModelFromDomain(t)
+	if err != nil {
+		return domain.APITemplate{}, err
+	}
+	if err := s.db.Save(&model).Error; err != nil {
+		return domain.APITemplate{}, err
+	}
+	return model.toDomain()
+}
+
+func (s *Store) GetAPITemplate(id int64) (domain.APITemplate, error) {
+	var model apiTemplateModel
+	if err := s.db.First(&model, id).Error; err != nil {
+		return domain.APITemplate{}, err
+	}
+	return model.toDomain()
+}
+
+func (s *Store) SaveTaskTemplate(t domain.TaskTemplate) (domain.TaskTemplate, error) {
+	model := taskTemplateModelFromDomain(t)
+	if err := s.db.Save(&model).Error; err != nil {
+		return domain.TaskTemplate{}, err
+	}
+	return model.toDomain(), nil
+}
+
+func (s *Store) GetTaskTemplate(id int64) (domain.TaskTemplate, error) {
+	var model taskTemplateModel
+	if err := s.db.First(&model, id).Error; err != nil {
+		return domain.TaskTemplate{}, err
+	}
+	return model.toDomain(), nil
+}
+
+func (s *Store) CreateJob(job domain.Job, items []domain.JobItem) (domain.Job, []domain.JobItem, error) {
+	var savedJob domain.Job
+	var savedItems []domain.JobItem
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		jobModel := jobModelFromDomain(job)
+		if jobModel.CreatedAt.IsZero() {
+			jobModel.CreatedAt = time.Now()
+		}
+		if jobModel.UpdatedAt.IsZero() {
+			jobModel.UpdatedAt = jobModel.CreatedAt
+		}
+		if err := tx.Create(&jobModel).Error; err != nil {
+			return err
+		}
+		savedJob = jobModel.toDomain()
+		for _, item := range items {
+			item.JobID = savedJob.ID
+			itemModel := jobItemModelFromDomain(item)
+			if itemModel.CreatedAt.IsZero() {
+				itemModel.CreatedAt = jobModel.CreatedAt
+			}
+			if itemModel.UpdatedAt.IsZero() {
+				itemModel.UpdatedAt = itemModel.CreatedAt
+			}
+			if err := tx.Create(&itemModel).Error; err != nil {
+				return err
+			}
+			savedItems = append(savedItems, itemModel.toDomain())
+		}
+		return nil
+	})
+	return savedJob, savedItems, err
+}
+
+func (s *Store) ListJobItems(jobID int64) ([]domain.JobItem, error) {
+	var models []jobItemModel
+	if err := s.db.Where("job_id = ?", jobID).Order("id asc").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	items := make([]domain.JobItem, 0, len(models))
+	for _, model := range models {
+		items = append(items, model.toDomain())
+	}
+	return items, nil
+}
+
+func (s *Store) UpdateJobItem(item domain.JobItem) error {
+	if item.ID == 0 {
+		return errors.New("job item id is required")
+	}
+	model := jobItemModelFromDomain(item)
+	if model.UpdatedAt.IsZero() {
+		model.UpdatedAt = time.Now()
+	}
+	return s.db.Save(&model).Error
+}
+
+func mustJSON(value map[string]string) string {
+	if len(value) == 0 {
+		return "{}"
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "{}"
+	}
+	return string(raw)
+}
+
+func parseJSONMap(raw string) map[string]string {
+	if raw == "" {
+		return map[string]string{}
+	}
+	out := map[string]string{}
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return map[string]string{}
+	}
+	return out
+}
