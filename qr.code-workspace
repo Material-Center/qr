@@ -37,6 +37,10 @@
       "name": "phonecodeworker"
     },
     {
+      "path": "phone-task-client",
+      "name": "phone-task-client"
+    },
+    {
       "path": "test",
       "name": "test"
     },
