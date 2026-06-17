@@ -165,6 +165,25 @@ func (s *Store) CreateJob(job domain.Job, items []domain.JobItem) (domain.Job, [
 	return savedJob, savedItems, err
 }
 
+func (s *Store) GetJob(id int64) (domain.Job, error) {
+	var model jobModel
+	if err := s.db.First(&model, id).Error; err != nil {
+		return domain.Job{}, err
+	}
+	return model.toDomain(), nil
+}
+
+func (s *Store) UpdateJob(job domain.Job) error {
+	if job.ID == 0 {
+		return errors.New("job id is required")
+	}
+	model := jobModelFromDomain(job)
+	if model.UpdatedAt.IsZero() {
+		model.UpdatedAt = time.Now()
+	}
+	return s.db.Save(&model).Error
+}
+
 func (s *Store) ListJobItems(jobID int64) ([]domain.JobItem, error) {
 	var models []jobItemModel
 	if err := s.db.Where("job_id = ?", jobID).Order("id asc").Find(&models).Error; err != nil {

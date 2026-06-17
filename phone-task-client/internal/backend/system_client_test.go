@@ -2,8 +2,9 @@ package backend
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -17,19 +18,42 @@ func writeAPIResponse(t *testing.T, w http.ResponseWriter, code int, data any) {
 	_ = json.NewEncoder(w).Encode(apiResponse{Code: code, Data: raw})
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func newTestSystemClient(fn roundTripFunc) *SystemClient {
+	client := NewSystemClient("http://system.test", "token-1", time.Second)
+	client.http = &http.Client{Transport: fn}
+	return client
+}
+
+func apiHTTPResponse(t *testing.T, code int, data any) *http.Response {
+	t.Helper()
+	raw, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal response data: %v", err)
+	}
+	wrapper, err := json.Marshal(apiResponse{Code: code, Data: raw})
+	if err != nil {
+		t.Fatalf("marshal wrapper: %v", err)
+	}
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(wrapper))), Header: http.Header{}}
+}
+
 func TestSystemClientIdleDeviceCountUsesOpenAPIToken(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newTestSystemClient(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/phoneRegisterTask/open-api/promoter/device-stats" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		if r.Header.Get("X-Open-Api-Token") != "token-1" {
 			t.Fatalf("token header = %q", r.Header.Get("X-Open-Api-Token"))
 		}
-		writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(8)})
-	}))
-	defer server.Close()
+		return apiHTTPResponse(t, 0, map[string]any{"deviceIdleCount": float64(8)}), nil
+	})
 
-	client := NewSystemClient(server.URL, "token-1", time.Second)
 	got, err := client.IdleDeviceCount(t.Context())
 	if err != nil {
 		t.Fatalf("idle device count: %v", err)
@@ -41,18 +65,16 @@ func TestSystemClientIdleDeviceCountUsesOpenAPIToken(t *testing.T) {
 
 func TestSystemClientCreateSendCodeTask(t *testing.T) {
 	var body map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newTestSystemClient(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/phoneRegisterTask/open-api/promoter/task" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		writeAPIResponse(t, w, 0, map[string]any{"id": float64(11), "phone": "18507561351", "status": "created"})
-	}))
-	defer server.Close()
+		return apiHTTPResponse(t, 0, map[string]any{"id": float64(11), "phone": "18507561351", "status": "created"}), nil
+	})
 
-	client := NewSystemClient(server.URL, "token-1", time.Second)
 	task, err := client.CreateSendCodeTask(t.Context(), " 18507561351 ", 1500*time.Millisecond)
 	if err != nil {
 		t.Fatalf("create send task: %v", err)
@@ -76,23 +98,21 @@ func TestSystemClientCreateSendCodeTask(t *testing.T) {
 
 func TestSystemClientCreateReceiveCodeTask(t *testing.T) {
 	var body map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newTestSystemClient(func(r *http.Request) (*http.Response, error) {
 		if r.URL.Path != "/phoneRegisterTask/open-api/promoter/receive-task" {
 			t.Fatalf("path = %s", r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		writeAPIResponse(t, w, 0, map[string]any{
+		return apiHTTPResponse(t, 0, map[string]any{
 			"id":               float64(12),
 			"phone":            "13238381229",
 			"status":           "waiting_promoter_code",
 			"needPromoterCode": true,
-		})
-	}))
-	defer server.Close()
+		}), nil
+	})
 
-	client := NewSystemClient(server.URL, "token-1", time.Second)
 	task, err := client.CreateReceiveCodeTask(t.Context(), "13238381229", 0)
 	if err != nil {
 		t.Fatalf("create receive task: %v", err)
@@ -110,31 +130,30 @@ func TestSystemClientCreateReceiveCodeTask(t *testing.T) {
 
 func TestSystemClientGetTaskAndSubmitCode(t *testing.T) {
 	var submitBody map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	client := newTestSystemClient(func(r *http.Request) (*http.Response, error) {
 		switch r.URL.Path {
 		case "/phoneRegisterTask/open-api/promoter/task/12":
-			writeAPIResponse(t, w, 0, map[string]any{
+			return apiHTTPResponse(t, 0, map[string]any{
 				"id":               float64(12),
 				"phone":            "13238381229",
 				"status":           "waiting_promoter_code",
 				"needPromoterCode": true,
-			})
+			}), nil
 		case "/phoneRegisterTask/open-api/promoter/submit-code":
 			if err := json.NewDecoder(r.Body).Decode(&submitBody); err != nil {
 				t.Fatalf("decode submit body: %v", err)
 			}
-			writeAPIResponse(t, w, 0, map[string]any{
+			return apiHTTPResponse(t, 0, map[string]any{
 				"id":     float64(12),
 				"phone":  "13238381229",
 				"status": "running",
-			})
+			}), nil
 		default:
 			t.Fatalf("unexpected path = %s", r.URL.Path)
 		}
-	}))
-	defer server.Close()
+		return nil, nil
+	})
 
-	client := NewSystemClient(server.URL, "token-1", time.Second)
 	task, err := client.GetTask(t.Context(), 12)
 	if err != nil {
 		t.Fatalf("get task: %v", err)
