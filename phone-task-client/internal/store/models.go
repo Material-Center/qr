@@ -300,6 +300,34 @@ type eventModel struct {
 	CreatedAt  time.Time
 }
 
+func eventModelFromDomain(v domain.Event) eventModel {
+	return eventModel{
+		ID:         v.ID,
+		JobID:      v.JobID,
+		ItemID:     v.ItemID,
+		Phone:      v.Phone,
+		Level:      v.Level,
+		EventType:  v.EventType,
+		Message:    v.Message,
+		DetailJSON: v.DetailJSON,
+		CreatedAt:  v.CreatedAt,
+	}
+}
+
+func (m eventModel) toDomain() domain.Event {
+	return domain.Event{
+		ID:         m.ID,
+		JobID:      m.JobID,
+		ItemID:     m.ItemID,
+		Phone:      m.Phone,
+		Level:      m.Level,
+		EventType:  m.EventType,
+		Message:    m.Message,
+		DetailJSON: m.DetailJSON,
+		CreatedAt:  m.CreatedAt,
+	}
+}
+
 type devicePoolSnapshotModel struct {
 	ID                  int64 `gorm:"primaryKey;autoIncrement"`
 	BaseURL             string

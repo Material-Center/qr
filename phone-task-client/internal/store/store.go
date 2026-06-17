@@ -177,6 +177,64 @@ func (s *Store) ListJobItems(jobID int64) ([]domain.JobItem, error) {
 	return items, nil
 }
 
+func (s *Store) ListRunnableJobs() ([]domain.Job, error) {
+	var models []jobModel
+	if err := s.db.Where("status = ? AND paused = ? AND stopped = ?", string(domain.JobStatusRunning), false, false).Order("created_at asc, id asc").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	jobs := make([]domain.Job, 0, len(models))
+	for _, model := range models {
+		jobs = append(jobs, model.toDomain())
+	}
+	return jobs, nil
+}
+
+func (s *Store) CountItemsByStatus(jobID int64, statuses ...domain.JobItemStatus) (int, error) {
+	var count int64
+	values := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		values = append(values, string(status))
+	}
+	if err := s.db.Model(&jobItemModel{}).Where("job_id = ? AND status IN ?", jobID, values).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return int(count), nil
+}
+
+func (s *Store) ListItemsByStatus(jobID int64, limit int, statuses ...domain.JobItemStatus) ([]domain.JobItem, error) {
+	values := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		values = append(values, string(status))
+	}
+	q := s.db.Where("job_id = ? AND status IN ?", jobID, values).Order("updated_at asc, id asc")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	var models []jobItemModel
+	if err := q.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	items := make([]domain.JobItem, 0, len(models))
+	for _, model := range models {
+		items = append(items, model.toDomain())
+	}
+	return items, nil
+}
+
+func (s *Store) AddJobItem(item domain.JobItem) (domain.JobItem, error) {
+	model := jobItemModelFromDomain(item)
+	if model.CreatedAt.IsZero() {
+		model.CreatedAt = time.Now()
+	}
+	if model.UpdatedAt.IsZero() {
+		model.UpdatedAt = model.CreatedAt
+	}
+	if err := s.db.Create(&model).Error; err != nil {
+		return domain.JobItem{}, err
+	}
+	return model.toDomain(), nil
+}
+
 func (s *Store) UpdateJobItem(item domain.JobItem) error {
 	if item.ID == 0 {
 		return errors.New("job item id is required")
@@ -186,6 +244,17 @@ func (s *Store) UpdateJobItem(item domain.JobItem) error {
 		model.UpdatedAt = time.Now()
 	}
 	return s.db.Save(&model).Error
+}
+
+func (s *Store) AddEvent(event domain.Event) (domain.Event, error) {
+	model := eventModelFromDomain(event)
+	if model.CreatedAt.IsZero() {
+		model.CreatedAt = time.Now()
+	}
+	if err := s.db.Create(&model).Error; err != nil {
+		return domain.Event{}, err
+	}
+	return model.toDomain(), nil
 }
 
 func mustJSON(value map[string]string) string {
