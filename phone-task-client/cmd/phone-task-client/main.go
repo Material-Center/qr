@@ -23,6 +23,12 @@ import (
 
 const defaultSystemBaseURL = "http://210.16.170.132:1111/api"
 
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildTime = "unknown"
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Printf("exit: %v", err)
@@ -53,6 +59,7 @@ func run() error {
 		once           = flag.Bool("once", false, "run one cycle and exit")
 	)
 	flag.Parse()
+	log.Printf("phone-task-client start version=%s gitCommit=%s buildTime=%s", version, gitCommit, buildTime)
 
 	st, err := store.Open(*dbPath)
 	if err != nil {

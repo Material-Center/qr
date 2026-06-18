@@ -23,6 +23,12 @@ const defaultSystemBaseURL = "http://210.16.170.132:1111/api"
 const defaultPhoneSourceURL = "http://206.238.179.123:37520/OPenApi/GetOrder?infor=vwZt5p4FmyeupCqMqKsC2ktcpczoBuX23akOGMEPlsw%3D&project=wb3"
 const defaultCodeSourceURL = "https://q8.qq0.lol/api/imla?t=u2lX6gNl&phone={phone}"
 
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildTime = "unknown"
+)
+
 type App struct {
 	ctx    context.Context
 	store  *store.Store
@@ -34,6 +40,9 @@ type App struct {
 
 type AppStatus struct {
 	Name        string `json:"name"`
+	Version     string `json:"version"`
+	GitCommit   string `json:"gitCommit"`
+	BuildTime   string `json:"buildTime"`
 	Runtime     string `json:"runtime"`
 	CoreReady   bool   `json:"coreReady"`
 	Storage     string `json:"storage"`
@@ -134,6 +143,9 @@ func (a *App) shutdown(ctx context.Context) {
 func (a *App) Status() AppStatus {
 	return AppStatus{
 		Name:        "Phone Task Client",
+		Version:     version,
+		GitCommit:   gitCommit,
+		BuildTime:   buildTime,
 		Runtime:     runtime.GOOS + "/" + runtime.GOARCH,
 		CoreReady:   a.store != nil,
 		Storage:     "SQLite",

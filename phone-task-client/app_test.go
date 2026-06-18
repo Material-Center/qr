@@ -46,6 +46,31 @@ func TestEnsureDefaultAPITemplatesIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestStatusIncludesBuildVersion(t *testing.T) {
+	oldVersion := version
+	oldGitCommit := gitCommit
+	oldBuildTime := buildTime
+	version = "phone-task-client"
+	gitCommit = "abc1234"
+	buildTime = "2026-06-19T00:00:00Z"
+	t.Cleanup(func() {
+		version = oldVersion
+		gitCommit = oldGitCommit
+		buildTime = oldBuildTime
+	})
+
+	status := NewApp().Status()
+	if status.Version != "phone-task-client" {
+		t.Fatalf("version = %q", status.Version)
+	}
+	if status.GitCommit != "abc1234" {
+		t.Fatalf("git commit = %q", status.GitCommit)
+	}
+	if status.BuildTime != "2026-06-19T00:00:00Z" {
+		t.Fatalf("build time = %q", status.BuildTime)
+	}
+}
+
 func newAppTestStore(t *testing.T) *store.Store {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "client.db"))

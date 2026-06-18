@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,15 +21,18 @@ type fakeBackend struct {
 	created   []string
 	tasks     map[uint]backend.TaskInfo
 	submitted []uint
+	events    []string
 }
 
 func (f *fakeBackend) IdleDeviceCount(ctx context.Context) (int64, error) {
 	f.idleCalls++
+	f.events = append(f.events, "idle")
 	return f.idle, nil
 }
 
 func (f *fakeBackend) CreateSendCodeTask(ctx context.Context, phone string, createDelay time.Duration) (backend.TaskInfo, error) {
 	f.nextID++
+	f.events = append(f.events, "create:"+phone)
 	f.created = append(f.created, phone)
 	task := backend.TaskInfo{ID: f.nextID, Phone: phone, Status: "created", SMSReceiveMode: backend.SMSReceiveModeUserSent}
 	f.tasks[task.ID] = task
@@ -37,6 +41,7 @@ func (f *fakeBackend) CreateSendCodeTask(ctx context.Context, phone string, crea
 
 func (f *fakeBackend) CreateReceiveCodeTask(ctx context.Context, phone string, createDelay time.Duration) (backend.TaskInfo, error) {
 	f.nextID++
+	f.events = append(f.events, "create:"+phone)
 	f.created = append(f.created, phone)
 	task := backend.TaskInfo{ID: f.nextID, Phone: phone, Status: "waiting_promoter_code", NeedPromoterCode: true, SMSReceiveMode: backend.SMSReceiveModePlatformSend}
 	f.tasks[task.ID] = task
@@ -44,6 +49,7 @@ func (f *fakeBackend) CreateReceiveCodeTask(ctx context.Context, phone string, c
 }
 
 func (f *fakeBackend) GetTask(ctx context.Context, taskID uint) (backend.TaskInfo, error) {
+	f.events = append(f.events, "get")
 	task, ok := f.tasks[taskID]
 	if !ok {
 		return backend.TaskInfo{}, errors.New("missing task")
@@ -52,6 +58,7 @@ func (f *fakeBackend) GetTask(ctx context.Context, taskID uint) (backend.TaskInf
 }
 
 func (f *fakeBackend) SubmitCode(ctx context.Context, taskID uint, verifyCode string) (backend.TaskInfo, error) {
+	f.events = append(f.events, "submit")
 	f.submitted = append(f.submitted, taskID)
 	task := f.tasks[taskID]
 	task.Status = "running"
@@ -161,6 +168,61 @@ func TestRunnerReceiveCodeCreatesFetchesAndSubmitsCode(t *testing.T) {
 	}
 	if items[0].Status != domain.JobItemStatusSucceeded || items[0].VerifyCode != "220220" {
 		t.Fatalf("items = %#v", items)
+	}
+}
+
+func TestRunnerSyncsActiveReceiveCodeBeforeCreatingPending(t *testing.T) {
+	st := newRunnerTestStore(t)
+	now := time.Unix(100, 0)
+	job, _, err := st.CreateJob(domain.Job{
+		Name:            "receive",
+		ProfileID:       1,
+		TaskType:        domain.TaskTypeReceiveCode,
+		PhoneSourceType: domain.SourceTypeTXT,
+		CodeSourceType:  domain.SourceTypeAPI,
+		BaseURLSnapshot: "https://server.test",
+		Status:          domain.JobStatusRunning,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, []domain.JobItem{
+		{Phone: "13238381229", Status: domain.JobItemStatusCreated, RemoteTaskID: 9, SourceLineNo: 1},
+		{Phone: "13238381230", Status: domain.JobItemStatusPending, SourceLineNo: 2},
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	fb := &fakeBackend{
+		idle:   2,
+		nextID: 9,
+		tasks: map[uint]backend.TaskInfo{
+			9: {ID: 9, Phone: "13238381229", Status: "waiting_promoter_code", NeedPromoterCode: true},
+		},
+	}
+	runner := NewRunner(st, fb, &fakeSource{code: "220220"}, func() time.Time { return now })
+
+	if err := runner.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if len(fb.submitted) != 2 || fb.submitted[0] != 9 || fb.submitted[1] != 10 {
+		t.Fatalf("submitted = %#v", fb.submitted)
+	}
+	if len(fb.created) != 1 || fb.created[0] != "13238381230" {
+		t.Fatalf("created = %#v", fb.created)
+	}
+	gotOrder := strings.Join(fb.events, ",")
+	wantOrder := "get,submit,idle,create:13238381230,submit"
+	if gotOrder != wantOrder {
+		t.Fatalf("events = %s, want %s", gotOrder, wantOrder)
+	}
+	items, err := st.ListJobItems(job.ID)
+	if err != nil {
+		t.Fatalf("list items: %v", err)
+	}
+	if items[0].Status != domain.JobItemStatusSucceeded {
+		t.Fatalf("active item = %#v", items[0])
+	}
+	if items[1].Status != domain.JobItemStatusSucceeded || items[1].RemoteTaskID == 0 || items[1].VerifyCode != "220220" {
+		t.Fatalf("created item = %#v", items[1])
 	}
 }
 

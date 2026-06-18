@@ -842,6 +842,93 @@ func TestRunOnceCreatesForIdleDevicesEvenWhenTasksAreActive(t *testing.T) {
 	}
 }
 
+func TestRunOnceSyncsAllActiveBeforeCreatingPending(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{
+		"18507561351",
+		"18507561352",
+		"18507561353",
+	})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	state.Records[1].TaskID = 10
+	state.Records[1].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	synced := []string{}
+	createdPhones := []string{}
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/phoneRegisterTask/open-api/promoter/task/") {
+			taskID := strings.TrimPrefix(r.URL.Path, "/phoneRegisterTask/open-api/promoter/task/")
+			synced = append(synced, taskID)
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"status":           "running",
+				"needPromoterCode": false,
+			})
+			return
+		}
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(1)})
+		case "/phoneRegisterTask/open-api/promoter/receive-task":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			phone := body["phone"].(string)
+			createdPhones = append(createdPhones, phone)
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(11),
+				"phone":            phone,
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "running",
+				"needPromoterCode": false,
+			})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("code api should not be called before promoter code is needed")
+	}))
+	defer codeServer.Close()
+
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource:    NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:         loaded,
+		StatePath:     statePath,
+		IdleThreshold: 0,
+		TaskSyncLimit: 1,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if got, want := strings.Join(synced, ","), "9,10"; got != want {
+		t.Fatalf("synced tasks = %s, want %s", got, want)
+	}
+	if got, want := strings.Join(createdPhones, ","), "18507561353"; got != want {
+		t.Fatalf("created phones = %s, want %s", got, want)
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[2].TaskID == 0 || saved.Records[2].Status != recordStatusCreated {
+		t.Fatalf("pending record should be created after active sync catches up: %#v", saved.Records[2])
+	}
+}
+
 func TestRunOnceReplenishesOneIdleSlotAfterActiveTaskSucceeds(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")

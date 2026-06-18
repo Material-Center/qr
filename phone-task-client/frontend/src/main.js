@@ -150,6 +150,7 @@ function render() {
           <div>
             <h1>${h(pageTitle())}</h1>
             <p>${h(dash.status.description)}</p>
+            <p class="version-line">版本 ${h(dash.status.version || '-')} / commit ${h(dash.status.gitCommit || '-')}</p>
           </div>
           <button class="secondary" data-action="refresh">刷新</button>
         </header>

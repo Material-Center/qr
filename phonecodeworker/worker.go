@@ -144,6 +144,13 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 		}
 		return active[i].UpdatedAt.Before(active[j].UpdatedAt)
 	})
+	pendingCount := len(w.State.pendingRecords(0))
+	taskSyncLimit := w.TaskSyncLimit
+	if pendingCount > 0 && len(active) > taskSyncLimit {
+		taskSyncLimit = len(active)
+		w.logger.Printf("pending records exist, expand active sync limit configured=%d effective=%d pending=%d",
+			w.TaskSyncLimit, taskSyncLimit, pendingCount)
+	}
 	syncedActive := 0
 	deferredActive := 0
 	for _, rec := range active {
@@ -152,7 +159,7 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 				rec.Phone, rec.TaskID, rec.UpdatedAt.Format(time.RFC3339), phoneRegisterTaskLocalTimeout)
 			continue
 		}
-		if syncedActive >= w.TaskSyncLimit {
+		if syncedActive >= taskSyncLimit {
 			deferredActive++
 			continue
 		}
@@ -168,10 +175,10 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 	}
 	if deferredActive > 0 {
 		w.logger.Printf("deferred active task sync count=%d limit=%d nextCheckIn=%s",
-			deferredActive, w.TaskSyncLimit, w.Interval)
+			deferredActive, taskSyncLimit, w.Interval)
 	}
 
-	pendingCount := len(w.State.pendingRecords(0))
+	pendingCount = len(w.State.pendingRecords(0))
 	if pendingCount == 0 {
 		w.logger.Printf("no pending records %s", w.stateSummary())
 		return firstErr

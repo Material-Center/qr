@@ -6,14 +6,23 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
+	"strings"
 	"syscall"
 	"time"
 )
 
 const defaultSystemBaseURL = "http://210.16.170.132:1111/api"
+
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildTime = "unknown"
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -68,6 +77,26 @@ func run() error {
 	defer logWriter.Close()
 	logger := log.New(io.MultiWriter(os.Stdout, logWriter), "", log.LstdFlags)
 	logger.Printf("log file=%s", logWriter.Path())
+	logger.Printf("startup settings %s", formatStartupSettings(startupSettings{
+		Version:       version,
+		GitCommit:     gitCommit,
+		BuildTime:     buildTime,
+		BaseURL:       *baseURL,
+		Token:         *token,
+		Input:         *input,
+		StatePath:     *statePath,
+		FailedPath:    *failedPath,
+		PauseFile:     *pauseFile,
+		LogDir:        *logDir,
+		CodeAPI:       state.CodeAPI,
+		PhoneCount:    len(state.Records),
+		Interval:      *interval,
+		IdleThreshold: *idleThreshold,
+		CreateDelay:   *createDelay,
+		TaskSyncLimit: *taskSyncLimit,
+		Timeout:       *timeout,
+		Once:          *once,
+	}))
 	logger.Printf("loaded import input=%s state=%s failedOutput=%s phones=%d baseURL=%s interval=%s idleThreshold=%d createDelay=%s taskSyncLimit=%d timeout=%s logDir=%s once=%t",
 		*input, *statePath, *failedPath, len(state.Records), *baseURL, *interval, *idleThreshold, *createDelay, *taskSyncLimit, *timeout, *logDir, *once)
 	worker := NewWorker(workerConfig{
@@ -98,4 +127,99 @@ func defaultPauseFile(name string) string {
 		return name
 	}
 	return filepath.Join(filepath.Dir(exe), name)
+}
+
+type startupSettings struct {
+	Version       string
+	GitCommit     string
+	BuildTime     string
+	BaseURL       string
+	Token         string
+	Input         string
+	StatePath     string
+	FailedPath    string
+	PauseFile     string
+	LogDir        string
+	CodeAPI       string
+	PhoneCount    int
+	Interval      time.Duration
+	IdleThreshold int64
+	CreateDelay   time.Duration
+	TaskSyncLimit int
+	Timeout       time.Duration
+	Once          bool
+}
+
+func formatStartupSettings(s startupSettings) string {
+	return fmt.Sprintf(
+		"version=%s gitCommit=%s buildTime=%s baseURL=%s token=%s input=%s state=%s failedOutput=%s pauseFile=%s logDir=%s codeAPI=%s phones=%d interval=%s idleThreshold=%d createDelay=%s taskSyncLimit=%d timeout=%s once=%t",
+		strings.TrimSpace(s.Version),
+		strings.TrimSpace(s.GitCommit),
+		strings.TrimSpace(s.BuildTime),
+		strings.TrimSpace(s.BaseURL),
+		maskStartupSecret(s.Token),
+		strings.TrimSpace(s.Input),
+		strings.TrimSpace(s.StatePath),
+		strings.TrimSpace(s.FailedPath),
+		strings.TrimSpace(s.PauseFile),
+		strings.TrimSpace(s.LogDir),
+		sanitizeStartupURL(s.CodeAPI),
+		s.PhoneCount,
+		s.Interval,
+		s.IdleThreshold,
+		s.CreateDelay,
+		s.TaskSyncLimit,
+		s.Timeout,
+		s.Once,
+	)
+}
+
+func maskStartupSecret(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if len(raw) <= 8 {
+		return strings.Repeat("*", len(raw))
+	}
+	return raw[:2] + strings.Repeat("*", len(raw)-5) + raw[len(raw)-3:]
+}
+
+func sanitizeStartupURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		if idx := strings.Index(raw, "?"); idx >= 0 {
+			return raw[:idx] + "?***"
+		}
+		return raw
+	}
+	query := parsed.Query()
+	if len(query) > 0 {
+		keys := make([]string, 0, len(query))
+		for key := range query {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		masked := url.Values{}
+		for _, key := range keys {
+			values := query[key]
+			if len(values) == 0 {
+				masked[key] = []string{""}
+				continue
+			}
+			for _, value := range values {
+				if value == "" {
+					masked.Add(key, "")
+				} else {
+					masked.Add(key, "***")
+				}
+			}
+		}
+		parsed.RawQuery = masked.Encode()
+	}
+	return strings.ReplaceAll(parsed.String(), "%2A%2A%2A", "***")
 }
