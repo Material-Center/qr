@@ -20,6 +20,8 @@ import (
 )
 
 const defaultSystemBaseURL = "http://210.16.170.132:1111/api"
+const defaultPhoneSourceURL = "http://206.238.179.123:37520/OPenApi/GetOrder?infor=vwZt5p4FmyeupCqMqKsC2ktcpczoBuX23akOGMEPlsw%3D&project=wb3"
+const defaultCodeSourceURL = "https://q8.qq0.lol/api/imla?t=u2lX6gNl&phone={phone}"
 
 type App struct {
 	ctx    context.Context
@@ -106,6 +108,9 @@ func (a *App) startup(ctx context.Context) {
 	}
 	if changed {
 		_ = st.SaveGlobalSettings(settings)
+	}
+	if err := ensureDefaultAPITemplates(st); err != nil {
+		println("seed api templates:", err.Error())
 	}
 	if jobs, err := st.ListRunnableJobs(); err == nil && len(jobs) > 0 {
 		a.startLoop()
@@ -565,4 +570,50 @@ func maskToken(token string) string {
 		return "****"
 	}
 	return token[:4] + "****" + token[len(token)-4:]
+}
+
+func ensureDefaultAPITemplates(st *store.Store) error {
+	templates, err := st.ListAPITemplates()
+	if err != nil {
+		return err
+	}
+	defaults := []domain.APITemplate{
+		{
+			Name:         "默认发码取号 API",
+			APIType:      domain.APITypePhoneSource,
+			Method:       domain.HTTPMethodGET,
+			URL:          defaultPhoneSourceURL,
+			ResponseType: domain.ResponseTypeAuto,
+			Enabled:      true,
+			Remark:       "兼容 phoneworker 默认取号接口。",
+		},
+		{
+			Name:         "默认收码验证码 API",
+			APIType:      domain.APITypeCodeSource,
+			Method:       domain.HTTPMethodGET,
+			URL:          defaultCodeSourceURL,
+			ResponseType: domain.ResponseTypeAuto,
+			Enabled:      true,
+			Remark:       "兼容 phonecodeworker 导入文件第一行验证码接口。",
+		},
+	}
+	for _, item := range defaults {
+		if hasAPITemplate(templates, item.APIType, item.URL) {
+			continue
+		}
+		if _, err := st.SaveAPITemplate(item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasAPITemplate(items []domain.APITemplate, apiType domain.APIType, url string) bool {
+	url = strings.TrimSpace(url)
+	for _, item := range items {
+		if item.APIType == apiType && strings.TrimSpace(item.URL) == url {
+			return true
+		}
+	}
+	return false
 }
