@@ -48,6 +48,9 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 	data := map[string]interface{}{}
 	switch role {
 	case cfgRoleSuperAdmin, cfgRoleAdmin:
+		if req.PhoneRegisterOpenAPIReserveDevices < 0 {
+			return system.SysRegisterConfig{}, errors.New("OpenAPI保留设备数量不能小于0")
+		}
 		if req.DefaultPassword == "" {
 			return system.SysRegisterConfig{}, errors.New("默认改密密码不能为空")
 		}
@@ -93,6 +96,7 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 		data["phone_image_provider_secret_key"] = strings.TrimSpace(req.PhoneImageProviderSecretKey)
 		data["phone_register_user_sent_task_disabled"] = req.PhoneRegisterUserSentTaskDisabled
 		data["phone_register_receive_task_disabled"] = req.PhoneRegisterReceiveTaskDisabled
+		data["phone_register_open_api_reserve_devices"] = req.PhoneRegisterOpenAPIReserveDevices
 		data["phone_register_blocked_prefixes"] = normalizePhoneRegisterBlockedPrefixes(req.PhoneRegisterBlockedPrefixes)
 		if req.PhoneRegisterEnabled != nil {
 			data["phone_register_enabled"] = *req.PhoneRegisterEnabled
@@ -134,6 +138,7 @@ func (s *RegisterConfigService) UpsertMyConfig(role uint, userID uint, req syste
 			cfg.PhoneImageProviderSecretKey = strings.TrimSpace(req.PhoneImageProviderSecretKey)
 			cfg.PhoneRegisterUserSentTaskDisabled = req.PhoneRegisterUserSentTaskDisabled
 			cfg.PhoneRegisterReceiveTaskDisabled = req.PhoneRegisterReceiveTaskDisabled
+			cfg.PhoneRegisterOpenAPIReserveDevices = req.PhoneRegisterOpenAPIReserveDevices
 			cfg.PhoneRegisterBlockedPrefixes = normalizePhoneRegisterBlockedPrefixes(req.PhoneRegisterBlockedPrefixes)
 			enabled := true
 			if req.PhoneRegisterEnabled != nil {

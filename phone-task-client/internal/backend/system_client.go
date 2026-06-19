@@ -17,6 +17,10 @@ const (
 	SMSReceiveModePlatformSend = "PLATFORM_SEND"
 )
 
+const OpenAPIDeviceCapacityNotEnoughCode = "OPENAPI_DEVICE_CAPACITY_NOT_ENOUGH"
+
+var ErrOpenAPIDeviceCapacityNotEnough = errors.New("OpenAPI可用设备不足")
+
 type apiResponse struct {
 	Code int             `json:"code"`
 	Data json.RawMessage `json:"data"`
@@ -155,10 +159,7 @@ func (c *SystemClient) doJSON(ctx context.Context, method string, path string, p
 		return fmt.Errorf("decode response: %w: %s", err, string(body))
 	}
 	if wrapper.Code != 0 {
-		if strings.TrimSpace(wrapper.Msg) != "" {
-			return errors.New(wrapper.Msg)
-		}
-		return fmt.Errorf("api code %d", wrapper.Code)
+		return apiWrapperError(wrapper)
 	}
 	if out == nil || len(wrapper.Data) == 0 || string(wrapper.Data) == "null" {
 		return nil
@@ -167,4 +168,20 @@ func (c *SystemClient) doJSON(ctx context.Context, method string, path string, p
 		return fmt.Errorf("decode data: %w: %s", err, string(wrapper.Data))
 	}
 	return nil
+}
+
+func apiWrapperError(wrapper apiResponse) error {
+	var data struct {
+		ErrorCode string `json:"errorCode"`
+	}
+	if len(wrapper.Data) > 0 {
+		_ = json.Unmarshal(wrapper.Data, &data)
+	}
+	if strings.TrimSpace(data.ErrorCode) == OpenAPIDeviceCapacityNotEnoughCode {
+		return ErrOpenAPIDeviceCapacityNotEnough
+	}
+	if strings.TrimSpace(wrapper.Msg) != "" {
+		return errors.New(wrapper.Msg)
+	}
+	return fmt.Errorf("api code %d", wrapper.Code)
 }

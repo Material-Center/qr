@@ -48,7 +48,7 @@ func run() error {
 		codeAPI        = flag.String("code-api", "", "code API URL; receive mode only")
 		jobID          = flag.Int64("job-id", 0, "resume existing job id")
 		name           = flag.String("name", "", "job name")
-		reserveDevices = flag.Int64("reserve-devices", 1, "global reserve device count")
+		reserveDevices = flag.Int64("reserve-devices", 0, "extra local reserve device count")
 		interval       = flag.Duration("interval", 3*time.Second, "poll interval")
 		createDelay    = flag.Duration("create-delay", 0, "server-side create delay for this user")
 		timeout        = flag.Duration("timeout", 10*time.Second, "HTTP request timeout")

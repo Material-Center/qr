@@ -18,6 +18,10 @@ import (
 
 const smsReceiveModePlatformSend = "PLATFORM_SEND"
 
+const openAPIDeviceCapacityNotEnoughCode = "OPENAPI_DEVICE_CAPACITY_NOT_ENOUGH"
+
+var errOpenAPIDeviceCapacityNotEnough = errors.New("OpenAPI可用设备不足")
+
 var errCodeNotReady = errors.New("验证码未就绪")
 
 type apiResponse struct {
@@ -159,10 +163,7 @@ func (c *SystemClient) doSubmitCodeJSON(ctx context.Context, phone string, taskI
 	if wrapper.Code != 0 {
 		c.logf("system api submit-code api error phone=%s task=%d code=%d msg=%q elapsed=%s",
 			phone, taskID, wrapper.Code, wrapper.Msg, elapsed)
-		if strings.TrimSpace(wrapper.Msg) != "" {
-			return errors.New(wrapper.Msg)
-		}
-		return fmt.Errorf("api code %d", wrapper.Code)
+		return apiWrapperError(wrapper)
 	}
 	if out == nil || len(wrapper.Data) == 0 || string(wrapper.Data) == "null" {
 		return nil
@@ -211,10 +212,7 @@ func (c *SystemClient) doJSON(ctx context.Context, method, path string, payload 
 		return fmt.Errorf("decode response: %w: %s", err, string(body))
 	}
 	if wrapper.Code != 0 {
-		if strings.TrimSpace(wrapper.Msg) != "" {
-			return errors.New(wrapper.Msg)
-		}
-		return fmt.Errorf("api code %d", wrapper.Code)
+		return apiWrapperError(wrapper)
 	}
 	if out == nil || len(wrapper.Data) == 0 || string(wrapper.Data) == "null" {
 		return nil
@@ -223,6 +221,22 @@ func (c *SystemClient) doJSON(ctx context.Context, method, path string, payload 
 		return fmt.Errorf("decode data: %w: %s", err, string(wrapper.Data))
 	}
 	return nil
+}
+
+func apiWrapperError(wrapper apiResponse) error {
+	var data struct {
+		ErrorCode string `json:"errorCode"`
+	}
+	if len(wrapper.Data) > 0 {
+		_ = json.Unmarshal(wrapper.Data, &data)
+	}
+	if strings.TrimSpace(data.ErrorCode) == openAPIDeviceCapacityNotEnoughCode {
+		return errOpenAPIDeviceCapacityNotEnough
+	}
+	if strings.TrimSpace(wrapper.Msg) != "" {
+		return errors.New(wrapper.Msg)
+	}
+	return fmt.Errorf("api code %d", wrapper.Code)
 }
 
 type CodeSourceClient struct {

@@ -20,12 +20,13 @@ type RegisterConfigUpsert struct {
 	CaptchaPassword string `json:"captchaPassword" form:"captchaPassword"`
 	CaptchaToken    string `json:"captchaToken" form:"captchaToken"`
 
-	PhoneImageProvider                string `json:"phoneImageProvider" form:"phoneImageProvider"`
-	PhoneImageProviderUsername        string `json:"phoneImageProviderUsername" form:"phoneImageProviderUsername"`
-	PhoneImageProviderPassword        string `json:"phoneImageProviderPassword" form:"phoneImageProviderPassword"`
-	PhoneImageProviderSecretKey       string `json:"phoneImageProviderSecretKey" form:"phoneImageProviderSecretKey"`
-	PhoneRegisterEnabled              *bool  `json:"phoneRegisterEnabled" form:"phoneRegisterEnabled"`
-	PhoneRegisterUserSentTaskDisabled bool   `json:"phoneRegisterUserSentTaskDisabled" form:"phoneRegisterUserSentTaskDisabled"`
-	PhoneRegisterReceiveTaskDisabled  bool   `json:"phoneRegisterReceiveTaskDisabled" form:"phoneRegisterReceiveTaskDisabled"`
-	PhoneRegisterBlockedPrefixes      string `json:"phoneRegisterBlockedPrefixes" form:"phoneRegisterBlockedPrefixes"`
+	PhoneImageProvider                 string `json:"phoneImageProvider" form:"phoneImageProvider"`
+	PhoneImageProviderUsername         string `json:"phoneImageProviderUsername" form:"phoneImageProviderUsername"`
+	PhoneImageProviderPassword         string `json:"phoneImageProviderPassword" form:"phoneImageProviderPassword"`
+	PhoneImageProviderSecretKey        string `json:"phoneImageProviderSecretKey" form:"phoneImageProviderSecretKey"`
+	PhoneRegisterEnabled               *bool  `json:"phoneRegisterEnabled" form:"phoneRegisterEnabled"`
+	PhoneRegisterUserSentTaskDisabled  bool   `json:"phoneRegisterUserSentTaskDisabled" form:"phoneRegisterUserSentTaskDisabled"`
+	PhoneRegisterReceiveTaskDisabled   bool   `json:"phoneRegisterReceiveTaskDisabled" form:"phoneRegisterReceiveTaskDisabled"`
+	PhoneRegisterOpenAPIReserveDevices int64  `json:"phoneRegisterOpenAPIReserveDevices" form:"phoneRegisterOpenAPIReserveDevices"`
+	PhoneRegisterBlockedPrefixes       string `json:"phoneRegisterBlockedPrefixes" form:"phoneRegisterBlockedPrefixes"`
 }

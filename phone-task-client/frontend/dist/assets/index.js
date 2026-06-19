@@ -31,7 +31,7 @@
     <section class="panel">
       <form id="settings-form" class="form-grid">
         <label>\u670D\u52A1\u5668\u5730\u5740<input name="BaseURL" value="${s(e.BaseURL)}" placeholder="https://server.example"></label>
-        <label>\u4FDD\u7559\u8BBE\u5907<input name="ReserveDevices" type="number" min="0" value="${s(e.ReserveDevices||0)}"></label>
+        <label>\u989D\u5916\u4FDD\u7559\u8BBE\u5907<input name="ReserveDevices" type="number" min="0" value="${s(e.ReserveDevices||0)}"></label>
         <label>\u8F6E\u8BE2\u95F4\u9694 ms<input name="IntervalMS" type="number" min="200" value="${s(p(e.Interval))}"></label>
         <label>\u8BF7\u6C42\u8D85\u65F6 ms<input name="TimeoutMS" type="number" min="1000" value="${s(p(e.Timeout))}"></label>
         <label class="wide">\u65E5\u5FD7\u76EE\u5F55<input name="LogDir" value="${s(e.LogDir)}"></label>

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -27,6 +28,7 @@ type Worker struct {
 	Interval      time.Duration
 	CreateDelay   time.Duration
 	logger        *log.Logger
+	pendingPhone  string
 }
 
 func NewWorker(cfg workerConfig) *Worker {
@@ -96,16 +98,28 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		return nil
 	}
 
-	phone, err := w.PhoneSource.FetchPhone(ctx)
-	if err != nil {
-		return err
+	phone := strings.TrimSpace(w.pendingPhone)
+	if phone != "" {
+		w.logger.Printf("retry pending phone=%s after previous capacity wait", phone)
+	} else {
+		phone, err = w.PhoneSource.FetchPhone(ctx)
+		if err != nil {
+			return err
+		}
+		phone = strings.TrimSpace(phone)
+		w.pendingPhone = phone
 	}
 	w.logger.Printf("create task start phone=%s mode=%s createDelay=%s", phone, smsReceiveModeUserSent, w.CreateDelay)
 	taskID, err := w.System.CreateUserSentTask(ctx, phone, w.CreateDelay)
 	if err != nil {
+		if errors.Is(err, errOpenAPIDeviceCapacityNotEnough) {
+			w.logger.Printf("capacity not enough keep pending phone=%s nextCheckIn=%s", phone, w.Interval)
+			return nil
+		}
 		w.logger.Printf("create task error phone=%s mode=%s createDelay=%s err=%v", phone, smsReceiveModeUserSent, w.CreateDelay, err)
 		return fmt.Errorf("create task phone=%s: %w", phone, err)
 	}
+	w.pendingPhone = ""
 	w.logger.Printf("created task id=%d phone=%s mode=%s", taskID, phone, smsReceiveModeUserSent)
 	return nil
 }

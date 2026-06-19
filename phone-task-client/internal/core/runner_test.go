@@ -19,6 +19,7 @@ type fakeBackend struct {
 	idle      int64
 	nextID    uint
 	created   []string
+	createErr error
 	tasks     map[uint]backend.TaskInfo
 	submitted []uint
 	events    []string
@@ -34,6 +35,9 @@ func (f *fakeBackend) CreateSendCodeTask(ctx context.Context, phone string, crea
 	f.nextID++
 	f.events = append(f.events, "create:"+phone)
 	f.created = append(f.created, phone)
+	if f.createErr != nil {
+		return backend.TaskInfo{}, f.createErr
+	}
 	task := backend.TaskInfo{ID: f.nextID, Phone: phone, Status: "created", SMSReceiveMode: backend.SMSReceiveModeUserSent}
 	f.tasks[task.ID] = task
 	return task, nil
@@ -43,6 +47,9 @@ func (f *fakeBackend) CreateReceiveCodeTask(ctx context.Context, phone string, c
 	f.nextID++
 	f.events = append(f.events, "create:"+phone)
 	f.created = append(f.created, phone)
+	if f.createErr != nil {
+		return backend.TaskInfo{}, f.createErr
+	}
 	task := backend.TaskInfo{ID: f.nextID, Phone: phone, Status: "waiting_promoter_code", NeedPromoterCode: true, SMSReceiveMode: backend.SMSReceiveModePlatformSend}
 	f.tasks[task.ID] = task
 	return task, nil
@@ -168,6 +175,46 @@ func TestRunnerReceiveCodeCreatesFetchesAndSubmitsCode(t *testing.T) {
 	}
 	if items[0].Status != domain.JobItemStatusSucceeded || items[0].VerifyCode != "220220" {
 		t.Fatalf("items = %#v", items)
+	}
+}
+
+func TestRunnerStopsCreatingAndKeepsPendingWhenDeviceCapacityNotEnough(t *testing.T) {
+	st := newRunnerTestStore(t)
+	now := time.Unix(100, 0)
+	job, _, err := st.CreateJob(domain.Job{
+		Name:            "send",
+		ProfileID:       1,
+		TaskType:        domain.TaskTypeSendCode,
+		PhoneSourceType: domain.SourceTypeTXT,
+		CodeSourceType:  domain.SourceTypeNone,
+		BaseURLSnapshot: "https://server.test",
+		Status:          domain.JobStatusRunning,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}, []domain.JobItem{
+		{Phone: "18507561351", Status: domain.JobItemStatusPending, SourceLineNo: 1},
+		{Phone: "18507561352", Status: domain.JobItemStatusPending, SourceLineNo: 2},
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	fb := &fakeBackend{idle: 3, createErr: backend.ErrOpenAPIDeviceCapacityNotEnough, tasks: map[uint]backend.TaskInfo{}}
+	runner := NewRunner(st, fb, &fakeSource{}, func() time.Time { return now })
+
+	if err := runner.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if got, want := strings.Join(fb.created, ","), "18507561351"; got != want {
+		t.Fatalf("created = %s, want %s", got, want)
+	}
+	items, err := st.ListJobItems(job.ID)
+	if err != nil {
+		t.Fatalf("list items: %v", err)
+	}
+	for _, item := range items {
+		if item.Status != domain.JobItemStatusPending || item.RemoteTaskID != 0 {
+			t.Fatalf("item should remain pending: %#v", item)
+		}
 	}
 }
 

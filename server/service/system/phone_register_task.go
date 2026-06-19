@@ -40,6 +40,10 @@ const (
 
 const phoneRegisterOpenAPICacheTimeoutLog = "OpenAPI缓存上传超时未上传"
 
+const OpenAPIDeviceCapacityNotEnoughCode = "OPENAPI_DEVICE_CAPACITY_NOT_ENOUGH"
+
+var ErrOpenAPIDeviceCapacityNotEnough = errors.New("OpenAPI可用设备不足")
+
 const (
 	phoneRegisterRiskWarmupSuccessCount = 10
 	phoneRegisterRiskMaxRatio           = 45
@@ -96,6 +100,8 @@ var phoneRegisterDeviceStatsCache struct {
 	stats     phoneRegisterDeviceStats
 	expiresAt time.Time
 }
+
+var phoneRegisterOpenAPICreateCapacityMu sync.Mutex
 
 var phoneRegisterTimeoutScanThrottleState struct {
 	sync.Mutex
@@ -173,6 +179,20 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	}
 	if err := s.ensureTaskCreationModeEnabled(smsReceiveMode); err != nil {
 		return system.SysPhoneRegisterTask{}, err
+	}
+	openAPIReserveDevices := int64(0)
+	if strings.TrimSpace(options.TaskSource) == system.PhoneRegisterTaskSourceOpenAPI {
+		openAPIReserveDevices, err = s.GetOpenAPIReserveDeviceCount()
+		if err != nil {
+			return system.SysPhoneRegisterTask{}, err
+		}
+		if openAPIReserveDevices > 0 {
+			phoneRegisterOpenAPICreateCapacityMu.Lock()
+			defer phoneRegisterOpenAPICreateCapacityMu.Unlock()
+			if err := s.ensureOpenAPICreateCapacityWithReserve(openAPIReserveDevices); err != nil {
+				return system.SysPhoneRegisterTask{}, err
+			}
+		}
 	}
 
 	var promoter system.SysUser
@@ -528,6 +548,82 @@ func (s *PhoneRegisterTaskService) GetCurrentDeviceStats() (phoneRegisterDeviceS
 	phoneRegisterDeviceStatsCache.stats = stats
 	phoneRegisterDeviceStatsCache.expiresAt = time.Now().Add(phoneRegisterDeviceStatsTTL)
 	return stats, nil
+}
+
+func (s *PhoneRegisterTaskService) GetOpenAPIDeviceStats() (phoneRegisterDeviceStats, error) {
+	stats, err := s.GetCurrentDeviceStats()
+	if err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	reserveDevices, err := s.GetOpenAPIReserveDeviceCount()
+	if err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	if reserveDevices <= 0 {
+		return stats, nil
+	}
+	pendingOpenAPITasks, err := s.countPendingOpenAPITasksWithoutHolder()
+	if err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	stats.Online = maxInt64(stats.Online-reserveDevices, 0)
+	stats.Idle = maxInt64(stats.Idle-reserveDevices-pendingOpenAPITasks, 0)
+	return stats, nil
+}
+
+func (s *PhoneRegisterTaskService) GetOpenAPIReserveDeviceCount() (int64, error) {
+	if global.GVA_DB == nil {
+		return 0, nil
+	}
+	var cfg system.SysRegisterConfig
+	err := global.GVA_DB.Select("phone_register_open_api_reserve_devices").
+		Where("owner_type = ? AND owner_id = 0", system.RegisterConfigOwnerAdmin).
+		First(&cfg).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if cfg.PhoneRegisterOpenAPIReserveDevices < 0 {
+		return 0, nil
+	}
+	return cfg.PhoneRegisterOpenAPIReserveDevices, nil
+}
+
+func (s *PhoneRegisterTaskService) ensureOpenAPICreateCapacityWithReserve(reserveDevices int64) error {
+	stats, err := s.GetCurrentDeviceStats()
+	if err != nil {
+		return err
+	}
+	pendingOpenAPITasks, err := s.countPendingOpenAPITasksWithoutHolder()
+	if err != nil {
+		return err
+	}
+	if stats.Idle-reserveDevices-pendingOpenAPITasks <= 0 {
+		return ErrOpenAPIDeviceCapacityNotEnough
+	}
+	return nil
+}
+
+func (s *PhoneRegisterTaskService) countPendingOpenAPITasksWithoutHolder() (int64, error) {
+	if global.GVA_DB == nil {
+		return 0, nil
+	}
+	var count int64
+	err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Where("task_source = ?", system.PhoneRegisterTaskSourceOpenAPI).
+		Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending).
+		Where("holder_device_id IS NULL").
+		Count(&count).Error
+	return count, err
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func resetPhoneRegisterDeviceStatsCache() {

@@ -99,10 +99,6 @@ func (a *App) startup(ctx context.Context) {
 		settings.BaseURL = defaultSystemBaseURL
 		changed = true
 	}
-	if settings.ReserveDevices == 0 {
-		settings.ReserveDevices = 1
-		changed = true
-	}
 	if settings.Interval <= 0 {
 		settings.Interval = 3 * time.Second
 		changed = true

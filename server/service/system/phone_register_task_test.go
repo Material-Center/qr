@@ -612,6 +612,129 @@ func TestGetCurrentDeviceStatsUsesShortCache(t *testing.T) {
 	require.Equal(t, 1, busyCalls)
 }
 
+func TestGetOpenAPIDeviceStatsSubtractsReserveAndOpenAPITasks(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	resetPhoneRegisterDeviceStatsCache()
+	defer resetPhoneRegisterDeviceStatsCache()
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 2,
+		PhoneRegisterBlockedPrefixes:       "",
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusPending,
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000002",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusSucceeded,
+		FinishedAt:     func() *time.Time { t := time.Now(); return &t }(),
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}).Error)
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"device-a", "device-b", "device-c", "device-d", "device-e"}
+		},
+		func() []string {
+			return []string{"device-e"}
+		},
+	)
+	defer restore()
+
+	stats, err := (&PhoneRegisterTaskService{}).GetOpenAPIDeviceStats()
+	require.NoError(t, err)
+	require.EqualValues(t, 3, stats.Online)
+	require.EqualValues(t, 1, stats.Idle)
+}
+
+func TestCreateOpenAPITaskFailsWhenReserveConsumesCapacity(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	createPhoneRegisterTaskTestPromoter(t, 1)
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 1,
+	}).Error)
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"device-a"}
+		},
+		func() []string {
+			return nil
+		},
+	)
+	defer restore()
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptions{
+		TaskSource: modelSystem.PhoneRegisterTaskSourceOpenAPI,
+	})
+	require.EqualError(t, err, "OpenAPI可用设备不足")
+}
+
+func TestCreateOpenAPITaskDoesNotLimitWhenReserveIsZero(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	createPhoneRegisterTaskTestPromoter(t, 1)
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 0,
+	}).Error)
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return nil
+		},
+		func() []string {
+			return nil
+		},
+	)
+	defer restore()
+
+	task, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptions{
+		TaskSource: modelSystem.PhoneRegisterTaskSourceOpenAPI,
+	})
+	require.NoError(t, err)
+	require.NotZero(t, task.ID)
+}
+
+func TestCreateManualTaskIgnoresOpenAPIReserveCapacity(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	createPhoneRegisterTaskTestPromoter(t, 1)
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 1,
+	}).Error)
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"device-a"}
+		},
+		func() []string {
+			return nil
+		},
+	)
+	defer restore()
+
+	task, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.NoError(t, err)
+	require.NotZero(t, task.ID)
+}
+
 func TestGetCurrentDeviceStatsRefreshesOnceUnderConcurrentMiss(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 	resetPhoneRegisterDeviceStatsCache()

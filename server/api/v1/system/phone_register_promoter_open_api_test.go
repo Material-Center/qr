@@ -150,6 +150,37 @@ func TestPromoterOpenAPIDeviceStatsAcceptsPromoterUserToken(t *testing.T) {
 	require.EqualValues(t, 0, data.DeviceIdleCount)
 }
 
+func TestPromoterOpenAPIDeviceStatsReturnsZeroWhenReservedCapacityExhausted(t *testing.T) {
+	setupPhoneRegisterPromoterOpenAPITest(t)
+	router := newPhoneRegisterPromoterOpenAPIRouter()
+	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 10,
+	}).Error)
+
+	req := httptest.NewRequest(http.MethodGet, "/phoneRegisterTask/open-api/promoter/device-stats", nil)
+	req.Header.Set("X-Open-Api-Token", token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	got := decodePhoneRegisterOpenAPIResponse(t, rec)
+	require.Equal(t, response.SUCCESS, got.Code)
+	raw, err := json.Marshal(got.Data)
+	require.NoError(t, err)
+	var data struct {
+		DeviceOnlineCount int64 `json:"deviceOnlineCount"`
+		DeviceIdleCount   int64 `json:"deviceIdleCount"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &data))
+	require.EqualValues(t, 0, data.DeviceOnlineCount)
+	require.EqualValues(t, 0, data.DeviceIdleCount)
+}
+
 func TestPromoterOpenAPITokenValidationUsesTenMinuteCache(t *testing.T) {
 	setupPhoneRegisterPromoterOpenAPITest(t)
 	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
@@ -366,6 +397,38 @@ func TestPromoterOpenAPICreateTaskKeepsLegacyBehaviorWhenStartDelayIsZero(t *tes
 	require.Nil(t, task.AvailableAt)
 	require.Nil(t, task.HolderDeviceID)
 	require.Equal(t, modelSystem.PhoneRegisterTaskSourceOpenAPI, task.TaskSource)
+}
+
+func TestPromoterOpenAPICreateTaskReturnsDeviceCapacityErrorCode(t *testing.T) {
+	setupPhoneRegisterPromoterOpenAPITest(t)
+	router := newPhoneRegisterPromoterOpenAPIRouter()
+	token := createPhoneRegisterOpenAPITestUserToken(t, 3001, rtRolePromoter, true, time.Now().Add(30*24*time.Hour))
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 1,
+	}).Error)
+
+	body := bytes.NewBufferString(`{"phone":"18878309701"}`)
+	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/promoter/task", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Open-Api-Token", token)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	got := decodePhoneRegisterOpenAPIResponse(t, rec)
+	require.Equal(t, response.ERROR, got.Code)
+	require.Equal(t, "OpenAPI可用设备不足", got.Msg)
+	raw, err := json.Marshal(got.Data)
+	require.NoError(t, err)
+	var data struct {
+		ErrorCode string `json:"errorCode"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &data))
+	require.Equal(t, "OPENAPI_DEVICE_CAPACITY_NOT_ENOUGH", data.ErrorCode)
 }
 
 func TestPromoterOpenAPIRejectsNonPromoterToken(t *testing.T) {

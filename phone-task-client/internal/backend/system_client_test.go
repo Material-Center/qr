@@ -2,6 +2,7 @@ package backend
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -125,6 +126,17 @@ func TestSystemClientCreateReceiveCodeTask(t *testing.T) {
 	}
 	if _, ok := body["startDelaySeconds"]; ok {
 		t.Fatalf("unexpected startDelaySeconds in body %#v", body)
+	}
+}
+
+func TestSystemClientReturnsDeviceCapacityError(t *testing.T) {
+	client := newTestSystemClient(func(r *http.Request) (*http.Response, error) {
+		return apiHTTPResponse(t, 7, map[string]any{"errorCode": OpenAPIDeviceCapacityNotEnoughCode}), nil
+	})
+
+	_, err := client.CreateSendCodeTask(t.Context(), "18507561351", 0)
+	if !errors.Is(err, ErrOpenAPIDeviceCapacityNotEnough) {
+		t.Fatalf("error = %v, want ErrOpenAPIDeviceCapacityNotEnough", err)
 	}
 }
 

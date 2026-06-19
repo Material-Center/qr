@@ -211,7 +211,7 @@ function renderSettings() {
     <section class="panel">
       <form id="settings-form" class="form-grid">
         <label>服务器地址<input name="BaseURL" value="${h(s.BaseURL)}" placeholder="https://server.example"></label>
-        <label>保留设备<input name="ReserveDevices" type="number" min="0" value="${h(s.ReserveDevices || 0)}"></label>
+        <label>额外保留设备<input name="ReserveDevices" type="number" min="0" value="${h(s.ReserveDevices || 0)}"></label>
         <label>轮询间隔 ms<input name="IntervalMS" type="number" min="200" value="${h(getDurationMs(s.Interval))}"></label>
         <label>请求超时 ms<input name="TimeoutMS" type="number" min="1000" value="${h(getDurationMs(s.Timeout))}"></label>
         <label class="wide">日志目录<input name="LogDir" value="${h(s.LogDir)}"></label>

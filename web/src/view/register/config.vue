@@ -32,6 +32,16 @@
                 inactive-text="允许创建"
               />
             </el-form-item>
+            <el-form-item label="OpenAPI保留设备">
+              <el-input-number
+                v-model="form.phoneRegisterOpenAPIReserveDevices"
+                :min="0"
+                :step="1"
+                :precision="0"
+                controls-position="right"
+                style="width: 180px"
+              />
+            </el-form-item>
             <el-form-item label="禁用号段">
               <el-input
                 v-model="form.phoneRegisterBlockedPrefixes"
@@ -223,6 +233,7 @@ const form = ref({
   phoneRegisterEnabled: true,
   phoneRegisterUserSentTaskDisabled: false,
   phoneRegisterReceiveTaskDisabled: false,
+  phoneRegisterOpenAPIReserveDevices: 0,
   phoneRegisterBlockedPrefixes: '133,149,153,173,177,180,181,189,190,193,199'
 })
 
@@ -354,6 +365,7 @@ const loadConfig = async () => {
     phoneRegisterEnabled: data?.phoneRegisterEnabled !== false,
     phoneRegisterUserSentTaskDisabled: data?.phoneRegisterUserSentTaskDisabled === true,
     phoneRegisterReceiveTaskDisabled: data?.phoneRegisterReceiveTaskDisabled === true,
+    phoneRegisterOpenAPIReserveDevices: Number(data?.phoneRegisterOpenAPIReserveDevices || 0),
     phoneRegisterBlockedPrefixes: data?.phoneRegisterBlockedPrefixes || '133,149,153,173,177,180,181,189,190,193,199'
   }
 }
@@ -370,6 +382,10 @@ const submit = async () => {
   }
   if (isAdminRole.value && (!form.value.apiBase || !form.value.apiToken)) {
     ElMessage.warning('签名服务 apiBase 和 apiToken 不能为空')
+    return
+  }
+  if (isAdminRole.value && Number(form.value.phoneRegisterOpenAPIReserveDevices || 0) < 0) {
+    ElMessage.warning('OpenAPI保留设备数量不能小于0')
     return
   }
   if (isAdminRole.value && form.value.proxyPlatform === 'kuaidaili' && (!form.value.proxySecretId || !form.value.proxySecretKey)) {
@@ -407,6 +423,10 @@ const submit = async () => {
 
 const submitPhoneRegisterSwitch = async () => {
   if (!canEdit.value) return
+  if (Number(form.value.phoneRegisterOpenAPIReserveDevices || 0) < 0) {
+    ElMessage.warning('OpenAPI保留设备数量不能小于0')
+    return
+  }
   await setMyRegisterConfig(buildConfigPayload())
   ElMessage.success('开关已保存')
   await loadConfig()

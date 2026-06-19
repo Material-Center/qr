@@ -28,7 +28,7 @@ func (a *PhoneRegisterTaskApi) PromoterOpenAPIDeviceStats(c *gin.Context) {
 	if _, ok := requirePhoneRegisterPromoterOpenAPIToken(c); !ok {
 		return
 	}
-	stats, err := phoneRegisterTaskService.GetCurrentDeviceStats()
+	stats, err := phoneRegisterTaskService.GetOpenAPIDeviceStats()
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -67,7 +67,7 @@ func (a *PhoneRegisterTaskApi) PromoterOpenAPICreateTask(c *gin.Context) {
 	}
 	task, err := phoneRegisterTaskService.CreateTask(auth.userID, req.Phone, system.PhoneRegisterSMSModeUserSentToTX, PhoneRegisterTaskCreateOptionsForOpenAPI(req))
 	if err != nil {
-		response.FailWithMessage(err.Error(), c)
+		failPromoterOpenAPICreateTask(err, c)
 		return
 	}
 	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "创建成功", c)
@@ -101,10 +101,20 @@ func (a *PhoneRegisterTaskApi) PromoterOpenAPICreateReceiveTask(c *gin.Context) 
 	}
 	task, err := phoneRegisterTaskService.CreateTask(auth.userID, req.Phone, system.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptionsForOpenAPI(req))
 	if err != nil {
-		response.FailWithMessage(err.Error(), c)
+		failPromoterOpenAPICreateTask(err, c)
 		return
 	}
 	response.OkWithDetailed(buildPhoneRegisterActiveInfo(task), "创建成功", c)
+}
+
+func failPromoterOpenAPICreateTask(err error, c *gin.Context) {
+	if errors.Is(err, systemService.ErrOpenAPIDeviceCapacityNotEnough) {
+		response.FailWithDetailed(gin.H{
+			"errorCode": systemService.OpenAPIDeviceCapacityNotEnoughCode,
+		}, err.Error(), c)
+		return
+	}
+	response.FailWithMessage(err.Error(), c)
 }
 
 // PromoterOpenAPIGetTask

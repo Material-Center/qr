@@ -12,7 +12,7 @@
 - TXT 导入支持 UTF-8 BOM 清理、空行跳过、手机号去重。
 - 验证码 API 支持 `{phone}` 变量，也兼容 `?phone=` 这类 URL。
 - UI 首次启动会预置“默认发码取号 API”和“默认收码验证码 API”两个 API 模板。
-- 多任务共享同一个全局保留设备数量和同一轮设备空闲查询结果。
+- 多任务共享同一轮服务端 OpenAPI 可用设备查询结果；服务端已扣除管理员配置的 OpenAPI 保留设备，客户端的保留设备参数仅作为额外本地保留，默认 0。
 - SQLite 保存状态，可用 `-job-id` 恢复已有任务。
 - 支持暂停、继续、停止已有任务。
 - 支持失败文件导出，收码任务导出格式兼容 `phonecodeworker`。
@@ -38,7 +38,7 @@ go run ./cmd/phone-task-client \
   -mode receive \
   -phone-source txt \
   -input phones.txt \
-  -reserve-devices 10 \
+  -reserve-devices 0 \
   -interval 3s \
   -create-delay 0s \
   -failed-output failed.txt

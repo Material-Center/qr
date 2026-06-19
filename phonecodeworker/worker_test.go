@@ -212,6 +212,56 @@ func TestRunOnceCreatesMultipleReceiveTasksUpToAvailableWindow(t *testing.T) {
 	}
 }
 
+func TestRunOnceStopsCreatingWhenOpenAPIDeviceCapacityNotEnough(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "state.json")
+	state := NewState("/tmp/phones.txt", "https://code.test/?phone=", []string{"18507561351", "18507561352"})
+	createdPhones := []string{}
+
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(3)})
+		case "/phoneRegisterTask/open-api/promoter/receive-task":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			createdPhones = append(createdPhones, body["phone"].(string))
+			writeAPIResponse(t, w, 7, map[string]any{"errorCode": openAPIDeviceCapacityNotEnoughCode})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource:    NewCodeSourceClient("https://code.test/?phone=", time.Second),
+		State:         state,
+		StatePath:     statePath,
+		IdleThreshold: 1,
+		Interval:      time.Millisecond,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	if got, want := strings.Join(createdPhones, ","), "18507561351"; got != want {
+		t.Fatalf("created phones = %s, want %s", got, want)
+	}
+	saved, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load saved state: %v", err)
+	}
+	if saved.Records[0].Status != recordStatusPending || saved.Records[0].TaskID != 0 {
+		t.Fatalf("first record should remain pending: %#v", saved.Records[0])
+	}
+	if saved.Records[1].Status != recordStatusPending || saved.Records[1].TaskID != 0 {
+		t.Fatalf("second record should remain pending: %#v", saved.Records[1])
+	}
+}
+
 func TestRunOnceRechecksIdleCapacityAfterCreateInterval(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")

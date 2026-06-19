@@ -185,6 +185,62 @@ func TestRunOnceFetchesPhoneAndCreatesUserSentTaskWhenIdleDeviceCountIsAboveThre
 	}
 }
 
+func TestRunOnceRetriesSamePhoneWhenCreateTaskCapacityNotEnough(t *testing.T) {
+	var sourceCalls int
+	var createCalls int
+	createdPhones := make([]string, 0, 2)
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/device-stats":
+			writeAPIResponse(t, w, 0, map[string]any{"deviceIdleCount": float64(2)})
+		case "/phoneRegisterTask/open-api/promoter/task":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			createdPhones = append(createdPhones, body["phone"].(string))
+			createCalls++
+			if createCalls == 1 {
+				writeAPIResponse(t, w, 7, map[string]any{"errorCode": openAPIDeviceCapacityNotEnoughCode})
+				return
+			}
+			writeAPIResponse(t, w, 0, map[string]any{"id": float64(9)})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer system.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sourceCalls++
+		_ = json.NewEncoder(w).Encode(phoneSourceResponse{Code: 0, Data: "18878309701"})
+	}))
+	defer source.Close()
+
+	var logs bytes.Buffer
+	worker := NewWorker(workerConfig{
+		System:        NewSystemClient(system.URL, "openapi-token", time.Second),
+		PhoneSource:   NewPhoneSourceClient(source.URL, time.Second),
+		IdleThreshold: 1,
+		Logger:        log.New(&logs, "", 0),
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("first run once: %v", err)
+	}
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("second run once: %v", err)
+	}
+	if sourceCalls != 1 {
+		t.Fatalf("source calls = %d, want 1", sourceCalls)
+	}
+	if strings.Join(createdPhones, ",") != "18878309701,18878309701" {
+		t.Fatalf("created phones = %#v", createdPhones)
+	}
+	if !strings.Contains(logs.String(), "capacity not enough keep pending phone=18878309701") {
+		t.Fatalf("logs missing capacity retry message:\n%s", logs.String())
+	}
+}
+
 func TestRunOnceCreatesServerDelayedTaskImmediately(t *testing.T) {
 	taskCreated := make(chan map[string]any, 1)
 	const createDelay = 2 * time.Second

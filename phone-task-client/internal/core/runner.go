@@ -12,6 +12,8 @@ import (
 	"phone-task-client/internal/store"
 )
 
+var errStopCreatingForCapacity = errors.New("stop creating for device capacity")
+
 type Backend interface {
 	IdleDeviceCount(ctx context.Context) (int64, error)
 	CreateSendCodeTask(ctx context.Context, phone string, createDelay time.Duration) (backend.TaskInfo, error)
@@ -84,6 +86,9 @@ func (r *Runner) RunOnce(ctx context.Context) error {
 			continue
 		}
 		if err := r.createForJob(ctx, job, allocation.Slots); err != nil {
+			if errors.Is(err, errStopCreatingForCapacity) {
+				return nil
+			}
 			return err
 		}
 	}
@@ -193,6 +198,15 @@ func (r *Runner) createForJob(ctx context.Context, job domain.Job, slots int) er
 			client := r.clientForJob(job)
 			task, err := client.CreateSendCodeTask(ctx, item.Phone, job.CreateDelaySnapshot)
 			if err != nil {
+				if errors.Is(err, backend.ErrOpenAPIDeviceCapacityNotEnough) {
+					item.Status = domain.JobItemStatusPending
+					item.LastError = ""
+					item.UpdatedAt = r.now()
+					if saveErr := r.store.UpdateJobItem(item); saveErr != nil {
+						return saveErr
+					}
+					return errStopCreatingForCapacity
+				}
 				item.LastError = err.Error()
 				item.UpdatedAt = r.now()
 				if saveErr := r.store.UpdateJobItem(item); saveErr != nil {
@@ -211,6 +225,15 @@ func (r *Runner) createForJob(ctx context.Context, job domain.Job, slots int) er
 			client := r.clientForJob(job)
 			task, err := client.CreateReceiveCodeTask(ctx, item.Phone, job.CreateDelaySnapshot)
 			if err != nil {
+				if errors.Is(err, backend.ErrOpenAPIDeviceCapacityNotEnough) {
+					item.Status = domain.JobItemStatusPending
+					item.LastError = ""
+					item.UpdatedAt = r.now()
+					if saveErr := r.store.UpdateJobItem(item); saveErr != nil {
+						return saveErr
+					}
+					return errStopCreatingForCapacity
+				}
 				item.LastError = err.Error()
 				item.UpdatedAt = r.now()
 				if saveErr := r.store.UpdateJobItem(item); saveErr != nil {

@@ -34,6 +34,8 @@ go run . \
 -once            只执行一轮，便于测试
 ```
 
+`deviceIdleCount` 使用服务端 OpenAPI 设备统计返回值，已经扣除了管理员配置的 OpenAPI 保留设备。若创建任务时服务端返回 `OPENAPI_DEVICE_CAPACITY_NOT_ENOUGH`，工具会保留当前手机号，等待下一轮继续重试。
+
 ## Windows 构建
 
 ```bash

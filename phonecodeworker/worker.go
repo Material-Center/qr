@@ -251,6 +251,10 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 			}
 		}
 		if err := w.createAndHandleTask(ctx, rec); err != nil {
+			if errors.Is(err, errOpenAPIDeviceCapacityNotEnough) {
+				w.logger.Printf("capacity not enough stop creating pending records phone=%s nextCheckIn=%s", rec.Phone, w.Interval)
+				break
+			}
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -267,6 +271,14 @@ func (w *Worker) createAndHandleTask(ctx context.Context, rec *PhoneRecord) erro
 	w.logger.Printf("creating receive task phone=%s createDelay=%s", rec.Phone, w.CreateDelay)
 	task, err := w.System.CreateReceiveTask(ctx, rec.Phone, w.CreateDelay)
 	if err != nil {
+		if errors.Is(err, errOpenAPIDeviceCapacityNotEnough) {
+			rec.Status = recordStatusPending
+			rec.TaskID = 0
+			rec.LastError = ""
+			rec.UpdatedAt = time.Now()
+			_ = w.save()
+			return errOpenAPIDeviceCapacityNotEnough
+		}
 		rec.LastError = err.Error()
 		rec.UpdatedAt = time.Now()
 		_ = w.save()
