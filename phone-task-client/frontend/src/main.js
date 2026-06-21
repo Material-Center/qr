@@ -275,7 +275,7 @@ function renderProfiles() {
         <input type="hidden" name="ID" value="0">
         <label>名称<input name="Name" placeholder="sales-1"></label>
         <label>Token<input name="TokenRef" placeholder="openapi token"></label>
-        <label>create_delay ms<input name="CreateDelayMS" type="number" min="0" value="0"></label>
+        <label>创建延迟 ms<input name="CreateDelayMS" type="number" min="0" value="0"></label>
         <label>覆盖服务器<input name="BaseURLOverride" placeholder="为空时使用全局配置"></label>
         <label class="wide">备注<input name="Remark"></label>
         <div class="form-actions">
@@ -637,12 +637,30 @@ document.addEventListener('click', async (event) => {
   const id = Number(target.dataset.id || 0);
   try {
     if (action === 'refresh') await refresh();
-    if (action === 'edit-profile') fillProfile(id);
-    if (action === 'clear-profile') document.querySelector('#profile-form')?.reset();
-    if (action === 'edit-api') fillAPI(id);
-    if (action === 'clear-api') document.querySelector('#api-form')?.reset();
-    if (action === 'edit-task-template') fillTaskTemplate(id);
-    if (action === 'clear-task-template') document.querySelector('#task-template-form')?.reset();
+    if (action === 'edit-profile') {
+      fillProfile(id);
+      return;
+    }
+    if (action === 'clear-profile') {
+      document.querySelector('#profile-form')?.reset();
+      return;
+    }
+    if (action === 'edit-api') {
+      fillAPI(id);
+      return;
+    }
+    if (action === 'clear-api') {
+      document.querySelector('#api-form')?.reset();
+      return;
+    }
+    if (action === 'edit-task-template') {
+      fillTaskTemplate(id);
+      return;
+    }
+    if (action === 'clear-task-template') {
+      document.querySelector('#task-template-form')?.reset();
+      return;
+    }
     if (action === 'run-job') await api().RunJob(id);
     if (action === 'pause-job') await api().PauseJob(id);
     if (action === 'resume-job') await api().ResumeJob(id);
