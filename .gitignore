@@ -52,3 +52,4 @@ phone-task-client/build/bin
 phone-task-client/frontend/node_modules
 phone-task-client/frontend/package.json.md5
 phone-task-client/frontend/wailsjs
+phone-task-client/build/
