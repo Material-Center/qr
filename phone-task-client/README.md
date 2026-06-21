@@ -26,7 +26,9 @@
 ./dev.sh
 ```
 
-UI 数据库默认保存在当前系统用户配置目录下的 `phone-task-client/client.db`。程序启动时会自动恢复本地仍处于 running 状态的任务；暂停任务不会继续创建新任务，继续后会从本地状态继续执行。
+UI 数据库默认保存在程序目录下的 `data/phone-task-client.db`，运行日志默认保存在程序目录下的 `logs/`。程序启动时会自动恢复本地仍处于 running 状态的任务；暂停任务不会继续创建新任务，继续后会从本地状态继续执行。换设备时复制整个程序目录即可带走配置、模板、任务记录和日志。
+
+本地 `./dev.sh` 调试时会使用项目内的 `.dev/data/phone-task-client.db` 和 `.dev/logs/`，避免 Wails dev 临时构建目录影响状态保存。需要清空本地调试数据时删除 `.dev/` 即可。
 
 ## CLI 示例
 
@@ -77,15 +79,15 @@ go run ./cmd/phone-task-client \
 恢复已有任务：
 
 ```bash
-go run ./cmd/phone-task-client -db phone-task-client.db -job-id 1 -token 'openapi-token'
+go run ./cmd/phone-task-client -db data/phone-task-client.db -job-id 1 -token 'openapi-token'
 ```
 
 暂停、继续、停止：
 
 ```bash
-go run ./cmd/phone-task-client -db phone-task-client.db -pause-job 1
-go run ./cmd/phone-task-client -db phone-task-client.db -resume-job 1
-go run ./cmd/phone-task-client -db phone-task-client.db -stop-job 1
+go run ./cmd/phone-task-client -db data/phone-task-client.db -pause-job 1
+go run ./cmd/phone-task-client -db data/phone-task-client.db -resume-job 1
+go run ./cmd/phone-task-client -db data/phone-task-client.db -stop-job 1
 ```
 
 停止语义是不再创建新任务，不会撤销服务端已经创建的任务。

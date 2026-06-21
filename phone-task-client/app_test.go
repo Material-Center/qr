@@ -73,6 +73,78 @@ func TestStatusIncludesBuildVersion(t *testing.T) {
 	}
 }
 
+func TestDefaultDBPathUsesExecutableDataDirectory(t *testing.T) {
+	oldExecutablePath := executablePath
+	exeDir := t.TempDir()
+	executablePath = func() (string, error) {
+		return filepath.Join(exeDir, "phone-task-client-ui.exe"), nil
+	}
+	t.Cleanup(func() {
+		executablePath = oldExecutablePath
+	})
+
+	got := defaultDBPath()
+	if filepath.Base(got) != "phone-task-client.db" {
+		t.Fatalf("db filename = %q", filepath.Base(got))
+	}
+	if filepath.Base(filepath.Dir(got)) != "data" {
+		t.Fatalf("db path should use executable data directory, got %q", got)
+	}
+	if _, err := os.Stat(filepath.Dir(got)); err != nil {
+		t.Fatalf("data directory should be created: %v", err)
+	}
+}
+
+func TestDefaultDBPathUsesDevDirectoryWhenConfigured(t *testing.T) {
+	devDir := t.TempDir()
+	t.Setenv("PHONE_TASK_CLIENT_DEV_DIR", devDir)
+
+	got := defaultDBPath()
+	want := filepath.Join(devDir, "data", "phone-task-client.db")
+	if got != want {
+		t.Fatalf("db path = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Dir(got)); err != nil {
+		t.Fatalf("dev data directory should be created: %v", err)
+	}
+}
+
+func TestDefaultLogDirUsesExecutableLogsDirectory(t *testing.T) {
+	oldExecutablePath := executablePath
+	exeDir := t.TempDir()
+	executablePath = func() (string, error) {
+		return filepath.Join(exeDir, "phone-task-client-ui.exe"), nil
+	}
+	t.Cleanup(func() {
+		executablePath = oldExecutablePath
+	})
+
+	got := defaultLogDir()
+	if filepath.Base(got) != "logs" {
+		t.Fatalf("log directory should be logs, got %q", got)
+	}
+	if filepath.Dir(got) != exeDir {
+		t.Fatalf("log directory should be under executable directory, got %q", got)
+	}
+	if _, err := os.Stat(got); err != nil {
+		t.Fatalf("logs directory should be created: %v", err)
+	}
+}
+
+func TestDefaultLogDirUsesDevDirectoryWhenConfigured(t *testing.T) {
+	devDir := t.TempDir()
+	t.Setenv("PHONE_TASK_CLIENT_DEV_DIR", devDir)
+
+	got := defaultLogDir()
+	want := filepath.Join(devDir, "logs")
+	if got != want {
+		t.Fatalf("log directory = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(got); err != nil {
+		t.Fatalf("dev logs directory should be created: %v", err)
+	}
+}
+
 func TestStartJobCreatesPendingJobForManualRun(t *testing.T) {
 	st := newAppTestStore(t)
 	if err := st.SaveGlobalSettings(domain.GlobalSettings{
@@ -243,6 +315,30 @@ func TestExportSucceededWritesSucceededPhones(t *testing.T) {
 	}
 	if got, want := string(raw), "https://code.test/?phone={phone}\n18507561351\n"; got != want {
 		t.Fatalf("succeeded file = %q, want %q", got, want)
+	}
+}
+
+func TestDeleteJobRemovesJob(t *testing.T) {
+	st := newAppTestStore(t)
+	job, _, err := st.CreateJob(domain.Job{
+		Name:            "delete-me",
+		TaskType:        domain.TaskTypeReceiveCode,
+		PhoneSourceType: domain.SourceTypeTXT,
+		Status:          domain.JobStatusPending,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}, nil)
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	app := NewApp()
+	app.store = st
+
+	if err := app.DeleteJob(job.ID); err != nil {
+		t.Fatalf("delete job: %v", err)
+	}
+	if _, err := st.GetJob(job.ID); err == nil {
+		t.Fatal("get deleted job should fail")
 	}
 }
 

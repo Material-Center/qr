@@ -38,7 +38,7 @@ func main() {
 
 func run() error {
 	var (
-		dbPath         = flag.String("db", "phone-task-client.db", "sqlite state database path")
+		dbPath         = flag.String("db", defaultDBPath(), "sqlite state database path")
 		baseURL        = flag.String("base-url", defaultSystemBaseURL, "system API base URL")
 		token          = flag.String("token", "", "promoter OpenAPI token")
 		mode           = flag.String("mode", "receive", "task mode: send or receive")
@@ -86,7 +86,7 @@ func run() error {
 		ReserveDevices: *reserveDevices,
 		Interval:       *interval,
 		Timeout:        *timeout,
-		LogDir:         "logs",
+		LogDir:         defaultLogDir(),
 	}
 	if err := st.SaveGlobalSettings(settings); err != nil {
 		return err
@@ -145,6 +145,29 @@ func run() error {
 		}
 	}
 	return exportJobFiles(st, job.ID, *failedOutput, *successOutput)
+}
+
+func defaultDBPath() string {
+	dir := filepath.Join(defaultAppDir(), "data")
+	_ = os.MkdirAll(dir, 0o755)
+	return filepath.Join(dir, "phone-task-client.db")
+}
+
+func defaultLogDir() string {
+	dir := filepath.Join(defaultAppDir(), "logs")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+func defaultAppDir() string {
+	if dir := strings.TrimSpace(os.Getenv("PHONE_TASK_CLIENT_DEV_DIR")); dir != "" {
+		return dir
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exe)
 }
 
 type createJobOptions struct {

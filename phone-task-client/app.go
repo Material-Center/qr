@@ -24,9 +24,10 @@ const defaultPhoneSourceURL = "http://206.238.179.123:37520/OPenApi/GetOrder?inf
 const defaultCodeSourceURL = "https://q8.qq0.lol/api/imla?t=u2lX6gNl&phone={phone}"
 
 var (
-	version   = "dev"
-	gitCommit = "unknown"
-	buildTime = "unknown"
+	version        = "dev"
+	gitCommit      = "unknown"
+	buildTime      = "unknown"
+	executablePath = os.Executable
 )
 
 type App struct {
@@ -124,7 +125,7 @@ func (a *App) startup(ctx context.Context) {
 		changed = true
 	}
 	if strings.TrimSpace(settings.LogDir) == "" {
-		settings.LogDir = filepath.Join(filepath.Dir(path), "logs")
+		settings.LogDir = defaultLogDir()
 		changed = true
 	}
 	if changed {
@@ -291,6 +292,13 @@ func (a *App) ResumeJob(jobID int64) error {
 
 func (a *App) StopJob(jobID int64) error {
 	return a.setJobControl(jobID, "stop")
+}
+
+func (a *App) DeleteJob(jobID int64) error {
+	if err := a.ensureStore(); err != nil {
+		return err
+	}
+	return a.store.DeleteJob(jobID)
 }
 
 func (a *App) ListJobItems(jobID int64) ([]domain.JobItem, error) {
@@ -667,13 +675,26 @@ func (a *App) ensureStore() error {
 }
 
 func defaultDBPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		dir = "."
+	dir := filepath.Join(defaultAppDir(), "data")
+	_ = os.MkdirAll(dir, 0o755)
+	return filepath.Join(dir, "phone-task-client.db")
+}
+
+func defaultLogDir() string {
+	dir := filepath.Join(defaultAppDir(), "logs")
+	_ = os.MkdirAll(dir, 0o755)
+	return dir
+}
+
+func defaultAppDir() string {
+	if dir := strings.TrimSpace(os.Getenv("PHONE_TASK_CLIENT_DEV_DIR")); dir != "" {
+		return dir
 	}
-	path := filepath.Join(dir, "phone-task-client")
-	_ = os.MkdirAll(path, 0o755)
-	return filepath.Join(path, "client.db")
+	exe, err := executablePath()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exe)
 }
 
 func maskToken(token string) string {

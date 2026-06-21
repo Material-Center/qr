@@ -8,6 +8,7 @@ const state = {
   jobsPage: null,
   jobsPageNo: 1,
   jobsPageSize: 20,
+  recentJobStatus: '',
   selectedJobId: 0,
   selectedItems: [],
   message: '',
@@ -222,7 +223,7 @@ function renderDashboard() {
       <div class="metric"><span>失败</span><strong>${totals.failed}</strong></div>
     </section>
     ${renderCreateJob()}
-    ${renderJobs(false)}
+    ${renderRecentJobs()}
   `;
 }
 
@@ -381,11 +382,30 @@ function renderCreateJob() {
   `;
 }
 
-function renderJobs(includeItems) {
-  const title = includeItems ? '任务历史' : '最近任务';
+function renderRecentJobs() {
+  const rows = filterJobRowsByStatus(state.dashboard.jobs, state.recentJobStatus);
   return `
-    ${renderJobsTable(state.dashboard.jobs, title)}
-    ${includeItems ? renderItems() : ''}
+    ${renderJobsTable(rows, '最近任务', renderRecentJobFilter())}
+  `;
+}
+
+function filterJobRowsByStatus(rows, status) {
+  if (!status) return rows || [];
+  return (rows || []).filter((row) => row.job?.Status === status);
+}
+
+function renderRecentJobFilter() {
+  return `
+    <label class="inline-filter compact-filter">状态
+      <select name="recentJobStatus">
+        <option value="" ${state.recentJobStatus === '' ? 'selected' : ''}>全部</option>
+        <option value="pending" ${state.recentJobStatus === 'pending' ? 'selected' : ''}>待开始</option>
+        <option value="running" ${state.recentJobStatus === 'running' ? 'selected' : ''}>运行中</option>
+        <option value="paused" ${state.recentJobStatus === 'paused' ? 'selected' : ''}>已暂停</option>
+        <option value="stopped" ${state.recentJobStatus === 'stopped' ? 'selected' : ''}>已停止</option>
+        <option value="finished" ${state.recentJobStatus === 'finished' ? 'selected' : ''}>已完成</option>
+      </select>
+    </label>
   `;
 }
 
@@ -401,9 +421,12 @@ function renderJobsPage() {
   `;
 }
 
-function renderJobsTable(jobRows, title) {
+function renderJobsTable(jobRows, title, toolbar = '') {
   const rows = jobRows.map((row) => {
     const job = row.job;
+    const deleteButton = job.Status === 'running'
+      ? ''
+      : `<button class="secondary small danger" data-action="delete-job" data-id="${job.ID}">删除</button>`;
     return `
       <tr>
         <td>${job.ID}</td>
@@ -424,13 +447,17 @@ function renderJobsTable(jobRows, title) {
           <button class="secondary small" data-action="show-items" data-id="${job.ID}">明细</button>
           <button class="secondary small" data-action="export-success" data-id="${job.ID}">导出成功</button>
           <button class="secondary small" data-action="export-failed" data-id="${job.ID}">导出失败</button>
+          ${deleteButton}
         </td>
       </tr>
     `;
   }).join('');
   return `
     <section class="panel table-panel">
-      <h2>${title}</h2>
+      <div class="panel-heading">
+        <h2>${title}</h2>
+        ${toolbar}
+      </div>
       <table>
         <thead><tr><th>ID</th><th>名称</th><th>模式</th><th>状态</th><th>总数</th><th>待处理</th><th>处理中</th><th>成功</th><th>失败</th><th>更新时间</th><th>操作</th></tr></thead>
         <tbody>${rows || emptyRow(11)}</tbody>
@@ -665,6 +692,17 @@ document.addEventListener('click', async (event) => {
     if (action === 'pause-job') await api().PauseJob(id);
     if (action === 'resume-job') await api().ResumeJob(id);
     if (action === 'stop-job') await api().StopJob(id);
+    if (action === 'delete-job') {
+      if (!confirm(`确认删除任务 #${id}？`)) return;
+      await api().DeleteJob(id);
+      if (state.selectedJobId === id) {
+        state.selectedJobId = 0;
+        state.selectedItems = [];
+      }
+      if (state.page === 'jobs') {
+        await loadJobsPage(state.jobsPageNo);
+      }
+    }
     if (action === 'jobs-prev') {
       await loadJobsPage(state.jobsPageNo - 1);
       render();
@@ -689,7 +727,7 @@ document.addEventListener('click', async (event) => {
       const path = prompt('成功文件输出路径', `success-${id}.txt`);
       if (path) await api().ExportSucceeded(id, path);
     }
-    if (['run-job', 'pause-job', 'resume-job', 'stop-job', 'export-failed', 'export-success'].includes(action)) {
+    if (['run-job', 'pause-job', 'resume-job', 'stop-job', 'delete-job', 'export-failed', 'export-success'].includes(action)) {
       await refresh({ keepMessage: true });
       showMessage('操作已提交');
     } else {
@@ -703,6 +741,10 @@ document.addEventListener('click', async (event) => {
 document.addEventListener('change', (event) => {
   if (event.target?.name === 'taskTemplateId' && event.target.closest('#job-form')) {
     fillJobFromTaskTemplate(event.target.value);
+  }
+  if (event.target?.name === 'recentJobStatus') {
+    state.recentJobStatus = event.target.value;
+    render();
   }
   if (event.target?.name === 'jobItemJobId') {
     const id = Number(event.target.value || 0);

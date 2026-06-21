@@ -188,3 +188,78 @@ func TestStoreListJobsPageReturnsTotalAndOffset(t *testing.T) {
 		t.Fatalf("paged jobs ids = %d,%d want 3,2", jobs[0].ID, jobs[1].ID)
 	}
 }
+
+func TestStoreDeleteJobRemovesJobItemsAndEvents(t *testing.T) {
+	store := newTestStore(t)
+	job, items, err := store.CreateJob(domain.Job{
+		Name:            "delete-me",
+		ProfileID:       1,
+		TaskType:        domain.TaskTypeReceiveCode,
+		PhoneSourceType: domain.SourceTypeTXT,
+		Status:          domain.JobStatusPending,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}, []domain.JobItem{
+		{Phone: "18507561351", Status: domain.JobItemStatusPending},
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if _, err := store.AddEvent(domain.Event{
+		JobID:     job.ID,
+		ItemID:    items[0].ID,
+		Phone:     items[0].Phone,
+		Level:     "info",
+		EventType: "test",
+		Message:   "created",
+		CreatedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("add event: %v", err)
+	}
+
+	if err := store.DeleteJob(job.ID); err != nil {
+		t.Fatalf("delete job: %v", err)
+	}
+	if _, err := store.GetJob(job.ID); err == nil {
+		t.Fatal("get deleted job should fail")
+	}
+	gotItems, err := store.ListJobItems(job.ID)
+	if err != nil {
+		t.Fatalf("list deleted job items: %v", err)
+	}
+	if len(gotItems) != 0 {
+		t.Fatalf("deleted job items = %#v", gotItems)
+	}
+}
+
+func TestStoreDeleteJobRejectsRunningJob(t *testing.T) {
+	store := newTestStore(t)
+	job, items, err := store.CreateJob(domain.Job{
+		Name:            "running",
+		ProfileID:       1,
+		TaskType:        domain.TaskTypeReceiveCode,
+		PhoneSourceType: domain.SourceTypeTXT,
+		Status:          domain.JobStatusRunning,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
+	}, []domain.JobItem{
+		{Phone: "18507561351", Status: domain.JobItemStatusPending},
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := store.DeleteJob(job.ID); err == nil {
+		t.Fatal("delete running job should fail")
+	}
+	if _, err := store.GetJob(job.ID); err != nil {
+		t.Fatalf("running job should remain: %v", err)
+	}
+	gotItems, err := store.ListJobItems(job.ID)
+	if err != nil {
+		t.Fatalf("list running job items: %v", err)
+	}
+	if len(gotItems) != len(items) {
+		t.Fatalf("running job items = %d, want %d", len(gotItems), len(items))
+	}
+}

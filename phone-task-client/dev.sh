@@ -15,10 +15,13 @@ fi
 
 cd "${ROOT_DIR}"
 export GOCACHE="${GOCACHE:-/private/tmp/qr-go-build-cache}"
+export PHONE_TASK_CLIENT_DEV_DIR="${PHONE_TASK_CLIENT_DEV_DIR:-${ROOT_DIR}/.dev}"
 
 echo "starting Wails dev server..."
 echo "root: ${ROOT_DIR}"
 echo "wails: ${WAILS_BIN}"
 echo "gocache: ${GOCACHE}"
+echo "dev data: ${PHONE_TASK_CLIENT_DEV_DIR}/data"
+echo "dev logs: ${PHONE_TASK_CLIENT_DEV_DIR}/logs"
 
 exec "${WAILS_BIN}" dev "$@"

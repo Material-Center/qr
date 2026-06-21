@@ -277,6 +277,14 @@ p {
   min-width: 190px;
 }
 
+.compact-filter {
+  min-width: 170px;
+}
+
+.compact-filter select {
+  min-width: 110px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(160px, 1fr));

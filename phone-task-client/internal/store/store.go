@@ -263,6 +263,28 @@ func (s *Store) UpdateJob(job domain.Job) error {
 	return s.db.Save(&model).Error
 }
 
+func (s *Store) DeleteJob(jobID int64) error {
+	if jobID == 0 {
+		return errors.New("job id is required")
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var job jobModel
+		if err := tx.First(&job, jobID).Error; err != nil {
+			return err
+		}
+		if domain.JobStatus(job.Status) == domain.JobStatusRunning {
+			return errors.New("running job cannot be deleted")
+		}
+		if err := tx.Where("job_id = ?", jobID).Delete(&eventModel{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("job_id = ?", jobID).Delete(&jobItemModel{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&jobModel{}, jobID).Error
+	})
+}
+
 func (s *Store) ListJobItems(jobID int64) ([]domain.JobItem, error) {
 	var models []jobItemModel
 	if err := s.db.Where("job_id = ?", jobID).Order("id asc").Find(&models).Error; err != nil {
