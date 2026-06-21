@@ -425,7 +425,7 @@ function renderJobsTable(jobRows, title, toolbar = '') {
   const rows = jobRows.map((row) => {
     const job = row.job;
     const deleteButton = job.Status === 'running'
-      ? ''
+      ? '<button class="secondary small danger" disabled title="执行中的任务需要先停止">先停止</button>'
       : `<button class="secondary small danger" data-action="delete-job" data-id="${job.ID}">删除</button>`;
     return `
       <tr>

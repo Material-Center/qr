@@ -273,7 +273,7 @@ func (s *Store) DeleteJob(jobID int64) error {
 			return err
 		}
 		if domain.JobStatus(job.Status) == domain.JobStatusRunning {
-			return errors.New("running job cannot be deleted")
+			return errors.New("执行中的任务不能删除，请先停止")
 		}
 		if err := tx.Where("job_id = ?", jobID).Delete(&eventModel{}).Error; err != nil {
 			return err

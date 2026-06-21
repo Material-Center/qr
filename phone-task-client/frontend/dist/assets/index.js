@@ -166,7 +166,7 @@
     ${j(e.jobs||[],"\u4EFB\u52A1\u5386\u53F2")}
     ${q(e)}
     ${X(e.jobs||[])}
-  `:'<section class="panel">\u6B63\u5728\u52A0\u8F7D\u4EFB\u52A1\u5386\u53F2...</section>'}function j(e,t,a=""){const s=e.map(n=>{const r=n.job,d=r.Status==="running"?"":`<button class="secondary small danger" data-action="delete-job" data-id="${r.ID}">\u5220\u9664</button>`;return`
+  `:'<section class="panel">\u6B63\u5728\u52A0\u8F7D\u4EFB\u52A1\u5386\u53F2...</section>'}function j(e,t,a=""){const s=e.map(n=>{const r=n.job,d=r.Status==="running"?'<button class="secondary small danger" disabled title="\u6267\u884C\u4E2D\u7684\u4EFB\u52A1\u9700\u8981\u5148\u505C\u6B62">\u5148\u505C\u6B62</button>':`<button class="secondary small danger" data-action="delete-job" data-id="${r.ID}">\u5220\u9664</button>`;return`
       <tr>
         <td>${r.ID}</td>
         <td>${l(r.Name)}</td>

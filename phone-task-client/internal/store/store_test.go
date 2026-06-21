@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -251,6 +252,8 @@ func TestStoreDeleteJobRejectsRunningJob(t *testing.T) {
 
 	if err := store.DeleteJob(job.ID); err == nil {
 		t.Fatal("delete running job should fail")
+	} else if !strings.Contains(err.Error(), "请先停止") {
+		t.Fatalf("delete running job error = %q", err.Error())
 	}
 	if _, err := store.GetJob(job.ID); err != nil {
 		t.Fatalf("running job should remain: %v", err)
