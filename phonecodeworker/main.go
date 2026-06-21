@@ -38,6 +38,7 @@ func run() error {
 		input         = flag.String("input", "", "import file path; first non-empty line is code API, remaining lines are phones")
 		statePath     = flag.String("state", "", "state file path; default is <input>.state.json")
 		failedPath    = flag.String("failed-output", "", "failed import output path; default is <input>.failed.txt")
+		successPath   = flag.String("success-output", "", "succeeded import output path; default is <input>.success.txt")
 		pauseFile     = flag.String("pause-file", defaultPauseFile("phonecodeworker.pause"), "pause control file path; when present, no new tasks are created")
 		logDir        = flag.String("log-dir", defaultLogDir(), "log directory; a new log file is created on startup and rotated daily")
 		interval      = flag.Duration("interval", 3*time.Second, "poll interval")
@@ -60,6 +61,9 @@ func run() error {
 	}
 	if *failedPath == "" {
 		*failedPath = *input + ".failed.txt"
+	}
+	if *successPath == "" {
+		*successPath = *input + ".success.txt"
 	}
 
 	data, err := LoadImportFile(*input)
@@ -86,6 +90,7 @@ func run() error {
 		Input:         *input,
 		StatePath:     *statePath,
 		FailedPath:    *failedPath,
+		SuccessPath:   *successPath,
 		PauseFile:     *pauseFile,
 		LogDir:        *logDir,
 		CodeAPI:       state.CodeAPI,
@@ -97,14 +102,15 @@ func run() error {
 		Timeout:       *timeout,
 		Once:          *once,
 	}))
-	logger.Printf("loaded import input=%s state=%s failedOutput=%s phones=%d baseURL=%s interval=%s idleThreshold=%d createDelay=%s taskSyncLimit=%d timeout=%s logDir=%s once=%t",
-		*input, *statePath, *failedPath, len(state.Records), *baseURL, *interval, *idleThreshold, *createDelay, *taskSyncLimit, *timeout, *logDir, *once)
+	logger.Printf("loaded import input=%s state=%s failedOutput=%s successOutput=%s phones=%d baseURL=%s interval=%s idleThreshold=%d createDelay=%s taskSyncLimit=%d timeout=%s logDir=%s once=%t",
+		*input, *statePath, *failedPath, *successPath, len(state.Records), *baseURL, *interval, *idleThreshold, *createDelay, *taskSyncLimit, *timeout, *logDir, *once)
 	worker := NewWorker(workerConfig{
 		System:        NewSystemClient(*baseURL, *token, *timeout),
 		CodeSource:    NewCodeSourceClient(state.CodeAPI, *timeout),
 		State:         state,
 		StatePath:     *statePath,
 		FailedPath:    *failedPath,
+		SuccessPath:   *successPath,
 		PauseFile:     *pauseFile,
 		IdleThreshold: *idleThreshold,
 		Interval:      *interval,
@@ -138,6 +144,7 @@ type startupSettings struct {
 	Input         string
 	StatePath     string
 	FailedPath    string
+	SuccessPath   string
 	PauseFile     string
 	LogDir        string
 	CodeAPI       string
@@ -152,7 +159,7 @@ type startupSettings struct {
 
 func formatStartupSettings(s startupSettings) string {
 	return fmt.Sprintf(
-		"version=%s gitCommit=%s buildTime=%s baseURL=%s token=%s input=%s state=%s failedOutput=%s pauseFile=%s logDir=%s codeAPI=%s phones=%d interval=%s idleThreshold=%d createDelay=%s taskSyncLimit=%d timeout=%s once=%t",
+		"version=%s gitCommit=%s buildTime=%s baseURL=%s token=%s input=%s state=%s failedOutput=%s successOutput=%s pauseFile=%s logDir=%s codeAPI=%s phones=%d interval=%s idleThreshold=%d createDelay=%s taskSyncLimit=%d timeout=%s once=%t",
 		strings.TrimSpace(s.Version),
 		strings.TrimSpace(s.GitCommit),
 		strings.TrimSpace(s.BuildTime),
@@ -161,6 +168,7 @@ func formatStartupSettings(s startupSettings) string {
 		strings.TrimSpace(s.Input),
 		strings.TrimSpace(s.StatePath),
 		strings.TrimSpace(s.FailedPath),
+		strings.TrimSpace(s.SuccessPath),
 		strings.TrimSpace(s.PauseFile),
 		strings.TrimSpace(s.LogDir),
 		sanitizeStartupURL(s.CodeAPI),

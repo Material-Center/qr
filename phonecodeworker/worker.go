@@ -27,6 +27,7 @@ type workerConfig struct {
 	State          *State
 	StatePath      string
 	FailedPath     string
+	SuccessPath    string
 	PauseFile      string
 	IdleThreshold  int64
 	Interval       time.Duration
@@ -42,6 +43,7 @@ type Worker struct {
 	State          *State
 	StatePath      string
 	FailedPath     string
+	SuccessPath    string
 	PauseFile      string
 	IdleThreshold  int64
 	Interval       time.Duration
@@ -91,6 +93,7 @@ func NewWorker(cfg workerConfig) *Worker {
 		State:          cfg.State,
 		StatePath:      cfg.StatePath,
 		FailedPath:     strings.TrimSpace(cfg.FailedPath),
+		SuccessPath:    strings.TrimSpace(cfg.SuccessPath),
 		PauseFile:      strings.TrimSpace(cfg.PauseFile),
 		IdleThreshold:  idleThreshold,
 		Interval:       interval,
@@ -126,8 +129,8 @@ func (w *Worker) RunOnce(ctx context.Context) (err error) {
 		return err
 	}
 	defer func() {
-		if exportErr := w.exportFailedImportFile(); exportErr != nil {
-			w.logger.Printf("failed import export error path=%s err=%v", w.FailedPath, exportErr)
+		if exportErr := w.exportImportFiles(); exportErr != nil {
+			w.logger.Printf("import export error failedPath=%s successPath=%s err=%v", w.FailedPath, w.SuccessPath, exportErr)
 			if err == nil {
 				err = exportErr
 			}
@@ -498,11 +501,18 @@ func (w *Worker) save() error {
 		w.logger.Printf("state save failed path=%s err=%v", w.StatePath, err)
 		return err
 	}
-	if err := w.exportFailedImportFile(); err != nil {
+	if err := w.exportImportFiles(); err != nil {
 		return err
 	}
 	w.logger.Printf("state saved path=%s %s", w.StatePath, w.stateSummary())
 	return nil
+}
+
+func (w *Worker) exportImportFiles() error {
+	if err := w.exportFailedImportFile(); err != nil {
+		return err
+	}
+	return w.exportSucceededImportFile()
 }
 
 func (w *Worker) exportFailedImportFile() error {
@@ -515,6 +525,20 @@ func (w *Worker) exportFailedImportFile() error {
 	failedCount := len(w.State.failedPhones())
 	if failedCount > 0 {
 		w.logger.Printf("failed import file updated path=%s failed=%d", w.FailedPath, failedCount)
+	}
+	return nil
+}
+
+func (w *Worker) exportSucceededImportFile() error {
+	if strings.TrimSpace(w.SuccessPath) == "" {
+		return nil
+	}
+	if err := SaveSucceededImportFile(w.SuccessPath, w.State); err != nil {
+		return err
+	}
+	succeededCount := len(w.State.succeededPhones())
+	if succeededCount > 0 {
+		w.logger.Printf("succeeded import file updated path=%s succeeded=%d", w.SuccessPath, succeededCount)
 	}
 	return nil
 }

@@ -24,7 +24,7 @@ go run . \
 
 如果服务端任务已经超时失效，工具会清掉旧任务并把手机号重新放回待创建队列，默认额外重建 1 次；普通失败不会自动重建。
 
-失败手机号会自动输出到 `<input>.failed.txt`，格式和原导入文件一致：第一行是验证码 API，后续每行一个执行失败的手机号，可直接作为下一批导入文件使用。
+失败手机号会自动输出到 `<input>.failed.txt`，成功手机号会自动输出到 `<input>.success.txt`。两个文件格式都和原导入文件一致：第一行是验证码 API，后续每行一个手机号，可直接作为下一批导入文件使用。
 
 ## 参数
 
@@ -34,6 +34,7 @@ go run . \
 -input           导入文件路径，必填
 -state           状态文件路径，默认 <input>.state.json
 -failed-output   失败手机号导出路径，默认 <input>.failed.txt
+-success-output  成功手机号导出路径，默认 <input>.success.txt
 -pause-file      暂停控制文件路径，默认同程序目录 phonecodeworker.pause；文件存在时不创建新任务，但会继续同步已创建任务
 -log-dir         日志目录，默认同程序目录 logs；每次启动创建新日志文件，程序跨天运行时自动切换到新日期日志
 -interval        检查间隔，默认 3s

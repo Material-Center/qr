@@ -95,21 +95,31 @@ func SaveFailedImportFile(path string, state *State) error {
 	if strings.TrimSpace(path) == "" || state == nil {
 		return nil
 	}
-	phones := state.failedPhones()
+	return saveImportPhonesFile(path, state.CodeAPI, state.failedPhones(), ".phonecodeworker-failed-*.tmp")
+}
+
+func SaveSucceededImportFile(path string, state *State) error {
+	if strings.TrimSpace(path) == "" || state == nil {
+		return nil
+	}
+	return saveImportPhonesFile(path, state.CodeAPI, state.succeededPhones(), ".phonecodeworker-success-*.tmp")
+}
+
+func saveImportPhonesFile(path string, codeAPI string, phones []string, pattern string) error {
+	var builder strings.Builder
 	if len(phones) == 0 {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 		return nil
 	}
-	var builder strings.Builder
-	builder.WriteString(cleanCodeAPI(state.CodeAPI))
+	builder.WriteString(cleanCodeAPI(codeAPI))
 	builder.WriteByte('\n')
 	for _, phone := range phones {
 		builder.WriteString(phone)
 		builder.WriteByte('\n')
 	}
-	return writeFileAtomic(path, []byte(builder.String()), ".phonecodeworker-failed-*.tmp")
+	return writeFileAtomic(path, []byte(builder.String()), pattern)
 }
 
 func writeFileAtomic(path string, raw []byte, pattern string) error {
@@ -213,6 +223,22 @@ func (s *State) failedPhones() []string {
 	}
 	for _, rec := range s.Records {
 		if rec.Status == recordStatusFailed {
+			phone := strings.TrimSpace(rec.Phone)
+			if phone != "" {
+				phones = append(phones, phone)
+			}
+		}
+	}
+	return phones
+}
+
+func (s *State) succeededPhones() []string {
+	phones := []string{}
+	if s == nil {
+		return phones
+	}
+	for _, rec := range s.Records {
+		if rec.Status == recordStatusSucceeded {
 			phone := strings.TrimSpace(rec.Phone)
 			if phone != "" {
 				phones = append(phones, phone)

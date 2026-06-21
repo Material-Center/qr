@@ -703,6 +703,63 @@ func TestRunOnceWritesFailedImportFile(t *testing.T) {
 	}
 }
 
+func TestRunOnceWritesSucceededImportFile(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "phones.txt")
+	statePath := filepath.Join(dir, "state.json")
+	successPath := filepath.Join(dir, "phones.success.txt")
+	codeAPI := "https://code.test/?phone="
+	state := NewState(inputPath, codeAPI, []string{"18507561351"})
+	state.Records[0].TaskID = 9
+	state.Records[0].Status = recordStatusCreated
+	if err := SaveStateFile(statePath, state); err != nil {
+		t.Fatalf("save state: %v", err)
+	}
+
+	systemServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/phoneRegisterTask/open-api/promoter/task/9":
+			writeAPIResponse(t, w, 0, map[string]any{
+				"id":               float64(9),
+				"phone":            "18507561351",
+				"smsReceiveMode":   smsReceiveModePlatformSend,
+				"status":           "succeeded",
+				"needPromoterCode": false,
+			})
+		default:
+			t.Fatalf("unexpected system path: %s", r.URL.Path)
+		}
+	}))
+	defer systemServer.Close()
+	codeServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("code api should not be called for succeeded task")
+	}))
+	defer codeServer.Close()
+
+	loaded, err := LoadStateFile(statePath)
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	worker := NewWorker(workerConfig{
+		System:      NewSystemClient(systemServer.URL, "openapi-token", time.Second),
+		CodeSource:  NewCodeSourceClient(codeServer.URL+"?phone=", time.Second),
+		State:       loaded,
+		StatePath:   statePath,
+		SuccessPath: successPath,
+	})
+
+	if err := worker.RunOnce(t.Context()); err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	raw, err := os.ReadFile(successPath)
+	if err != nil {
+		t.Fatalf("read succeeded import file: %v", err)
+	}
+	if got, want := string(raw), codeAPI+"\n18507561351\n"; got != want {
+		t.Fatalf("succeeded import file = %q, want %q", got, want)
+	}
+}
+
 func TestRunOnceSyncsAllActiveTasks(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
