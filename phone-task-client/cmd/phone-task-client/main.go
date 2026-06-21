@@ -53,6 +53,7 @@ func run() error {
 		createDelay    = flag.Duration("create-delay", 0, "server-side create delay for this user")
 		timeout        = flag.Duration("timeout", 10*time.Second, "HTTP request timeout")
 		failedOutput   = flag.String("failed-output", "", "failed retry file output path")
+		successOutput  = flag.String("success-output", "", "succeeded file output path")
 		pauseJob       = flag.Int64("pause-job", 0, "pause an existing job id and exit")
 		resumeJob      = flag.Int64("resume-job", 0, "resume an existing job id and exit")
 		stopJob        = flag.Int64("stop-job", 0, "stop an existing job id and exit")
@@ -139,11 +140,11 @@ func run() error {
 		select {
 		case <-ctx.Done():
 			log.Printf("stop requested, state saved db=%s job=%d", *dbPath, job.ID)
-			return exportFailed(st, job.ID, *failedOutput)
+			return exportJobFiles(st, job.ID, *failedOutput, *successOutput)
 		case <-time.After(*interval):
 		}
 	}
-	return exportFailed(st, job.ID, *failedOutput)
+	return exportJobFiles(st, job.ID, *failedOutput, *successOutput)
 }
 
 type createJobOptions struct {
@@ -307,6 +308,21 @@ func jobDone(st *store.Store, jobID int64) (bool, error) {
 }
 
 func exportFailed(st *store.Store, jobID int64, path string) error {
+	return exportJobFile(st, jobID, path, phoneexport.BuildFailedRetryFile)
+}
+
+func exportSucceeded(st *store.Store, jobID int64, path string) error {
+	return exportJobFile(st, jobID, path, phoneexport.BuildSucceededFile)
+}
+
+func exportJobFiles(st *store.Store, jobID int64, failedPath string, successPath string) error {
+	if err := exportFailed(st, jobID, failedPath); err != nil {
+		return err
+	}
+	return exportSucceeded(st, jobID, successPath)
+}
+
+func exportJobFile(st *store.Store, jobID int64, path string, build func(domain.Job, []domain.JobItem) (string, error)) error {
 	if strings.TrimSpace(path) == "" {
 		return nil
 	}
@@ -318,7 +334,7 @@ func exportFailed(st *store.Store, jobID int64, path string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := phoneexport.BuildFailedRetryFile(job, items)
+	raw, err := build(job, items)
 	if err != nil {
 		return err
 	}

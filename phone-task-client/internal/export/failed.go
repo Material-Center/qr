@@ -9,6 +9,29 @@ import (
 )
 
 func BuildFailedRetryFile(job domain.Job, items []domain.JobItem) (string, error) {
+	return buildStatusFile(job, items, domain.JobItemStatusFailed)
+}
+
+func BuildSucceededFile(job domain.Job, items []domain.JobItem) (string, error) {
+	return buildStatusFile(job, items, domain.JobItemStatusSucceeded)
+}
+
+func buildStatusFile(job domain.Job, items []domain.JobItem, status domain.JobItemStatus) (string, error) {
+	phones := []string{}
+	for _, item := range items {
+		if item.Status != status {
+			continue
+		}
+		phone := strings.TrimSpace(item.Phone)
+		if phone == "" {
+			continue
+		}
+		phones = append(phones, phone)
+	}
+	if len(phones) == 0 {
+		return "", nil
+	}
+
 	var builder strings.Builder
 	if job.TaskType == domain.TaskTypeReceiveCode {
 		codeAPI := retryCodeAPI(job.CodeSourceConfigJSON)
@@ -17,11 +40,8 @@ func BuildFailedRetryFile(job domain.Job, items []domain.JobItem) (string, error
 			builder.WriteByte('\n')
 		}
 	}
-	for _, item := range items {
-		if item.Status != domain.JobItemStatusFailed {
-			continue
-		}
-		builder.WriteString(strings.TrimSpace(item.Phone))
+	for _, phone := range phones {
+		builder.WriteString(phone)
 		builder.WriteByte('\n')
 	}
 	return builder.String(), nil

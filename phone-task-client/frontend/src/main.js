@@ -5,6 +5,9 @@ const app = document.querySelector('#app');
 const state = {
   page: 'dashboard',
   dashboard: null,
+  jobsPage: null,
+  jobsPageNo: 1,
+  jobsPageSize: 20,
   selectedJobId: 0,
   selectedItems: [],
   message: '',
@@ -121,12 +124,31 @@ function showMessage(message, isError = false) {
 async function refresh(options = {}) {
   try {
     state.dashboard = await api().Dashboard();
+    if (state.page === 'jobs') {
+      await loadJobsPage(state.jobsPageNo);
+    }
+    if (state.selectedJobId) {
+      const rows = state.page === 'jobs' && state.jobsPage ? state.jobsPage.jobs : state.dashboard.jobs;
+      const exists = rows.some((row) => Number(row.job.ID) === Number(state.selectedJobId));
+      if (exists) {
+        state.selectedItems = await api().ListJobItems(state.selectedJobId);
+      } else {
+        state.selectedJobId = 0;
+        state.selectedItems = [];
+      }
+    }
     state.error = '';
     if (options.keepMessage !== true) state.message = '';
   } catch (error) {
     state.error = String(error);
   }
   render();
+}
+
+async function loadJobsPage(page = 1) {
+  const nextPage = Math.max(1, Number(page || 1));
+  state.jobsPage = await api().ListJobsPage(nextPage, state.jobsPageSize);
+  state.jobsPageNo = state.jobsPage.page || nextPage;
 }
 
 function render() {
@@ -142,15 +164,13 @@ function render() {
   app.innerHTML = `
     <main class="shell">
       <aside class="nav">
-        <div class="brand">Phone Task Client</div>
+        <div class="brand"><span class="brand-icon" title="Phone Task Client">PT</span><span class="version-badge">${h(dash.status.version || '-')}</span></div>
         ${pages.map(([key, label]) => `<button class="nav-item ${state.page === key ? 'active' : ''}" data-page="${key}">${label}</button>`).join('')}
       </aside>
       <section class="content">
         <header class="topbar">
           <div>
             <h1>${h(pageTitle())}</h1>
-            <p>${h(dash.status.description)}</p>
-            <p class="version-line">版本 ${h(dash.status.version || '-')} / commit ${h(dash.status.gitCommit || '-')}</p>
           </div>
           <button class="secondary" data-action="refresh">刷新</button>
         </header>
@@ -177,7 +197,7 @@ function renderPage() {
     case 'tasks':
       return renderTaskTemplates();
     case 'jobs':
-      return renderJobs(true);
+      return renderJobsPage();
     default:
       return renderDashboard();
   }
@@ -194,6 +214,7 @@ function renderDashboard() {
     return acc;
   }, { total: 0, pending: 0, active: 0, succeeded: 0, failed: 0 });
   return `
+    ${renderDeviceStats()}
     <section class="metrics">
       <div class="metric"><span>任务数</span><strong>${dash.jobs.length}</strong></div>
       <div class="metric"><span>处理中</span><strong>${totals.pending + totals.active}</strong></div>
@@ -202,6 +223,22 @@ function renderDashboard() {
     </section>
     ${renderCreateJob()}
     ${renderJobs(false)}
+  `;
+}
+
+function renderDeviceStats() {
+  const stats = state.dashboard?.deviceStats || {};
+  const error = stats.lastError ? `<div class="device-error">${h(stats.lastError)}</div>` : '';
+  return `
+    <section class="device-band">
+      <div class="device-inline">
+        <span>在线 <strong>${h(stats.online ?? 0)}</strong></span>
+        <span>空闲 <strong>${h(stats.idle ?? 0)}</strong></span>
+        <span>可创建 <strong>${h(stats.capacity ?? 0)}</strong></span>
+        <span>本地保留 <strong>${h(stats.reserve ?? 0)}</strong></span>
+      </div>
+      ${error}
+    </section>
   `;
 }
 
@@ -338,14 +375,34 @@ function renderCreateJob() {
         <label>手机号 API<select name="phoneApiTemplateId">${templateOptions(apiItems, 0, 'phone_source')}</select></label>
         <label>验证码 API<select name="codeApiTemplateId">${templateOptions(apiItems, 0, 'code_source')}</select></label>
         <label class="wide">TXT 文件路径<input name="inputPath" placeholder="C:\\path\\phones.txt"></label>
-        <div class="form-actions"><button type="submit">创建并运行</button></div>
+        <div class="form-actions"><button type="submit">创建任务</button></div>
       </form>
     </section>
   `;
 }
 
 function renderJobs(includeItems) {
-  const rows = state.dashboard.jobs.map((row) => {
+  const title = includeItems ? '任务历史' : '最近任务';
+  return `
+    ${renderJobsTable(state.dashboard.jobs, title)}
+    ${includeItems ? renderItems() : ''}
+  `;
+}
+
+function renderJobsPage() {
+  const page = state.jobsPage;
+  if (!page) {
+    return '<section class="panel">正在加载任务历史...</section>';
+  }
+  return `
+    ${renderJobsTable(page.jobs || [], '任务历史')}
+    ${renderPagination(page)}
+    ${renderItems(page.jobs || [])}
+  `;
+}
+
+function renderJobsTable(jobRows, title) {
+  const rows = jobRows.map((row) => {
     const job = row.job;
     return `
       <tr>
@@ -365,6 +422,7 @@ function renderJobs(includeItems) {
           <button class="secondary small" data-action="resume-job" data-id="${job.ID}">继续</button>
           <button class="secondary small danger" data-action="stop-job" data-id="${job.ID}">停止</button>
           <button class="secondary small" data-action="show-items" data-id="${job.ID}">明细</button>
+          <button class="secondary small" data-action="export-success" data-id="${job.ID}">导出成功</button>
           <button class="secondary small" data-action="export-failed" data-id="${job.ID}">导出失败</button>
         </td>
       </tr>
@@ -372,17 +430,35 @@ function renderJobs(includeItems) {
   }).join('');
   return `
     <section class="panel table-panel">
-      <h2>任务列表</h2>
+      <h2>${title}</h2>
       <table>
         <thead><tr><th>ID</th><th>名称</th><th>模式</th><th>状态</th><th>总数</th><th>待处理</th><th>处理中</th><th>成功</th><th>失败</th><th>更新时间</th><th>操作</th></tr></thead>
         <tbody>${rows || emptyRow(11)}</tbody>
       </table>
     </section>
-    ${includeItems ? renderItems() : ''}
   `;
 }
 
-function renderItems() {
+function renderPagination(page) {
+  const total = Number(page.total || 0);
+  const pageSize = Number(page.pageSize || state.jobsPageSize);
+  const current = Number(page.page || state.jobsPageNo);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return `
+    <section class="pager">
+      <button class="secondary small" data-action="jobs-prev" ${current <= 1 ? 'disabled' : ''}>上一页</button>
+      <span>第 ${current} / ${totalPages} 页，共 ${total} 个任务</span>
+      <button class="secondary small" data-action="jobs-next" ${current >= totalPages ? 'disabled' : ''}>下一页</button>
+    </section>
+  `;
+}
+
+function renderItems(jobRows = state.dashboard?.jobs || []) {
+  const options = ['<option value="0">请选择任务</option>'];
+  for (const row of jobRows || []) {
+    const job = row.job;
+    options.push(`<option value="${job.ID}" ${Number(state.selectedJobId) === Number(job.ID) ? 'selected' : ''}>#${job.ID} ${h(job.Name || '')}</option>`);
+  }
   const rows = state.selectedItems.map((item) => `
     <tr>
       <td>${item.ID}</td>
@@ -397,7 +473,10 @@ function renderItems() {
   `).join('');
   return `
     <section class="panel table-panel">
-      <h2>任务明细 ${state.selectedJobId ? `#${state.selectedJobId}` : ''}</h2>
+      <div class="panel-heading">
+        <h2>任务明细</h2>
+        <label class="inline-filter">任务<select name="jobItemJobId">${options.join('')}</select></label>
+      </div>
       <table><thead><tr><th>ID</th><th>手机号</th><th>状态</th><th>服务端任务</th><th>远端状态</th><th>验证码</th><th>错误</th><th>更新时间</th></tr></thead><tbody>${rows || emptyRow(8)}</tbody></table>
     </section>
   `;
@@ -547,6 +626,10 @@ document.addEventListener('click', async (event) => {
   const page = target.dataset.page;
   if (page) {
     state.page = page;
+    if (page === 'jobs') {
+      loadJobsPage(state.jobsPageNo).then(() => render()).catch((error) => showMessage(String(error), true));
+      return;
+    }
     render();
     return;
   }
@@ -564,16 +647,31 @@ document.addEventListener('click', async (event) => {
     if (action === 'pause-job') await api().PauseJob(id);
     if (action === 'resume-job') await api().ResumeJob(id);
     if (action === 'stop-job') await api().StopJob(id);
+    if (action === 'jobs-prev') {
+      await loadJobsPage(state.jobsPageNo - 1);
+      render();
+      return;
+    }
+    if (action === 'jobs-next') {
+      await loadJobsPage(state.jobsPageNo + 1);
+      render();
+      return;
+    }
     if (action === 'show-items') {
       state.selectedJobId = id;
       state.selectedItems = await api().ListJobItems(id);
       state.page = 'jobs';
+      await loadJobsPage(state.jobsPageNo);
     }
     if (action === 'export-failed') {
       const path = prompt('失败文件输出路径', `failed-${id}.txt`);
       if (path) await api().ExportFailed(id, path);
     }
-    if (['run-job', 'pause-job', 'resume-job', 'stop-job', 'export-failed'].includes(action)) {
+    if (action === 'export-success') {
+      const path = prompt('成功文件输出路径', `success-${id}.txt`);
+      if (path) await api().ExportSucceeded(id, path);
+    }
+    if (['run-job', 'pause-job', 'resume-job', 'stop-job', 'export-failed', 'export-success'].includes(action)) {
       await refresh({ keepMessage: true });
       showMessage('操作已提交');
     } else {
@@ -587,6 +685,21 @@ document.addEventListener('click', async (event) => {
 document.addEventListener('change', (event) => {
   if (event.target?.name === 'taskTemplateId' && event.target.closest('#job-form')) {
     fillJobFromTaskTemplate(event.target.value);
+  }
+  if (event.target?.name === 'jobItemJobId') {
+    const id = Number(event.target.value || 0);
+    state.selectedJobId = id;
+    if (id <= 0) {
+      state.selectedItems = [];
+      render();
+      return;
+    }
+    api().ListJobItems(id).then((items) => {
+      state.selectedItems = items;
+      render();
+    }).catch((error) => {
+      showMessage(String(error), true);
+    });
   }
 });
 

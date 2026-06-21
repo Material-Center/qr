@@ -39,3 +39,40 @@ func TestBuildFailedRetryFileForSendCodeOnlyPhones(t *testing.T) {
 		t.Fatalf("retry file = %q", got)
 	}
 }
+
+func TestBuildFailedRetryFileReturnsEmptyWhenNoFailedPhones(t *testing.T) {
+	job := domain.Job{
+		TaskType:             domain.TaskTypeReceiveCode,
+		CodeSourceConfigJSON: `{"URL":"https://example.com/code?phone={phone}","Method":"GET"}`,
+	}
+	got, err := BuildFailedRetryFile(job, []domain.JobItem{
+		{Phone: "18507561351", Status: domain.JobItemStatusSucceeded},
+	})
+	if err != nil {
+		t.Fatalf("build retry file: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("retry file = %q, want empty", got)
+	}
+}
+
+func TestBuildSucceededFileForReceiveCode(t *testing.T) {
+	job := domain.Job{
+		TaskType:             domain.TaskTypeReceiveCode,
+		CodeSourceConfigJSON: `{"URL":"https://example.com/code?phone={phone}","Method":"GET"}`,
+	}
+	items := []domain.JobItem{
+		{Phone: "13238381229", Status: domain.JobItemStatusFailed},
+		{Phone: "18507561351", Status: domain.JobItemStatusSucceeded},
+		{Phone: "18507561352", Status: domain.JobItemStatusSucceeded},
+	}
+
+	got, err := BuildSucceededFile(job, items)
+	if err != nil {
+		t.Fatalf("build succeeded file: %v", err)
+	}
+	want := "https://example.com/code?phone={phone}\n18507561351\n18507561352\n"
+	if got != want {
+		t.Fatalf("succeeded file = %q, want %q", got, want)
+	}
+}

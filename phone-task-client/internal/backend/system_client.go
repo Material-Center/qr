@@ -27,8 +27,9 @@ type apiResponse struct {
 	Msg  string          `json:"msg"`
 }
 
-type deviceStatsData struct {
-	DeviceIdleCount int64 `json:"deviceIdleCount"`
+type DeviceStats struct {
+	DeviceOnlineCount int64 `json:"deviceOnlineCount"`
+	DeviceIdleCount   int64 `json:"deviceIdleCount"`
 }
 
 type TaskInfo struct {
@@ -60,11 +61,19 @@ func NewSystemClient(baseURL, token string, timeout time.Duration) *SystemClient
 }
 
 func (c *SystemClient) IdleDeviceCount(ctx context.Context) (int64, error) {
-	var data deviceStatsData
-	if err := c.doJSON(ctx, http.MethodGet, "/phoneRegisterTask/open-api/promoter/device-stats", nil, &data); err != nil {
+	stats, err := c.DeviceStats(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return data.DeviceIdleCount, nil
+	return stats.DeviceIdleCount, nil
+}
+
+func (c *SystemClient) DeviceStats(ctx context.Context) (DeviceStats, error) {
+	var data DeviceStats
+	if err := c.doJSON(ctx, http.MethodGet, "/phoneRegisterTask/open-api/promoter/device-stats", nil, &data); err != nil {
+		return DeviceStats{}, err
+	}
+	return data, nil
 }
 
 func (c *SystemClient) CreateSendCodeTask(ctx context.Context, phone string, createDelay time.Duration) (TaskInfo, error) {

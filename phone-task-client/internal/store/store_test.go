@@ -155,3 +155,36 @@ func TestStoreCreateJobWithItemsAndUpdateItem(t *testing.T) {
 		t.Fatalf("items = %#v", got)
 	}
 }
+
+func TestStoreListJobsPageReturnsTotalAndOffset(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Unix(100, 0)
+	for i := 0; i < 5; i++ {
+		_, _, err := store.CreateJob(domain.Job{
+			Name:            "job",
+			ProfileID:       1,
+			TaskType:        domain.TaskTypeReceiveCode,
+			PhoneSourceType: domain.SourceTypeTXT,
+			Status:          domain.JobStatusPending,
+			CreatedAt:       now.Add(time.Duration(i) * time.Second),
+			UpdatedAt:       now.Add(time.Duration(i) * time.Second),
+		}, nil)
+		if err != nil {
+			t.Fatalf("create job %d: %v", i, err)
+		}
+	}
+
+	jobs, total, err := store.ListJobsPage(2, 2)
+	if err != nil {
+		t.Fatalf("list jobs page: %v", err)
+	}
+	if total != 5 {
+		t.Fatalf("total = %d, want 5", total)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("jobs len = %d, want 2", len(jobs))
+	}
+	if jobs[0].ID != 3 || jobs[1].ID != 2 {
+		t.Fatalf("paged jobs ids = %d,%d want 3,2", jobs[0].ID, jobs[1].ID)
+	}
+}

@@ -15,6 +15,7 @@ set "INTERVAL=3s"
 set "CREATE_DELAY=0s"
 set "TIMEOUT=10s"
 set "FAILED_OUTPUT=%~dp0failed.txt"
+set "SUCCESS_OUTPUT=%~dp0success.txt"
 
 if not exist "%EXE%" (
   echo executable not found: "%EXE%"
@@ -35,6 +36,7 @@ if not exist "%EXE%" (
   -interval "%INTERVAL%" ^
   -create-delay "%CREATE_DELAY%" ^
   -timeout "%TIMEOUT%" ^
-  -failed-output "%FAILED_OUTPUT%"
+  -failed-output "%FAILED_OUTPUT%" ^
+  -success-output "%SUCCESS_OUTPUT%"
 
 pause

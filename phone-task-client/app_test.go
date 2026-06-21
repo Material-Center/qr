@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"phone-task-client/internal/domain"
 	"phone-task-client/internal/store"
@@ -68,6 +70,179 @@ func TestStatusIncludesBuildVersion(t *testing.T) {
 	}
 	if status.BuildTime != "2026-06-19T00:00:00Z" {
 		t.Fatalf("build time = %q", status.BuildTime)
+	}
+}
+
+func TestStartJobCreatesPendingJobForManualRun(t *testing.T) {
+	st := newAppTestStore(t)
+	if err := st.SaveGlobalSettings(domain.GlobalSettings{
+		BaseURL:  defaultSystemBaseURL,
+		Interval: 3 * time.Second,
+		Timeout:  time.Second,
+	}); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	profile, err := st.SaveProfile(domain.Profile{
+		Name:     "sales-1",
+		TokenRef: "openapi-token",
+		Enabled:  true,
+	})
+	if err != nil {
+		t.Fatalf("save profile: %v", err)
+	}
+	codeAPI, err := st.SaveAPITemplate(domain.APITemplate{
+		Name:         "code-api",
+		APIType:      domain.APITypeCodeSource,
+		Method:       domain.HTTPMethodGET,
+		URL:          "https://code.test/?phone={phone}",
+		ResponseType: domain.ResponseTypeAuto,
+		Enabled:      true,
+	})
+	if err != nil {
+		t.Fatalf("save code api: %v", err)
+	}
+	input := filepath.Join(t.TempDir(), "phones.txt")
+	if err := os.WriteFile(input, []byte("18507561351\n"), 0o644); err != nil {
+		t.Fatalf("write input: %v", err)
+	}
+	app := NewApp()
+	app.store = st
+
+	job, err := app.StartJob(StartJobRequest{
+		Name:              "manual-start",
+		ProfileID:         profile.ID,
+		TaskType:          string(domain.TaskTypeReceiveCode),
+		PhoneSourceType:   string(domain.SourceTypeTXT),
+		CodeAPITemplateID: codeAPI.ID,
+		InputPath:         input,
+	})
+	if err != nil {
+		t.Fatalf("start job: %v", err)
+	}
+	if job.Status != domain.JobStatusPending {
+		t.Fatalf("job status = %s, want %s", job.Status, domain.JobStatusPending)
+	}
+	runnable, err := st.ListRunnableJobs()
+	if err != nil {
+		t.Fatalf("list runnable jobs: %v", err)
+	}
+	if len(runnable) != 0 {
+		t.Fatalf("runnable jobs = %d, want 0", len(runnable))
+	}
+}
+
+func TestDashboardIncludesDeviceStats(t *testing.T) {
+	st := newAppTestStore(t)
+	if err := st.SaveGlobalSettings(domain.GlobalSettings{
+		BaseURL:        defaultSystemBaseURL,
+		ReserveDevices: 1,
+		Interval:       3 * time.Second,
+		Timeout:        time.Second,
+	}); err != nil {
+		t.Fatalf("save settings: %v", err)
+	}
+	if _, err := st.SaveProfile(domain.Profile{
+		Name:     "sales-1",
+		TokenRef: "openapi-token",
+		Enabled:  true,
+	}); err != nil {
+		t.Fatalf("save profile: %v", err)
+	}
+	app := NewApp()
+	app.store = st
+	app.deviceStatsLoader = func(settings domain.GlobalSettings, profiles []domain.Profile) UIDeviceStats {
+		if settings.ReserveDevices != 1 {
+			t.Fatalf("reserve devices = %d", settings.ReserveDevices)
+		}
+		if len(profiles) != 1 || profiles[0].TokenRef != "openapi-token" {
+			t.Fatalf("profiles = %#v", profiles)
+		}
+		return UIDeviceStats{Online: 5, Idle: 3, Reserve: settings.ReserveDevices, Capacity: 2}
+	}
+
+	dashboard, err := app.Dashboard()
+	if err != nil {
+		t.Fatalf("dashboard: %v", err)
+	}
+	if dashboard.DeviceStats.Online != 5 || dashboard.DeviceStats.Idle != 3 || dashboard.DeviceStats.Capacity != 2 {
+		t.Fatalf("device stats = %#v", dashboard.DeviceStats)
+	}
+	if dashboard.DeviceStats.LastError != "" {
+		t.Fatalf("device stats last error = %q", dashboard.DeviceStats.LastError)
+	}
+}
+
+func TestListJobsPageReturnsSummariesAndTotal(t *testing.T) {
+	st := newAppTestStore(t)
+	now := time.Unix(100, 0)
+	for i := 0; i < 4; i++ {
+		_, _, err := st.CreateJob(domain.Job{
+			Name:            "job",
+			ProfileID:       1,
+			TaskType:        domain.TaskTypeReceiveCode,
+			PhoneSourceType: domain.SourceTypeTXT,
+			Status:          domain.JobStatusPending,
+			CreatedAt:       now.Add(time.Duration(i) * time.Second),
+			UpdatedAt:       now.Add(time.Duration(i) * time.Second),
+		}, []domain.JobItem{
+			{Phone: "18507561351", Status: domain.JobItemStatusPending},
+		})
+		if err != nil {
+			t.Fatalf("create job %d: %v", i, err)
+		}
+	}
+	app := NewApp()
+	app.store = st
+
+	page, err := app.ListJobsPage(2, 2)
+	if err != nil {
+		t.Fatalf("list jobs page: %v", err)
+	}
+	if page.Total != 4 || page.Page != 2 || page.PageSize != 2 {
+		t.Fatalf("page metadata = %#v", page)
+	}
+	if len(page.Jobs) != 2 {
+		t.Fatalf("jobs len = %d, want 2", len(page.Jobs))
+	}
+	if page.Jobs[0].Job.ID != 2 || page.Jobs[1].Job.ID != 1 {
+		t.Fatalf("job ids = %d,%d want 2,1", page.Jobs[0].Job.ID, page.Jobs[1].Job.ID)
+	}
+	if page.Jobs[0].Pending != 1 {
+		t.Fatalf("job summary = %#v", page.Jobs[0])
+	}
+}
+
+func TestExportSucceededWritesSucceededPhones(t *testing.T) {
+	st := newAppTestStore(t)
+	job, _, err := st.CreateJob(domain.Job{
+		Name:                 "receive",
+		TaskType:             domain.TaskTypeReceiveCode,
+		PhoneSourceType:      domain.SourceTypeTXT,
+		CodeSourceType:       domain.SourceTypeAPI,
+		CodeSourceConfigJSON: `{"URL":"https://code.test/?phone={phone}","Method":"GET"}`,
+		Status:               domain.JobStatusFinished,
+		CreatedAt:            time.Now(),
+		UpdatedAt:            time.Now(),
+	}, []domain.JobItem{
+		{Phone: "18507561351", Status: domain.JobItemStatusSucceeded},
+		{Phone: "18507561352", Status: domain.JobItemStatusFailed},
+	})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	app := NewApp()
+	app.store = st
+	path := filepath.Join(t.TempDir(), "success.txt")
+
+	if err := app.ExportSucceeded(job.ID, path); err != nil {
+		t.Fatalf("export succeeded: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read succeeded file: %v", err)
+	}
+	if got, want := string(raw), "https://code.test/?phone={phone}\n18507561351\n"; got != want {
+		t.Fatalf("succeeded file = %q, want %q", got, want)
 	}
 }
 

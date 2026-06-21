@@ -30,33 +30,42 @@ var (
 )
 
 type App struct {
-	ctx    context.Context
-	store  *store.Store
-	dbPath string
-	mu     sync.Mutex
-	wg     sync.WaitGroup
-	cancel context.CancelFunc
+	ctx               context.Context
+	store             *store.Store
+	dbPath            string
+	deviceStatsLoader func(domain.GlobalSettings, []domain.Profile) UIDeviceStats
+	mu                sync.Mutex
+	wg                sync.WaitGroup
+	cancel            context.CancelFunc
 }
 
 type AppStatus struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	GitCommit   string `json:"gitCommit"`
-	BuildTime   string `json:"buildTime"`
-	Runtime     string `json:"runtime"`
-	CoreReady   bool   `json:"coreReady"`
-	Storage     string `json:"storage"`
-	DBPath      string `json:"dbPath"`
-	Description string `json:"description"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	GitCommit string `json:"gitCommit"`
+	BuildTime string `json:"buildTime"`
+	Runtime   string `json:"runtime"`
+	CoreReady bool   `json:"coreReady"`
+	Storage   string `json:"storage"`
+	DBPath    string `json:"dbPath"`
 }
 
 type Dashboard struct {
 	Status        AppStatus             `json:"status"`
 	Settings      domain.GlobalSettings `json:"settings"`
+	DeviceStats   UIDeviceStats         `json:"deviceStats"`
 	Profiles      []domain.Profile      `json:"profiles"`
 	APITemplates  []domain.APITemplate  `json:"apiTemplates"`
 	TaskTemplates []domain.TaskTemplate `json:"taskTemplates"`
 	Jobs          []JobSummary          `json:"jobs"`
+}
+
+type UIDeviceStats struct {
+	Online    int64  `json:"online"`
+	Idle      int64  `json:"idle"`
+	Reserve   int64  `json:"reserve"`
+	Capacity  int64  `json:"capacity"`
+	LastError string `json:"lastError"`
 }
 
 type JobSummary struct {
@@ -66,6 +75,13 @@ type JobSummary struct {
 	Active    int        `json:"active"`
 	Succeeded int        `json:"succeeded"`
 	Failed    int        `json:"failed"`
+}
+
+type JobPage struct {
+	Jobs     []JobSummary `json:"jobs"`
+	Total    int64        `json:"total"`
+	Page     int          `json:"page"`
+	PageSize int          `json:"pageSize"`
 }
 
 type StartJobRequest struct {
@@ -138,15 +154,14 @@ func (a *App) shutdown(ctx context.Context) {
 
 func (a *App) Status() AppStatus {
 	return AppStatus{
-		Name:        "Phone Task Client",
-		Version:     version,
-		GitCommit:   gitCommit,
-		BuildTime:   buildTime,
-		Runtime:     runtime.GOOS + "/" + runtime.GOARCH,
-		CoreReady:   a.store != nil,
-		Storage:     "SQLite",
-		DBPath:      a.dbPath,
-		Description: "支持发码、收码、TXT/API 来源、共享设备池、状态恢复、暂停/继续/停止和失败导出。",
+		Name:      "Phone Task Client",
+		Version:   version,
+		GitCommit: gitCommit,
+		BuildTime: buildTime,
+		Runtime:   runtime.GOOS + "/" + runtime.GOARCH,
+		CoreReady: a.store != nil,
+		Storage:   "SQLite",
+		DBPath:    a.dbPath,
 	}
 }
 
@@ -162,6 +177,7 @@ func (a *App) Dashboard() (Dashboard, error) {
 	if err != nil {
 		return Dashboard{}, err
 	}
+	deviceStats := a.dashboardDeviceStats(settings, profiles)
 	apiTemplates, err := a.store.ListAPITemplates()
 	if err != nil {
 		return Dashboard{}, err
@@ -177,6 +193,7 @@ func (a *App) Dashboard() (Dashboard, error) {
 	return Dashboard{
 		Status:        a.Status(),
 		Settings:      settings,
+		DeviceStats:   deviceStats,
 		Profiles:      profiles,
 		APITemplates:  apiTemplates,
 		TaskTemplates: taskTemplates,
@@ -238,7 +255,6 @@ func (a *App) StartJob(req StartJobRequest) (domain.Job, error) {
 	if err != nil {
 		return domain.Job{}, err
 	}
-	a.startLoop()
 	return job, nil
 }
 
@@ -284,7 +300,39 @@ func (a *App) ListJobItems(jobID int64) ([]domain.JobItem, error) {
 	return a.store.ListJobItems(jobID)
 }
 
+func (a *App) ListJobsPage(page int, pageSize int) (JobPage, error) {
+	if err := a.ensureStore(); err != nil {
+		return JobPage{}, err
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	jobs, total, err := a.store.ListJobsPage(page, pageSize)
+	if err != nil {
+		return JobPage{}, err
+	}
+	summaries, err := a.summarizeJobs(jobs)
+	if err != nil {
+		return JobPage{}, err
+	}
+	return JobPage{Jobs: summaries, Total: total, Page: page, PageSize: pageSize}, nil
+}
+
 func (a *App) ExportFailed(jobID int64, path string) error {
+	return a.exportJobFile(jobID, path, phoneexport.BuildFailedRetryFile)
+}
+
+func (a *App) ExportSucceeded(jobID int64, path string) error {
+	return a.exportJobFile(jobID, path, phoneexport.BuildSucceededFile)
+}
+
+func (a *App) exportJobFile(jobID int64, path string, build func(domain.Job, []domain.JobItem) (string, error)) error {
 	if err := a.ensureStore(); err != nil {
 		return err
 	}
@@ -296,7 +344,7 @@ func (a *App) ExportFailed(jobID int64, path string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := phoneexport.BuildFailedRetryFile(job, items)
+	raw, err := build(job, items)
 	if err != nil {
 		return err
 	}
@@ -426,12 +474,64 @@ func (a *App) createJob(req StartJobRequest) (domain.Job, error) {
 		IntervalSnapshot:       settings.Interval,
 		TimeoutSnapshot:        settings.Timeout,
 		CreateDelaySnapshot:    profile.CreateDelay,
-		Status:                 domain.JobStatusRunning,
+		Status:                 domain.JobStatusPending,
 		CreatedAt:              now,
 		UpdatedAt:              now,
 	}
 	job, _, err = a.store.CreateJob(job, items)
 	return job, err
+}
+
+func (a *App) dashboardDeviceStats(settings domain.GlobalSettings, profiles []domain.Profile) UIDeviceStats {
+	if a.deviceStatsLoader != nil {
+		return a.deviceStatsLoader(settings, profiles)
+	}
+	return a.loadDeviceStats(settings, profiles)
+}
+
+func (a *App) loadDeviceStats(settings domain.GlobalSettings, profiles []domain.Profile) UIDeviceStats {
+	out := UIDeviceStats{Reserve: settings.ReserveDevices}
+	profile := firstUsableProfile(profiles)
+	if strings.TrimSpace(settings.BaseURL) == "" || strings.TrimSpace(profile.TokenRef) == "" {
+		out.LastError = "未配置用户Token"
+		return out
+	}
+	client := backend.NewSystemClient(settings.BaseURL, profile.TokenRef, settings.Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout(settings.Timeout))
+	defer cancel()
+	stats, err := client.DeviceStats(ctx)
+	if err != nil {
+		out.LastError = err.Error()
+		return out
+	}
+	out.Online = stats.DeviceOnlineCount
+	out.Idle = stats.DeviceIdleCount
+	out.Capacity = stats.DeviceIdleCount - settings.ReserveDevices
+	if out.Capacity < 0 {
+		out.Capacity = 0
+	}
+	return out
+}
+
+func firstUsableProfile(profiles []domain.Profile) domain.Profile {
+	for _, profile := range profiles {
+		if profile.Enabled && strings.TrimSpace(profile.TokenRef) != "" {
+			return profile
+		}
+	}
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.TokenRef) != "" {
+			return profile
+		}
+	}
+	return domain.Profile{}
+}
+
+func effectiveTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 10 * time.Second
+	}
+	return timeout
 }
 
 func (a *App) startLoop() {
@@ -531,6 +631,10 @@ func (a *App) jobSummaries(limit int) ([]JobSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	return a.summarizeJobs(jobs)
+}
+
+func (a *App) summarizeJobs(jobs []domain.Job) ([]JobSummary, error) {
 	out := make([]JobSummary, 0, len(jobs))
 	for _, job := range jobs {
 		items, err := a.store.ListJobItems(job.ID)

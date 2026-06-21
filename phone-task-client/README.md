@@ -15,8 +15,8 @@
 - 多任务共享同一轮服务端 OpenAPI 可用设备查询结果；服务端已扣除管理员配置的 OpenAPI 保留设备，客户端的保留设备参数仅作为额外本地保留，默认 0。
 - SQLite 保存状态，可用 `-job-id` 恢复已有任务。
 - 支持暂停、继续、停止已有任务。
-- 支持失败文件导出，收码任务导出格式兼容 `phonecodeworker`。
-- Wails UI 支持全局配置、用户、API 模板、任务模板、任务创建、任务控制、明细查看和失败导出。
+- 支持成功/失败文件导出，收码任务导出格式兼容 `phonecodeworker`。
+- Wails UI 支持全局配置、用户、API 模板、任务模板、任务创建、任务控制、明细查看和成功/失败导出。
 
 ## 桌面 UI
 
@@ -41,7 +41,8 @@ go run ./cmd/phone-task-client \
   -reserve-devices 0 \
   -interval 3s \
   -create-delay 0s \
-  -failed-output failed.txt
+  -failed-output failed.txt \
+  -success-output success.txt
 ```
 
 `phones.txt` 可以使用现有 `phonecodeworker` 格式：

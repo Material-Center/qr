@@ -229,6 +229,29 @@ func (s *Store) ListJobs(limit int) ([]domain.Job, error) {
 	return jobs, nil
 }
 
+func (s *Store) ListJobsPage(page int, pageSize int) ([]domain.Job, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	var total int64
+	if err := s.db.Model(&jobModel{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var models []jobModel
+	offset := (page - 1) * pageSize
+	if err := s.db.Order("created_at desc, id desc").Limit(pageSize).Offset(offset).Find(&models).Error; err != nil {
+		return nil, 0, err
+	}
+	jobs := make([]domain.Job, 0, len(models))
+	for _, model := range models {
+		jobs = append(jobs, model.toDomain())
+	}
+	return jobs, total, nil
+}
+
 func (s *Store) UpdateJob(job domain.Job) error {
 	if job.ID == 0 {
 		return errors.New("job id is required")
