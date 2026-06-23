@@ -2166,6 +2166,12 @@ func applyPhoneRegisterTaskQueryFilters(db *gorm.DB, req systemReq.PhoneRegister
 	case "not_uploaded":
 		db = db.Where("(cache_status IS NULL OR cache_status = '' OR cache_status <> ?)", system.PhoneRegisterCacheStatusUploaded)
 	}
+	switch taskSource := strings.TrimSpace(req.TaskSource); taskSource {
+	case system.PhoneRegisterTaskSourceOpenAPI:
+		db = db.Where("task_source = ?", system.PhoneRegisterTaskSourceOpenAPI)
+	case "manual":
+		db = db.Where("(task_source IS NULL OR task_source = '' OR task_source <> ?)", system.PhoneRegisterTaskSourceOpenAPI)
+	}
 	if phone := strings.TrimSpace(req.Phone); phone != "" {
 		db = db.Where("phone LIKE ?", "%"+phone+"%")
 	}

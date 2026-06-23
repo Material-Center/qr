@@ -73,6 +73,16 @@
             <el-option label="用户转发到腾讯" value="USER_SENT_TO_TX" />
           </el-select>
         </el-form-item>
+        <el-form-item label="创建来源">
+          <el-select
+            v-model="searchInfo.taskSource"
+            clearable
+            style="width: 180px"
+          >
+            <el-option label="OpenAPI" value="OPENAPI" />
+            <el-option label="手动" value="manual" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="状态">
           <el-select
             v-model="searchInfo.status"
@@ -427,6 +437,7 @@ const searchInfo = ref({
   status: undefined,
   cacheStatus: undefined,
   smsReceiveMode: undefined,
+  taskSource: undefined,
   finishedAtRange: [],
   phone: '',
   qqNum: ''
@@ -641,6 +652,7 @@ const fetchList = async () => {
     status: searchInfo.value.status || undefined,
     cacheStatus: searchInfo.value.cacheStatus || undefined,
     smsReceiveMode: searchInfo.value.smsReceiveMode || undefined,
+    taskSource: searchInfo.value.taskSource || undefined,
     phone: String(searchInfo.value.phone || '').trim() || undefined,
     qqNum: String(searchInfo.value.qqNum || '').trim() || undefined,
     finishedAtStart: finishedAtStart || undefined,
@@ -773,6 +785,7 @@ const resetSearch = () => {
     status: undefined,
     cacheStatus: undefined,
     smsReceiveMode: undefined,
+    taskSource: undefined,
     finishedAtRange: defaultFinishedAtRange(),
     phone: '',
     qqNum: ''

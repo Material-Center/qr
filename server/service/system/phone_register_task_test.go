@@ -530,6 +530,38 @@ func TestGetTaskListFiltersByCacheUploadStatus(t *testing.T) {
 	}
 }
 
+func TestGetTaskListFiltersByTaskSource(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	tasks := []modelSystem.SysPhoneRegisterTask{
+		{Phone: "1880000000001", PromoterID: 1, TaskSource: modelSystem.PhoneRegisterTaskSourceOpenAPI, Status: modelSystem.PhoneRegisterStatusPending, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "1880000000002", PromoterID: 1, TaskSource: modelSystem.PhoneRegisterTaskSourceScript, Status: modelSystem.PhoneRegisterStatusPending, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "1880000000003", PromoterID: 1, TaskSource: "", Status: modelSystem.PhoneRegisterStatusPending, ExpiresAt: now.Add(time.Hour)},
+	}
+	require.NoError(t, global.GVA_DB.Create(&tasks).Error)
+
+	openAPI, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskList{
+		PageInfo:   modelCommonReq.PageInfo{Page: 1, PageSize: 20},
+		TaskSource: modelSystem.PhoneRegisterTaskSourceOpenAPI,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, openAPI.Total)
+	require.Len(t, openAPI.List, 1)
+	require.Equal(t, modelSystem.PhoneRegisterTaskSourceOpenAPI, openAPI.List[0].TaskSource)
+
+	manual, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskList{
+		PageInfo:   modelCommonReq.PageInfo{Page: 1, PageSize: 20},
+		TaskSource: "manual",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, manual.Total)
+	require.Len(t, manual.List, 2)
+	for _, item := range manual.List {
+		require.NotEqual(t, modelSystem.PhoneRegisterTaskSourceOpenAPI, item.TaskSource)
+	}
+}
+
 func TestOpenAPIReportFailureKeepsHolderForCacheUpload(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 
