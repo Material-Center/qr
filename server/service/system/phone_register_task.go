@@ -186,7 +186,7 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		if err != nil {
 			return system.SysPhoneRegisterTask{}, err
 		}
-		if openAPIReserveDevices > 0 {
+		if options.StartDelaySeconds <= 0 {
 			phoneRegisterOpenAPICreateCapacityMu.Lock()
 			defer phoneRegisterOpenAPICreateCapacityMu.Unlock()
 			if err := s.ensureOpenAPICreateCapacityWithReserve(openAPIReserveDevices); err != nil {
@@ -218,13 +218,26 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	var reservedDeviceID string
 	var reservationToken string
 	if options.ReserveDevice && options.StartDelaySeconds > 0 {
-		reservationToken = fmt.Sprintf("%s%d", phoneRegisterReservationBusyPrefix, now.UnixNano())
-		reserveTTL := time.Duration(options.StartDelaySeconds)*time.Second + reservedClaimGracePeriod + phoneRegisterReserveSafetyTTL
-		deviceID, reserveErr := (&DeviceService{}).TryReserveIdleDevice(reservationToken, reserveTTL)
-		if reserveErr != nil {
-			return system.SysPhoneRegisterTask{}, reserveErr
+		canTryReserveDevice := true
+		if strings.TrimSpace(options.TaskSource) == system.PhoneRegisterTaskSourceOpenAPI {
+			phoneRegisterOpenAPICreateCapacityMu.Lock()
+			capacityErr := s.ensureOpenAPICreateCapacityWithReserve(openAPIReserveDevices)
+			phoneRegisterOpenAPICreateCapacityMu.Unlock()
+			if errors.Is(capacityErr, ErrOpenAPIDeviceCapacityNotEnough) {
+				canTryReserveDevice = false
+			} else if capacityErr != nil {
+				return system.SysPhoneRegisterTask{}, capacityErr
+			}
 		}
-		reservedDeviceID = deviceID
+		if canTryReserveDevice {
+			reservationToken = fmt.Sprintf("%s%d", phoneRegisterReservationBusyPrefix, now.UnixNano())
+			reserveTTL := time.Duration(options.StartDelaySeconds)*time.Second + reservedClaimGracePeriod + phoneRegisterReserveSafetyTTL
+			deviceID, reserveErr := (&DeviceService{}).TryReserveIdleDevice(reservationToken, reserveTTL)
+			if reserveErr != nil {
+				return system.SysPhoneRegisterTask{}, reserveErr
+			}
+			reservedDeviceID = deviceID
+		}
 	}
 
 	var holderDeviceID *string
@@ -559,9 +572,6 @@ func (s *PhoneRegisterTaskService) GetOpenAPIDeviceStats() (phoneRegisterDeviceS
 	if err != nil {
 		return phoneRegisterDeviceStats{}, err
 	}
-	if reserveDevices <= 0 {
-		return stats, nil
-	}
 	pendingOpenAPITasks, err := s.countPendingOpenAPITasksWithoutHolder()
 	if err != nil {
 		return phoneRegisterDeviceStats{}, err
@@ -600,6 +610,9 @@ func (s *PhoneRegisterTaskService) ensureOpenAPICreateCapacityWithReserve(reserv
 	if err != nil {
 		return err
 	}
+	if reserveDevices <= 0 && global.GVA_REDIS == nil && stats.Online == 0 && pendingOpenAPITasks == 0 {
+		return nil
+	}
 	if stats.Idle-reserveDevices-pendingOpenAPITasks <= 0 {
 		return ErrOpenAPIDeviceCapacityNotEnough
 	}
@@ -615,6 +628,7 @@ func (s *PhoneRegisterTaskService) countPendingOpenAPITasksWithoutHolder() (int6
 		Where("task_source = ?", system.PhoneRegisterTaskSourceOpenAPI).
 		Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending).
 		Where("holder_device_id IS NULL").
+		Where("(available_at IS NULL OR available_at <= ?)", time.Now()).
 		Count(&count).Error
 	return count, err
 }

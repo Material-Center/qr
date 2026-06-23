@@ -134,6 +134,11 @@
               {{ smsModeText(scope.row.smsReceiveMode) }}
             </template>
           </el-table-column>
+          <el-table-column label="创建来源" min-width="110">
+            <template #default="scope">
+              {{ taskSourceText(scope.row.taskSource) }}
+            </template>
+          </el-table-column>
           <el-table-column label="状态" min-width="140">
             <template #default="scope">
               <el-tag :type="statusTagType(scope.row.status)">
@@ -541,6 +546,11 @@ const smsModeText = (mode) => {
   if (mode === 'PLATFORM_SEND') return '平台发码'
   if (mode === 'USER_SENT_TO_TX') return '自己发码'
   return mode || '-'
+}
+
+const taskSourceText = (source) => {
+  if (source === 'OPENAPI') return 'OpenAPI'
+  return '手动'
 }
 
 const statusText = (status) => {
