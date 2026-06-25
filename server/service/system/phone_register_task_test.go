@@ -13,6 +13,7 @@ import (
 	modelSystemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	modelSystemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"github.com/glebarez/sqlite"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -326,12 +327,44 @@ func TestCreateTaskWithStartDelaySetsAvailableAtAndExpiresAfterAvailableAt(t *te
 	require.NoError(t, err)
 	after := time.Now()
 
-	require.Equal(t, modelSystem.PhoneRegisterTaskSourceOpenAPI, task.TaskSource)
+	require.Equal(t, modelSystem.PhoneRegisterTaskCreateSourceOpenAPI, task.CreateSource)
+	require.Empty(t, task.TaskSource)
 	require.Nil(t, task.HolderDeviceID)
 	require.NotNil(t, task.AvailableAt)
 	require.False(t, task.AvailableAt.Before(before.Add(120*time.Second)))
 	require.False(t, task.AvailableAt.After(after.Add(120*time.Second)))
 	require.Equal(t, task.AvailableAt.Add(phoneRegisterTaskTimeout), task.ExpiresAt)
+}
+
+func TestOpenAPICreatedTaskKeepsCreateSourceWhenClaimedByScript(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	createPhoneRegisterTaskTestPromoter(t, 1)
+
+	task, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000002", modelSystem.PhoneRegisterSMSModeUserSentToTX, PhoneRegisterTaskCreateOptions{
+		TaskSource: modelSystem.PhoneRegisterTaskSourceOpenAPI,
+	})
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterTaskCreateSourceOpenAPI, task.CreateSource)
+
+	claimed, found, err := (&PhoneRegisterTaskService{}).DevicePoll(modelSystemReq.PhoneRegisterDevicePoll{DeviceID: "script-device"})
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, task.ID, claimed.ID)
+
+	var stored modelSystem.SysPhoneRegisterTask
+	require.NoError(t, global.GVA_DB.First(&stored, task.ID).Error)
+	require.Equal(t, modelSystem.PhoneRegisterTaskCreateSourceOpenAPI, stored.CreateSource)
+	require.Equal(t, modelSystem.PhoneRegisterTaskSourceScript, stored.TaskSource)
+
+	list, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskList{
+		PageInfo:     modelCommonReq.PageInfo{Page: 1, PageSize: 20},
+		CreateSource: modelSystem.PhoneRegisterTaskCreateSourceOpenAPI,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, list.Total)
+	require.Len(t, list.List, 1)
+	require.Equal(t, modelSystem.PhoneRegisterTaskCreateSourceOpenAPI, list.List[0].CreateSource)
+	require.Equal(t, modelSystem.PhoneRegisterTaskSourceScript, list.List[0].TaskSource)
 }
 
 func TestCreateTaskWithReserveDeviceFallsBackToUnlockedDelayTaskWhenNoDeviceAvailable(t *testing.T) {
@@ -496,6 +529,51 @@ func TestAttachOpenAPICacheAllowsFailedTaskAndKeepsFailure(t *testing.T) {
 	require.Equal(t, "3995613452", stored.QQNum)
 }
 
+func TestOpenAPICacheUploadMarksDeviceCooldownForStats(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	require.NoError(t, global.GVA_DB.AutoMigrate(&modelSystem.SysQQCacheRecord{}))
+
+	var cooldownDeviceID string
+	var cooldownTTL time.Duration
+	originalCooldown := phoneRegisterMarkDeviceCooldown
+	phoneRegisterMarkDeviceCooldown = func(deviceID string, ttl time.Duration) error {
+		cooldownDeviceID = deviceID
+		cooldownTTL = ttl
+		return nil
+	}
+	t.Cleanup(func() {
+		phoneRegisterMarkDeviceCooldown = originalCooldown
+	})
+
+	now := time.Now()
+	statusCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	holderDeviceID := "openapi-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusSucceeded,
+		StatusCode:     &statusCode,
+		CacheStatus:    modelSystem.PhoneRegisterCacheStatusPending,
+		FinishedAt:     &now,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	_, _, err := (&QQCacheService{}).UploadPhoneRegister(modelSystemReq.QQCacheUpload{
+		TaskID:   task.ID,
+		QQNum:    "3995613452",
+		QQPwd:    "pwd",
+		INI:      "[3995613452]\nclientVersion=9.2.75\n",
+		DeviceID: holderDeviceID,
+	})
+	require.NoError(t, err)
+	require.Equal(t, holderDeviceID, cooldownDeviceID)
+	require.Equal(t, 5*time.Minute, cooldownTTL)
+}
+
 func TestGetTaskListFiltersByCacheUploadStatus(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 
@@ -644,6 +722,154 @@ func TestGetCurrentDeviceStatsUsesShortCache(t *testing.T) {
 	require.Equal(t, 1, busyCalls)
 }
 
+func TestGetCurrentDeviceStatsExcludesCooldownDevices(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	resetPhoneRegisterDeviceStatsCache()
+	defer resetPhoneRegisterDeviceStatsCache()
+
+	restoreDevices := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"cooldown-device", "idle-device", "busy-device"}
+		},
+		func() []string {
+			return []string{"busy-device"}
+		},
+	)
+	defer restoreDevices()
+	originalCooldown := phoneRegisterListCooldownDeviceIDs
+	phoneRegisterListCooldownDeviceIDs = func() []string {
+		return []string{"cooldown-device"}
+	}
+	defer func() {
+		phoneRegisterListCooldownDeviceIDs = originalCooldown
+	}()
+
+	stats, err := (&PhoneRegisterTaskService{}).GetCurrentDeviceStats()
+	require.NoError(t, err)
+	require.EqualValues(t, 2, stats.Online)
+	require.EqualValues(t, 1, stats.Idle)
+}
+
+func TestGetTaskListPromoterDeviceIdleSubtractsClaimablePendingTasks(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	resetPhoneRegisterDeviceStatsCache()
+	defer resetPhoneRegisterDeviceStatsCache()
+
+	now := time.Now()
+	future := now.Add(time.Hour)
+	heldDevice := "held-device"
+	tasks := []modelSystem.SysPhoneRegisterTask{
+		{Phone: "18800000001", PromoterID: 1, SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend, Status: modelSystem.PhoneRegisterStatusPending, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "18800000002", PromoterID: 2, SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend, Status: modelSystem.PhoneRegisterStatusPending, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "18800000003", PromoterID: 1, SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend, Status: modelSystem.PhoneRegisterStatusPending, AvailableAt: &future, ExpiresAt: now.Add(2 * time.Hour)},
+		{Phone: "18800000004", PromoterID: 1, SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend, Status: modelSystem.PhoneRegisterStatusPending, HolderDeviceID: &heldDevice, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "18800000005", PromoterID: 1, SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend, Status: modelSystem.PhoneRegisterStatusSucceeded, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+	}
+	require.NoError(t, global.GVA_DB.Create(&tasks).Error)
+
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"device-a", "device-b", "device-c", "device-d", "device-e"}
+		},
+		func() []string {
+			return []string{"device-e"}
+		},
+	)
+	defer restore()
+
+	promoterList, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRolePromoter, 1, modelSystemReq.PhoneRegisterTaskList{
+		PageInfo: modelCommonReq.PageInfo{Page: 1, PageSize: 20},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 5, promoterList.Device.Online)
+	require.EqualValues(t, 2, promoterList.Device.Idle)
+
+	adminList, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskList{
+		PageInfo: modelCommonReq.PageInfo{Page: 1, PageSize: 20},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 5, adminList.Device.Online)
+	require.EqualValues(t, 4, adminList.Device.Idle)
+}
+
+func TestPendingClaimableTaskCountUsesRedisShortCache(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	server := newFakeRedisServer(t, nil)
+	originalRedis := global.GVA_REDIS
+	global.GVA_REDIS = redis.NewClient(&redis.Options{Addr: server.addr, Protocol: 2})
+	t.Cleanup(func() {
+		_ = global.GVA_REDIS.Close()
+		global.GVA_REDIS = originalRedis
+		server.close()
+		resetPhoneRegisterPendingClaimableTaskCountCache()
+	})
+
+	now := time.Now()
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		Status:         modelSystem.PhoneRegisterStatusPending,
+		ExpiresAt:      now.Add(time.Hour),
+	}).Error)
+
+	first, err := (&PhoneRegisterTaskService{}).countPendingClaimableTasksWithoutHolder()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, first)
+
+	require.NoError(t, global.GVA_DB.Model(&modelSystem.SysPhoneRegisterTask{}).
+		Where("phone = ?", "18800000001").
+		Update("status", modelSystem.PhoneRegisterStatusSucceeded).Error)
+	second, err := (&PhoneRegisterTaskService{}).countPendingClaimableTasksWithoutHolder()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, second)
+	require.GreaterOrEqual(t, server.count("get"), 2)
+}
+
+func TestPendingClaimableTaskCountCacheInvalidatedWhenTaskClaimed(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	server := newFakeRedisServer(t, nil)
+	originalRedis := global.GVA_REDIS
+	global.GVA_REDIS = redis.NewClient(&redis.Options{Addr: server.addr, Protocol: 2})
+	t.Cleanup(func() {
+		_ = global.GVA_REDIS.Close()
+		global.GVA_REDIS = originalRedis
+		server.close()
+		resetPhoneRegisterPendingClaimableTaskCountCache()
+	})
+
+	now := time.Now()
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		Status:         modelSystem.PhoneRegisterStatusPending,
+		ExpiresAt:      now.Add(time.Hour),
+	}).Error)
+	cached, err := (&PhoneRegisterTaskService{}).countPendingClaimableTasksWithoutHolder()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, cached)
+
+	_, found, err := (&PhoneRegisterTaskService{}).DevicePoll(modelSystemReq.PhoneRegisterDevicePoll{DeviceID: "device-a"})
+	require.NoError(t, err)
+	require.True(t, found)
+
+	current, err := (&PhoneRegisterTaskService{}).countPendingClaimableTasksWithoutHolder()
+	require.NoError(t, err)
+	require.EqualValues(t, 0, current)
+	require.GreaterOrEqual(t, server.count("del"), 1)
+}
+
+func TestPendingClaimableTaskCountCacheTTLUsesNextAvailableAt(t *testing.T) {
+	now := time.Now()
+	soon := now.Add(30 * time.Second)
+	later := now.Add(10 * time.Minute)
+
+	require.Equal(t, 5*time.Minute, phoneRegisterPendingClaimableTaskCountCacheTTL(now, nil))
+	require.Equal(t, 30*time.Second, phoneRegisterPendingClaimableTaskCountCacheTTL(now, &soon))
+	require.Equal(t, 5*time.Minute, phoneRegisterPendingClaimableTaskCountCacheTTL(now, &later))
+}
+
 func TestGetOpenAPIDeviceStatsSubtractsReserveAndOpenAPITasks(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 	resetPhoneRegisterDeviceStatsCache()
@@ -706,6 +932,42 @@ func TestGetOpenAPIDeviceStatsSubtractsPendingOpenAPITasksWhenReserveIsZero(t *t
 		PromoterID:     1,
 		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
 		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusPending,
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}).Error)
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"device-a"}
+		},
+		func() []string {
+			return nil
+		},
+	)
+	defer restore()
+
+	stats, err := (&PhoneRegisterTaskService{}).GetOpenAPIDeviceStats()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats.Online)
+	require.EqualValues(t, 0, stats.Idle)
+}
+
+func TestGetOpenAPIDeviceStatsSubtractsManualPendingTasks(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	resetPhoneRegisterDeviceStatsCache()
+	defer resetPhoneRegisterDeviceStatsCache()
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 0,
+		PhoneRegisterBlockedPrefixes:       "",
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		CreateSource:   modelSystem.PhoneRegisterTaskCreateSourceManual,
 		Status:         modelSystem.PhoneRegisterStatusPending,
 		ExpiresAt:      time.Now().Add(time.Hour),
 	}).Error)
@@ -834,6 +1096,40 @@ func TestCreateOpenAPITaskFailsWhenPendingOpenAPITasksConsumeIdleCapacity(t *tes
 		PromoterID:     1,
 		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
 		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusPending,
+		ExpiresAt:      time.Now().Add(time.Hour),
+	}).Error)
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"device-a"}
+		},
+		func() []string {
+			return nil
+		},
+	)
+	defer restore()
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptions{
+		TaskSource: modelSystem.PhoneRegisterTaskSourceOpenAPI,
+	})
+	require.EqualError(t, err, "OpenAPI可用设备不足")
+}
+
+func TestCreateOpenAPITaskFailsWhenManualPendingTasksConsumeIdleCapacity(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	createPhoneRegisterTaskTestPromoter(t, 1)
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 0,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000002",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		CreateSource:   modelSystem.PhoneRegisterTaskCreateSourceManual,
 		Status:         modelSystem.PhoneRegisterStatusPending,
 		ExpiresAt:      time.Now().Add(time.Hour),
 	}).Error)

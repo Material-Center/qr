@@ -75,7 +75,7 @@
         </el-form-item>
         <el-form-item label="创建来源">
           <el-select
-            v-model="searchInfo.taskSource"
+            v-model="searchInfo.createSource"
             clearable
             style="width: 180px"
           >
@@ -146,7 +146,7 @@
           </el-table-column>
           <el-table-column label="创建来源" min-width="110">
             <template #default="scope">
-              {{ taskSourceText(scope.row.taskSource) }}
+              {{ createSourceText(scope.row.createSource) }}
             </template>
           </el-table-column>
           <el-table-column label="状态" min-width="140">
@@ -437,7 +437,7 @@ const searchInfo = ref({
   status: undefined,
   cacheStatus: undefined,
   smsReceiveMode: undefined,
-  taskSource: undefined,
+  createSource: undefined,
   finishedAtRange: [],
   phone: '',
   qqNum: ''
@@ -559,7 +559,7 @@ const smsModeText = (mode) => {
   return mode || '-'
 }
 
-const taskSourceText = (source) => {
+const createSourceText = (source) => {
   if (source === 'OPENAPI') return 'OpenAPI'
   return '手动'
 }
@@ -652,7 +652,7 @@ const fetchList = async () => {
     status: searchInfo.value.status || undefined,
     cacheStatus: searchInfo.value.cacheStatus || undefined,
     smsReceiveMode: searchInfo.value.smsReceiveMode || undefined,
-    taskSource: searchInfo.value.taskSource || undefined,
+    createSource: searchInfo.value.createSource || undefined,
     phone: String(searchInfo.value.phone || '').trim() || undefined,
     qqNum: String(searchInfo.value.qqNum || '').trim() || undefined,
     finishedAtStart: finishedAtStart || undefined,
@@ -785,7 +785,7 @@ const resetSearch = () => {
     status: undefined,
     cacheStatus: undefined,
     smsReceiveMode: undefined,
-    taskSource: undefined,
+    createSource: undefined,
     finishedAtRange: defaultFinishedAtRange(),
     phone: '',
     qqNum: ''

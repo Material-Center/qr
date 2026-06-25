@@ -1,12 +1,14 @@
 package system
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -22,15 +24,17 @@ import (
 )
 
 const (
-	phoneRegisterTaskTimeout         = 30 * time.Minute
-	phoneRegisterLeaseTimeout        = 5 * time.Minute
-	phoneRegisterTimeoutScanEvery    = 1 * time.Minute
-	phoneRegisterTimeoutScanThrottle = 5 * time.Second
-	phoneRegisterCodeSubmitWindow    = 3 * time.Minute
-	phoneRegisterCacheWaitTimeout    = 3 * time.Minute
-	reservedClaimGracePeriod         = 30 * time.Second
-	phoneRegisterReserveSafetyTTL    = 30 * time.Second
-	phoneRegisterDeviceStatsTTL      = 2 * time.Second
+	phoneRegisterTaskTimeout             = 30 * time.Minute
+	phoneRegisterLeaseTimeout            = 5 * time.Minute
+	phoneRegisterTimeoutScanEvery        = 1 * time.Minute
+	phoneRegisterTimeoutScanThrottle     = 5 * time.Second
+	phoneRegisterCodeSubmitWindow        = 3 * time.Minute
+	phoneRegisterCacheWaitTimeout        = 3 * time.Minute
+	reservedClaimGracePeriod             = 30 * time.Second
+	phoneRegisterReserveSafetyTTL        = 30 * time.Second
+	phoneRegisterDeviceStatsTTL          = 2 * time.Second
+	phoneRegisterPendingCountCacheMaxTTL = 5 * time.Minute
+	phoneRegisterOpenAPICacheCooldown    = 5 * time.Minute
 
 	phoneRoleSuperAdmin = uint(888)
 	phoneRoleAdmin      = uint(100)
@@ -43,6 +47,8 @@ const phoneRegisterOpenAPICacheTimeoutLog = "OpenAPI缓存上传超时未上传"
 const OpenAPIDeviceCapacityNotEnoughCode = "OPENAPI_DEVICE_CAPACITY_NOT_ENOUGH"
 
 var ErrOpenAPIDeviceCapacityNotEnough = errors.New("OpenAPI可用设备不足")
+
+const phoneRegisterPendingClaimableTaskCountCacheKey = "phone_register:pending_claimable_count"
 
 const (
 	phoneRegisterRiskWarmupSuccessCount = 10
@@ -83,6 +89,13 @@ type PhoneRegisterTaskCreateOptions struct {
 	ReserveDevice     bool
 }
 
+func phoneRegisterTaskCreateSourceFromOptions(options PhoneRegisterTaskCreateOptions) string {
+	if strings.TrimSpace(options.TaskSource) == system.PhoneRegisterTaskSourceOpenAPI {
+		return system.PhoneRegisterTaskCreateSourceOpenAPI
+	}
+	return system.PhoneRegisterTaskCreateSourceManual
+}
+
 var phoneRegisterTaskDaemonOnce sync.Once
 
 var phoneRegisterRiskRandomFloat = defaultPhoneRegisterRiskRandomFloat
@@ -93,6 +106,14 @@ var phoneRegisterListOnlineDeviceIDs = func() []string {
 
 var phoneRegisterListBusyDeviceIDs = func() []string {
 	return (&DeviceService{}).ListBusyDeviceIDs()
+}
+
+var phoneRegisterListCooldownDeviceIDs = func() []string {
+	return (&DeviceService{}).ListCooldownDeviceIDs()
+}
+
+var phoneRegisterMarkDeviceCooldown = func(deviceID string, ttl time.Duration) error {
+	return (&DeviceService{}).MarkCooldown(deviceID, ttl)
 }
 
 var phoneRegisterDeviceStatsCache struct {
@@ -181,7 +202,8 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		return system.SysPhoneRegisterTask{}, err
 	}
 	openAPIReserveDevices := int64(0)
-	if strings.TrimSpace(options.TaskSource) == system.PhoneRegisterTaskSourceOpenAPI {
+	createSource := phoneRegisterTaskCreateSourceFromOptions(options)
+	if createSource == system.PhoneRegisterTaskCreateSourceOpenAPI {
 		openAPIReserveDevices, err = s.GetOpenAPIReserveDeviceCount()
 		if err != nil {
 			return system.SysPhoneRegisterTask{}, err
@@ -219,7 +241,7 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	var reservationToken string
 	if options.ReserveDevice && options.StartDelaySeconds > 0 {
 		canTryReserveDevice := true
-		if strings.TrimSpace(options.TaskSource) == system.PhoneRegisterTaskSourceOpenAPI {
+		if createSource == system.PhoneRegisterTaskCreateSourceOpenAPI {
 			phoneRegisterOpenAPICreateCapacityMu.Lock()
 			capacityErr := s.ensureOpenAPICreateCapacityWithReserve(openAPIReserveDevices)
 			phoneRegisterOpenAPICreateCapacityMu.Unlock()
@@ -249,7 +271,7 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		PromoterID:     promoterID,
 		LeaderID:       promoter.LeaderID,
 		SMSReceiveMode: smsReceiveMode,
-		TaskSource:     strings.TrimSpace(options.TaskSource),
+		CreateSource:   createSource,
 		Status:         system.PhoneRegisterStatusPending,
 		HolderDeviceID: holderDeviceID,
 		AvailableAt:    availableAt,
@@ -261,6 +283,7 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		}
 		return system.SysPhoneRegisterTask{}, err
 	}
+	resetPhoneRegisterPendingClaimableTaskCountCache()
 	if reservedDeviceID != "" {
 		finalBusiness := phoneRegisterReservationBusyBusiness(task.ID)
 		reserveTTL := time.Until(task.ExpiresAt)
@@ -279,6 +302,7 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 			}).Error
 			_ = (&DeviceService{}).ClearBusy(reservedDeviceID, reservationToken)
 			_ = (&DeviceService{}).ClearBusy(reservedDeviceID, finalBusiness)
+			resetPhoneRegisterPendingClaimableTaskCountCache()
 			return system.SysPhoneRegisterTask{}, errors.New("预占设备失败")
 		}
 	}
@@ -509,6 +533,12 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	if err != nil {
 		return phoneRegisterTaskListResult{}, err
 	}
+	if operatorRole == phoneRolePromoter {
+		deviceStats, err = s.GetPromoterVisibleDeviceStats()
+		if err != nil {
+			return phoneRegisterTaskListResult{}, err
+		}
+	}
 
 	return phoneRegisterTaskListResult{
 		List:       buildPhoneRegisterTaskListItems(list, operatorRole != phoneRolePromoter),
@@ -539,6 +569,12 @@ func (s *PhoneRegisterTaskService) GetCurrentDeviceStats() (phoneRegisterDeviceS
 			onlineDevices[deviceID] = struct{}{}
 		}
 	}
+	for _, deviceID := range phoneRegisterListCooldownDeviceIDs() {
+		deviceID = strings.TrimSpace(deviceID)
+		if deviceID != "" {
+			delete(onlineDevices, deviceID)
+		}
+	}
 
 	busyDevices := map[string]struct{}{}
 	for _, deviceID := range phoneRegisterListBusyDeviceIDs() {
@@ -563,6 +599,19 @@ func (s *PhoneRegisterTaskService) GetCurrentDeviceStats() (phoneRegisterDeviceS
 	return stats, nil
 }
 
+func (s *PhoneRegisterTaskService) GetPromoterVisibleDeviceStats() (phoneRegisterDeviceStats, error) {
+	stats, err := s.GetCurrentDeviceStats()
+	if err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	pendingTasks, err := s.countPendingClaimableTasksWithoutHolder()
+	if err != nil {
+		return phoneRegisterDeviceStats{}, err
+	}
+	stats.Idle = maxInt64(stats.Idle-pendingTasks, 0)
+	return stats, nil
+}
+
 func (s *PhoneRegisterTaskService) GetOpenAPIDeviceStats() (phoneRegisterDeviceStats, error) {
 	stats, err := s.GetCurrentDeviceStats()
 	if err != nil {
@@ -572,12 +621,12 @@ func (s *PhoneRegisterTaskService) GetOpenAPIDeviceStats() (phoneRegisterDeviceS
 	if err != nil {
 		return phoneRegisterDeviceStats{}, err
 	}
-	pendingOpenAPITasks, err := s.countPendingOpenAPITasksWithoutHolder()
+	pendingTasks, err := s.countPendingClaimableTasksWithoutHolder()
 	if err != nil {
 		return phoneRegisterDeviceStats{}, err
 	}
 	stats.Online = maxInt64(stats.Online-reserveDevices, 0)
-	stats.Idle = maxInt64(stats.Idle-reserveDevices-pendingOpenAPITasks, 0)
+	stats.Idle = maxInt64(stats.Idle-reserveDevices-pendingTasks, 0)
 	return stats, nil
 }
 
@@ -606,31 +655,80 @@ func (s *PhoneRegisterTaskService) ensureOpenAPICreateCapacityWithReserve(reserv
 	if err != nil {
 		return err
 	}
-	pendingOpenAPITasks, err := s.countPendingOpenAPITasksWithoutHolder()
+	pendingTasks, err := s.countPendingClaimableTasksWithoutHolder()
 	if err != nil {
 		return err
 	}
-	if reserveDevices <= 0 && global.GVA_REDIS == nil && stats.Online == 0 && pendingOpenAPITasks == 0 {
+	if reserveDevices <= 0 && global.GVA_REDIS == nil && stats.Online == 0 && pendingTasks == 0 {
 		return nil
 	}
-	if stats.Idle-reserveDevices-pendingOpenAPITasks <= 0 {
+	if stats.Idle-reserveDevices-pendingTasks <= 0 {
 		return ErrOpenAPIDeviceCapacityNotEnough
 	}
 	return nil
 }
 
-func (s *PhoneRegisterTaskService) countPendingOpenAPITasksWithoutHolder() (int64, error) {
+func (s *PhoneRegisterTaskService) countPendingClaimableTasksWithoutHolder() (int64, error) {
 	if global.GVA_DB == nil {
 		return 0, nil
 	}
+	if global.GVA_REDIS != nil {
+		raw, err := global.GVA_REDIS.Get(context.Background(), phoneRegisterPendingClaimableTaskCountCacheKey).Result()
+		if err == nil {
+			count, parseErr := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+			if parseErr == nil {
+				return maxInt64(count, 0), nil
+			}
+		}
+	}
 	var count int64
+	now := time.Now()
 	err := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
-		Where("task_source = ?", system.PhoneRegisterTaskSourceOpenAPI).
 		Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending).
 		Where("holder_device_id IS NULL").
-		Where("(available_at IS NULL OR available_at <= ?)", time.Now()).
+		Where("(available_at IS NULL OR available_at <= ?)", now).
 		Count(&count).Error
+	if err != nil {
+		return 0, err
+	}
+	var nextTask system.SysPhoneRegisterTask
+	nextErr := global.GVA_DB.Model(&system.SysPhoneRegisterTask{}).
+		Select("available_at").
+		Where("status = ? AND finished_at IS NULL", system.PhoneRegisterStatusPending).
+		Where("holder_device_id IS NULL").
+		Where("available_at > ?", now).
+		Order("available_at asc").
+		First(&nextTask).Error
+	if nextErr != nil && !errors.Is(nextErr, gorm.ErrRecordNotFound) {
+		return 0, nextErr
+	}
+	cacheTTL := phoneRegisterPendingClaimableTaskCountCacheTTL(now, nextTask.AvailableAt)
+	if global.GVA_REDIS != nil {
+		_ = global.GVA_REDIS.Set(
+			context.Background(),
+			phoneRegisterPendingClaimableTaskCountCacheKey,
+			strconv.FormatInt(count, 10),
+			cacheTTL,
+		).Err()
+	}
 	return count, err
+}
+
+func phoneRegisterPendingClaimableTaskCountCacheTTL(now time.Time, nextAvailableAt *time.Time) time.Duration {
+	if nextAvailableAt != nil {
+		until := nextAvailableAt.Sub(now)
+		if until > 0 && until < phoneRegisterPendingCountCacheMaxTTL {
+			return until
+		}
+	}
+	return phoneRegisterPendingCountCacheMaxTTL
+}
+
+func resetPhoneRegisterPendingClaimableTaskCountCache() {
+	if global.GVA_REDIS == nil {
+		return
+	}
+	_ = global.GVA_REDIS.Del(context.Background(), phoneRegisterPendingClaimableTaskCountCacheKey).Err()
 }
 
 func maxInt64(a, b int64) int64 {
@@ -656,6 +754,7 @@ func buildPhoneRegisterTaskListItems(tasks []system.SysPhoneRegisterTask, includ
 			CreatedAt:       task.CreatedAt,
 			Phone:           task.Phone,
 			SMSReceiveMode:  task.SMSReceiveMode,
+			CreateSource:    task.CreateSource,
 			TaskSource:      task.TaskSource,
 			CacheStatus:     task.CacheStatus,
 			Status:          task.Status,
@@ -911,7 +1010,7 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 			return err
 		}
 		if ok {
-			handled, handledFound, handledTask, err := s.handleHeldTaskForPollTx(tx, existing, deviceID, time.Now())
+			handled, handledFound, handledTask, err := s.handleHeldTaskForPollTx(tx, existing, deviceID, system.PhoneRegisterTaskSourceScript, time.Now())
 			if err != nil {
 				return err
 			}
@@ -950,6 +1049,7 @@ func (s *PhoneRegisterTaskService) DevicePoll(req systemReq.PhoneRegisterDeviceP
 		return nil
 	})
 	if err == nil && found {
+		resetPhoneRegisterPendingClaimableTaskCountCache()
 		_ = markPhoneRegisterDeviceBusy(deviceID)
 	}
 	return task, found, err
@@ -976,7 +1076,7 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 			return err
 		}
 		if ok {
-			handled, handledFound, handledTask, err := s.handleHeldTaskForPollTx(tx, existing, deviceID, time.Now())
+			handled, handledFound, handledTask, err := s.handleHeldTaskForPollTx(tx, existing, deviceID, system.PhoneRegisterTaskSourceOpenAPI, time.Now())
 			if err != nil {
 				return err
 			}
@@ -1017,12 +1117,13 @@ func (s *PhoneRegisterTaskService) OpenAPIPoll(req systemReq.PhoneRegisterOpenAP
 		return nil
 	})
 	if err == nil && found {
+		resetPhoneRegisterPendingClaimableTaskCountCache()
 		_ = markPhoneRegisterDeviceBusy(deviceID)
 	}
 	return task, found, err
 }
 
-func (s *PhoneRegisterTaskService) handleHeldTaskForPollTx(tx *gorm.DB, task system.SysPhoneRegisterTask, deviceID string, now time.Time) (bool, bool, system.SysPhoneRegisterTask, error) {
+func (s *PhoneRegisterTaskService) handleHeldTaskForPollTx(tx *gorm.DB, task system.SysPhoneRegisterTask, deviceID string, taskSource string, now time.Time) (bool, bool, system.SysPhoneRegisterTask, error) {
 	if task.Status != system.PhoneRegisterStatusPending {
 		return true, true, task, nil
 	}
@@ -1037,11 +1138,12 @@ func (s *PhoneRegisterTaskService) handleHeldTaskForPollTx(tx *gorm.DB, task sys
 	}
 
 	task.Status = system.PhoneRegisterStatusRunning
+	task.TaskSource = strings.TrimSpace(taskSource)
 	task.ClaimedAt = &now
 	task.LastHeartbeatAt = &now
 	task.LastError = ""
 	if err := tx.Model(&task).
-		Select("status", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
+		Select("status", "task_source", "claimed_at", "last_heartbeat_at", "last_error", "updated_at").
 		Updates(task).Error; err != nil {
 		return false, false, system.SysPhoneRegisterTask{}, err
 	}
@@ -1064,6 +1166,7 @@ func (s *PhoneRegisterTaskService) releaseReservationTx(tx *gorm.DB, task system
 		}).Error; err != nil {
 		return err
 	}
+	resetPhoneRegisterPendingClaimableTaskCountCache()
 	_ = (&DeviceService{}).ClearBusy(deviceID, phoneRegisterReservationBusyBusiness(task.ID))
 	return nil
 }
@@ -1955,6 +2058,7 @@ func (s *PhoneRegisterTaskService) timeoutUnfinishedTasks() error {
 	for _, deviceID := range releasedDeviceIDs {
 		_ = markPhoneRegisterDeviceOffline(deviceID)
 	}
+	resetPhoneRegisterPendingClaimableTaskCountCache()
 	return nil
 }
 
@@ -2165,6 +2269,18 @@ func applyPhoneRegisterTaskQueryFilters(db *gorm.DB, req systemReq.PhoneRegister
 		db = db.Where("cache_status = ?", system.PhoneRegisterCacheStatusUploaded)
 	case "not_uploaded":
 		db = db.Where("(cache_status IS NULL OR cache_status = '' OR cache_status <> ?)", system.PhoneRegisterCacheStatusUploaded)
+	}
+	switch createSource := strings.TrimSpace(req.CreateSource); createSource {
+	case system.PhoneRegisterTaskCreateSourceOpenAPI:
+		db = db.Where("(create_source = ? OR ((create_source IS NULL OR create_source = '') AND task_source = ?))",
+			system.PhoneRegisterTaskCreateSourceOpenAPI,
+			system.PhoneRegisterTaskSourceOpenAPI,
+		)
+	case system.PhoneRegisterTaskCreateSourceManual, "manual":
+		db = db.Where("(create_source = ? OR ((create_source IS NULL OR create_source = '') AND (task_source IS NULL OR task_source = '' OR task_source <> ?)))",
+			system.PhoneRegisterTaskCreateSourceManual,
+			system.PhoneRegisterTaskSourceOpenAPI,
+		)
 	}
 	switch taskSource := strings.TrimSpace(req.TaskSource); taskSource {
 	case system.PhoneRegisterTaskSourceOpenAPI:

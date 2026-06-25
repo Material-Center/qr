@@ -396,7 +396,8 @@ func TestPromoterOpenAPICreateTaskKeepsLegacyBehaviorWhenStartDelayIsZero(t *tes
 	require.NoError(t, global.GVA_DB.First(&task).Error)
 	require.Nil(t, task.AvailableAt)
 	require.Nil(t, task.HolderDeviceID)
-	require.Equal(t, modelSystem.PhoneRegisterTaskSourceOpenAPI, task.TaskSource)
+	require.Equal(t, modelSystem.PhoneRegisterTaskCreateSourceOpenAPI, task.CreateSource)
+	require.Empty(t, task.TaskSource)
 }
 
 func TestPromoterOpenAPICreateTaskReturnsDeviceCapacityErrorCode(t *testing.T) {

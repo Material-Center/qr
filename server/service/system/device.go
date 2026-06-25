@@ -13,6 +13,7 @@ import (
 const (
 	deviceHeartbeatKeyPrefix = "device:heartbeat:"
 	deviceBusyKeyPrefix      = "device:busy:"
+	deviceCooldownKeyPrefix  = "device:cooldown:"
 	deviceHeartbeatTTL       = 5 * time.Minute
 )
 
@@ -31,6 +32,24 @@ func (s *DeviceService) MarkHeartbeat(deviceID string) error {
 
 func (s *DeviceService) MarkBusy(deviceID string, business string) error {
 	return s.MarkBusyWithTTL(deviceID, business, deviceHeartbeatTTL)
+}
+
+func (s *DeviceService) MarkCooldown(deviceID string, ttl time.Duration) error {
+	deviceID = strings.TrimSpace(deviceID)
+	if deviceID == "" {
+		return nil
+	}
+	if global.GVA_REDIS == nil {
+		return nil
+	}
+	if ttl <= 0 {
+		ttl = deviceHeartbeatTTL
+	}
+	if err := global.GVA_REDIS.Set(context.Background(), deviceCooldownKey(deviceID), time.Now().Unix(), ttl).Err(); err != nil {
+		return err
+	}
+	resetPhoneRegisterDeviceStatsCache()
+	return nil
 }
 
 func (s *DeviceService) MarkBusyWithTTL(deviceID string, business string, ttl time.Duration) error {
@@ -162,6 +181,10 @@ func (s *DeviceService) ListBusyDeviceIDs() []string {
 	return s.listDeviceIDsByPrefix(deviceBusyKeyPrefix)
 }
 
+func (s *DeviceService) ListCooldownDeviceIDs() []string {
+	return s.listDeviceIDsByPrefix(deviceCooldownKeyPrefix)
+}
+
 func (s *DeviceService) listDeviceIDsByPrefix(prefix string) []string {
 	if global.GVA_REDIS == nil {
 		return nil
@@ -198,4 +221,8 @@ func deviceHeartbeatKey(deviceID string) string {
 
 func deviceBusyKey(deviceID string) string {
 	return deviceBusyKeyPrefix + strings.TrimSpace(deviceID)
+}
+
+func deviceCooldownKey(deviceID string) string {
+	return deviceCooldownKeyPrefix + strings.TrimSpace(deviceID)
 }

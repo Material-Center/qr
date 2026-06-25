@@ -25,6 +25,7 @@ type PhoneRegisterTaskList struct {
 	QQNum           string `json:"qqNum" form:"qqNum"`
 	DeviceID        string `json:"deviceId" form:"deviceId"`
 	SMSReceiveMode  string `json:"smsReceiveMode" form:"smsReceiveMode"`
+	CreateSource    string `json:"createSource" form:"createSource"`
 	TaskSource      string `json:"taskSource" form:"taskSource"`
 	FinishedAtStart string `json:"finishedAtStart" form:"finishedAtStart"`
 	FinishedAtEnd   string `json:"finishedAtEnd" form:"finishedAtEnd"`

@@ -10,6 +10,9 @@ const (
 	PhoneRegisterSMSModePlatformSend = "PLATFORM_SEND"
 	PhoneRegisterSMSModeUserSentToTX = "USER_SENT_TO_TX"
 
+	PhoneRegisterTaskCreateSourceManual  = "MANUAL"
+	PhoneRegisterTaskCreateSourceOpenAPI = "OPENAPI"
+
 	PhoneRegisterTaskSourceScript  = "SCRIPT"
 	PhoneRegisterTaskSourceOpenAPI = "OPENAPI"
 
@@ -50,6 +53,7 @@ type SysPhoneRegisterTask struct {
 	PromoterID      uint       `json:"promoterId" gorm:"index;comment:地推账号ID"`
 	LeaderID        *uint      `json:"leaderId" gorm:"index;comment:团长账号ID"`
 	SMSReceiveMode  string     `json:"smsReceiveMode" gorm:"index;size:32;comment:收码方式"`
+	CreateSource    string     `json:"createSource" gorm:"index;size:32;comment:任务创建来源"`
 	TaskSource      string     `json:"taskSource" gorm:"index;size:32;comment:任务执行来源"`
 	CacheStatus     string     `json:"cacheStatus" gorm:"index;size:32;comment:缓存处理状态"`
 	QQNum           string     `json:"qqNum" gorm:"index;size:32;comment:注册成功QQ号"`

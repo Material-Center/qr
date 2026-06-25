@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -75,6 +76,7 @@ func TestDeviceStateChangeInvalidatesPhoneRegisterDeviceStatsCache(t *testing.T)
 type fakeRedisServer struct {
 	addr   string
 	ln     net.Listener
+	mu     sync.Mutex
 	values map[string]string
 	counts chan string
 }
@@ -88,6 +90,9 @@ func newFakeRedisServer(t *testing.T, values map[string]string) *fakeRedisServer
 		ln:     ln,
 		values: values,
 		counts: make(chan string, 16),
+	}
+	if s.values == nil {
+		s.values = map[string]string{}
 	}
 	go s.serve()
 	return s
@@ -142,13 +147,35 @@ func (s *fakeRedisServer) handle(conn net.Conn) {
 		case "hello":
 			_, _ = conn.Write([]byte("%7\r\n+server\r\n+redis\r\n+version\r\n+7.0.0\r\n+proto\r\n:3\r\n+id\r\n:1\r\n+mode\r\n+standalone\r\n+role\r\n+master\r\n+modules\r\n*0\r\n"))
 		case "get":
+			s.mu.Lock()
 			value, ok := s.values[args[1]]
+			s.mu.Unlock()
 			if !ok {
 				_, _ = conn.Write([]byte("$-1\r\n"))
 				continue
 			}
 			_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(value), value)
-		case "set", "client":
+		case "set":
+			if len(args) >= 3 {
+				s.mu.Lock()
+				s.values[args[1]] = args[2]
+				s.mu.Unlock()
+			}
+			_, _ = conn.Write([]byte("+OK\r\n"))
+		case "del":
+			var deleted int
+			if len(args) > 1 {
+				s.mu.Lock()
+				for _, key := range args[1:] {
+					if _, ok := s.values[key]; ok {
+						deleted++
+						delete(s.values, key)
+					}
+				}
+				s.mu.Unlock()
+			}
+			_, _ = fmt.Fprintf(conn, ":%d\r\n", deleted)
+		case "client":
 			_, _ = conn.Write([]byte("+OK\r\n"))
 		default:
 			_, _ = conn.Write([]byte("+OK\r\n"))

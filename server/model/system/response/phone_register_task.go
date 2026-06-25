@@ -7,6 +7,7 @@ type PhoneRegisterTaskActiveInfo struct {
 	CreatedAt           time.Time  `json:"createdAt"`
 	Phone               string     `json:"phone"`
 	SMSReceiveMode      string     `json:"smsReceiveMode"`
+	CreateSource        string     `json:"createSource,omitempty"`
 	TaskSource          string     `json:"taskSource,omitempty"`
 	CacheStatus         string     `json:"cacheStatus,omitempty"`
 	Status              string     `json:"status"`
@@ -50,6 +51,7 @@ type PhoneRegisterTaskListItem struct {
 	CreatedAt       time.Time                   `json:"CreatedAt"`
 	Phone           string                      `json:"phone"`
 	SMSReceiveMode  string                      `json:"smsReceiveMode"`
+	CreateSource    string                      `json:"createSource,omitempty"`
 	TaskSource      string                      `json:"taskSource,omitempty"`
 	CacheStatus     string                      `json:"cacheStatus,omitempty"`
 	QQNum           string                      `json:"qqNum,omitempty"`
@@ -101,6 +103,7 @@ type PhoneRegisterDeviceTaskInfo struct {
 	TaskID           uint       `json:"taskId"`
 	Phone            string     `json:"phone,omitempty"`
 	SMSReceiveMode   string     `json:"smsReceiveMode,omitempty"`
+	CreateSource     string     `json:"createSource,omitempty"`
 	TaskSource       string     `json:"taskSource,omitempty"`
 	CacheStatus      string     `json:"cacheStatus,omitempty"`
 	Status           string     `json:"status,omitempty"`
@@ -112,15 +115,16 @@ type PhoneRegisterDeviceTaskInfo struct {
 }
 
 type PhoneRegisterOpenAPITaskInfo struct {
-	TaskID      uint       `json:"taskId"`
-	Phone       string     `json:"phone,omitempty"`
-	VerifyMode  string     `json:"verifyMode,omitempty"`
-	TaskSource  string     `json:"taskSource,omitempty"`
-	CacheStatus string     `json:"cacheStatus,omitempty"`
-	Status      string     `json:"status,omitempty"`
-	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
-	NeedCode    bool       `json:"needCode"`
-	HasTask     bool       `json:"hasTask"`
+	TaskID       uint       `json:"taskId"`
+	Phone        string     `json:"phone,omitempty"`
+	VerifyMode   string     `json:"verifyMode,omitempty"`
+	CreateSource string     `json:"createSource,omitempty"`
+	TaskSource   string     `json:"taskSource,omitempty"`
+	CacheStatus  string     `json:"cacheStatus,omitempty"`
+	Status       string     `json:"status,omitempty"`
+	ExpiresAt    *time.Time `json:"expiresAt,omitempty"`
+	NeedCode     bool       `json:"needCode"`
+	HasTask      bool       `json:"hasTask"`
 }
 
 type PhoneRegisterOpenAPIVerifyCodeResponse struct {

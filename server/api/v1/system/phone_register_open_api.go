@@ -543,14 +543,15 @@ func buildPhoneRegisterOpenAPITaskInfo(task system.SysPhoneRegisterTask, found b
 		return systemRes.PhoneRegisterOpenAPITaskInfo{HasTask: false}
 	}
 	info := systemRes.PhoneRegisterOpenAPITaskInfo{
-		TaskID:      task.ID,
-		Phone:       task.Phone,
-		VerifyMode:  phoneRegisterOpenAPIVerifyMode(task.SMSReceiveMode),
-		TaskSource:  task.TaskSource,
-		CacheStatus: task.CacheStatus,
-		Status:      task.Status,
-		HasTask:     true,
-		NeedCode:    task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend,
+		TaskID:       task.ID,
+		Phone:        task.Phone,
+		VerifyMode:   phoneRegisterOpenAPIVerifyMode(task.SMSReceiveMode),
+		CreateSource: task.CreateSource,
+		TaskSource:   task.TaskSource,
+		CacheStatus:  task.CacheStatus,
+		Status:       task.Status,
+		HasTask:      true,
+		NeedCode:     task.SMSReceiveMode == system.PhoneRegisterSMSModePlatformSend,
 	}
 	expiresAt := task.ExpiresAt
 	info.ExpiresAt = &expiresAt
