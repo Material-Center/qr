@@ -208,12 +208,10 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		if err != nil {
 			return system.SysPhoneRegisterTask{}, err
 		}
-		if options.StartDelaySeconds <= 0 {
-			phoneRegisterOpenAPICreateCapacityMu.Lock()
-			defer phoneRegisterOpenAPICreateCapacityMu.Unlock()
-			if err := s.ensureOpenAPICreateCapacityWithReserve(openAPIReserveDevices); err != nil {
-				return system.SysPhoneRegisterTask{}, err
-			}
+		phoneRegisterOpenAPICreateCapacityMu.Lock()
+		defer phoneRegisterOpenAPICreateCapacityMu.Unlock()
+		if err := s.ensureOpenAPICreateCapacityWithReserve(openAPIReserveDevices); err != nil {
+			return system.SysPhoneRegisterTask{}, err
 		}
 	}
 
@@ -240,25 +238,15 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	var reservedDeviceID string
 	var reservationToken string
 	if options.ReserveDevice && options.StartDelaySeconds > 0 {
-		canTryReserveDevice := true
-		if createSource == system.PhoneRegisterTaskCreateSourceOpenAPI {
-			phoneRegisterOpenAPICreateCapacityMu.Lock()
-			capacityErr := s.ensureOpenAPICreateCapacityWithReserve(openAPIReserveDevices)
-			phoneRegisterOpenAPICreateCapacityMu.Unlock()
-			if errors.Is(capacityErr, ErrOpenAPIDeviceCapacityNotEnough) {
-				canTryReserveDevice = false
-			} else if capacityErr != nil {
-				return system.SysPhoneRegisterTask{}, capacityErr
-			}
+		reservationToken = fmt.Sprintf("%s%d", phoneRegisterReservationBusyPrefix, now.UnixNano())
+		reserveTTL := time.Duration(options.StartDelaySeconds)*time.Second + reservedClaimGracePeriod + phoneRegisterReserveSafetyTTL
+		deviceID, reserveErr := (&DeviceService{}).TryReserveIdleDevice(reservationToken, reserveTTL)
+		if reserveErr != nil {
+			return system.SysPhoneRegisterTask{}, reserveErr
 		}
-		if canTryReserveDevice {
-			reservationToken = fmt.Sprintf("%s%d", phoneRegisterReservationBusyPrefix, now.UnixNano())
-			reserveTTL := time.Duration(options.StartDelaySeconds)*time.Second + reservedClaimGracePeriod + phoneRegisterReserveSafetyTTL
-			deviceID, reserveErr := (&DeviceService{}).TryReserveIdleDevice(reservationToken, reserveTTL)
-			if reserveErr != nil {
-				return system.SysPhoneRegisterTask{}, reserveErr
-			}
-			reservedDeviceID = deviceID
+		reservedDeviceID = deviceID
+		if createSource == system.PhoneRegisterTaskCreateSourceOpenAPI && global.GVA_REDIS != nil && reservedDeviceID == "" {
+			return system.SysPhoneRegisterTask{}, ErrOpenAPIDeviceCapacityNotEnough
 		}
 	}
 

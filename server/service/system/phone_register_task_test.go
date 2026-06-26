@@ -1051,7 +1051,7 @@ func TestCreateOpenAPITaskFailsWhenReserveConsumesCapacity(t *testing.T) {
 	require.EqualError(t, err, "OpenAPI可用设备不足")
 }
 
-func TestCreateDelayedOpenAPITaskWithReserveFallsBackWhenReserveCapacityExhausted(t *testing.T) {
+func TestCreateDelayedOpenAPITaskFailsWhenReserveCapacityExhausted(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 	createPhoneRegisterTaskTestPromoter(t, 1)
 	enabled := true
@@ -1071,14 +1071,49 @@ func TestCreateDelayedOpenAPITaskWithReserveFallsBackWhenReserveCapacityExhauste
 	)
 	defer restore()
 
-	task, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptions{
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptions{
 		TaskSource:        modelSystem.PhoneRegisterTaskSourceOpenAPI,
 		StartDelaySeconds: 60,
 		ReserveDevice:     true,
 	})
-	require.NoError(t, err)
-	require.NotNil(t, task.AvailableAt)
-	require.Nil(t, task.HolderDeviceID)
+	require.EqualError(t, err, "OpenAPI可用设备不足")
+}
+
+func TestCreateDelayedOpenAPITaskFailsWhenReserveDeviceUnavailableAfterCapacityCheck(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+	server := newFakeRedisServer(t, nil)
+	originalRedis := global.GVA_REDIS
+	global.GVA_REDIS = redis.NewClient(&redis.Options{Addr: server.addr, Protocol: 2})
+	t.Cleanup(func() {
+		_ = global.GVA_REDIS.Close()
+		global.GVA_REDIS = originalRedis
+		server.close()
+		resetPhoneRegisterPendingClaimableTaskCountCache()
+	})
+	createPhoneRegisterTaskTestPromoter(t, 1)
+	enabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                          modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                            0,
+		PhoneRegisterEnabled:               &enabled,
+		PhoneRegisterOpenAPIReserveDevices: 0,
+	}).Error)
+	restore := stubPhoneRegisterDeviceIDs(
+		func() []string {
+			return []string{"device-a"}
+		},
+		func() []string {
+			return nil
+		},
+	)
+	defer restore()
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000001", modelSystem.PhoneRegisterSMSModePlatformSend, PhoneRegisterTaskCreateOptions{
+		TaskSource:        modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		StartDelaySeconds: 60,
+		ReserveDevice:     true,
+	})
+	require.EqualError(t, err, "OpenAPI可用设备不足")
 }
 
 func TestCreateOpenAPITaskFailsWhenPendingOpenAPITasksConsumeIdleCapacity(t *testing.T) {
