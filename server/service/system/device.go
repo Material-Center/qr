@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ const (
 	deviceBusyKeyPrefix      = "device:busy:"
 	deviceCooldownKeyPrefix  = "device:cooldown:"
 	deviceHeartbeatTTL       = 5 * time.Minute
+	deviceHeartbeatFreshness = 30 * time.Second
 )
 
 type DeviceService struct{}
@@ -174,7 +176,47 @@ func (s *DeviceService) MarkOffline(deviceID string) error {
 }
 
 func (s *DeviceService) ListOnlineDeviceIDs() []string {
-	return s.listDeviceIDsByPrefix(deviceHeartbeatKeyPrefix)
+	devices := s.listDeviceIDsByPrefix(deviceHeartbeatKeyPrefix)
+	if len(devices) == 0 || global.GVA_REDIS == nil {
+		return devices
+	}
+	now := time.Now()
+	keys := make([]string, 0, len(devices))
+	for _, deviceID := range devices {
+		deviceID = strings.TrimSpace(deviceID)
+		if deviceID != "" {
+			keys = append(keys, deviceHeartbeatKey(deviceID))
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	values, err := global.GVA_REDIS.MGet(context.Background(), keys...).Result()
+	if err != nil {
+		return nil
+	}
+	freshDevices := make([]string, 0, len(devices))
+	for index, deviceID := range devices {
+		deviceID = strings.TrimSpace(deviceID)
+		if deviceID == "" {
+			continue
+		}
+		if index >= len(values) || values[index] == nil {
+			continue
+		}
+		heartbeatUnix, err := strconv.ParseInt(strings.TrimSpace(fmt.Sprint(values[index])), 10, 64)
+		if err != nil {
+			continue
+		}
+		heartbeatAt := time.Unix(heartbeatUnix, 0)
+		if heartbeatAt.After(now.Add(time.Second)) {
+			continue
+		}
+		if now.Sub(heartbeatAt) <= deviceHeartbeatFreshness {
+			freshDevices = append(freshDevices, deviceID)
+		}
+	}
+	return freshDevices
 }
 
 func (s *DeviceService) ListBusyDeviceIDs() []string {

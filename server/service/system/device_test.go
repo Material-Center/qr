@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -28,6 +30,25 @@ func TestDeviceServiceNoopsWhenRedisUnavailable(t *testing.T) {
 	require.NoError(t, (&DeviceService{}).MarkOffline("9130dbc0"))
 	require.Empty(t, (&DeviceService{}).ListOnlineDeviceIDs())
 	require.Empty(t, (&DeviceService{}).ListBusyDeviceIDs())
+}
+
+func TestListOnlineDeviceIDsIgnoresStaleHeartbeatTimestamps(t *testing.T) {
+	now := time.Now()
+	server := newFakeRedisServer(t, map[string]string{
+		deviceHeartbeatKey("fresh-device"): strconv.FormatInt(now.Unix(), 10),
+		deviceHeartbeatKey("stale-device"): strconv.FormatInt(now.Add(-time.Hour).Unix(), 10),
+	})
+	originalRedis := global.GVA_REDIS
+	global.GVA_REDIS = redis.NewClient(&redis.Options{Addr: server.addr, Protocol: 2})
+	t.Cleanup(func() {
+		_ = global.GVA_REDIS.Close()
+		global.GVA_REDIS = originalRedis
+		server.close()
+	})
+
+	devices := (&DeviceService{}).ListOnlineDeviceIDs()
+
+	require.ElementsMatch(t, []string{"fresh-device"}, devices)
 }
 
 func TestUpdateBusyIfMatchingReturnsErrorWhenBusyValueChanged(t *testing.T) {
@@ -155,6 +176,26 @@ func (s *fakeRedisServer) handle(conn net.Conn) {
 				continue
 			}
 			_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(value), value)
+		case "mget":
+			s.mu.Lock()
+			values := make([]*string, 0, len(args)-1)
+			for _, key := range args[1:] {
+				if value, ok := s.values[key]; ok {
+					v := value
+					values = append(values, &v)
+				} else {
+					values = append(values, nil)
+				}
+			}
+			s.mu.Unlock()
+			_, _ = fmt.Fprintf(conn, "*%d\r\n", len(values))
+			for _, value := range values {
+				if value == nil {
+					_, _ = conn.Write([]byte("$-1\r\n"))
+					continue
+				}
+				_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(*value), *value)
+			}
 		case "set":
 			if len(args) >= 3 {
 				s.mu.Lock()
@@ -175,6 +216,29 @@ func (s *fakeRedisServer) handle(conn net.Conn) {
 				s.mu.Unlock()
 			}
 			_, _ = fmt.Fprintf(conn, ":%d\r\n", deleted)
+		case "scan":
+			pattern := ""
+			for i := 2; i+1 < len(args); i += 2 {
+				if strings.EqualFold(args[i], "match") {
+					pattern = args[i+1]
+					break
+				}
+			}
+			prefix := strings.TrimSuffix(pattern, "*")
+			s.mu.Lock()
+			keys := make([]string, 0, len(s.values))
+			for key := range s.values {
+				if prefix == "" || strings.HasPrefix(key, prefix) {
+					keys = append(keys, key)
+				}
+			}
+			s.mu.Unlock()
+			sort.Strings(keys)
+			_, _ = conn.Write([]byte("*2\r\n$1\r\n0\r\n"))
+			_, _ = fmt.Fprintf(conn, "*%d\r\n", len(keys))
+			for _, key := range keys {
+				_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(key), key)
+			}
 		case "client":
 			_, _ = conn.Write([]byte("+OK\r\n"))
 		default:
