@@ -233,7 +233,13 @@
     <div class="gva-table-box">
       <div class="sales-summary-header">
         <span class="sales-summary-title">销售提取汇总</span>
-        <el-button icon="refresh" @click="fetchSalesSummary">刷新</el-button>
+        <div class="sales-summary-actions">
+          <el-radio-group v-model="salesSummaryTimeFilter" size="small" @change="fetchSalesSummary">
+            <el-radio-button label="createdAt">上传时间</el-radio-button>
+            <el-radio-button label="extractedAt">提取时间</el-radio-button>
+          </el-radio-group>
+          <el-button icon="refresh" @click="fetchSalesSummary">刷新</el-button>
+        </div>
       </div>
       <el-table
         :data="salesSummaryList"
@@ -391,6 +397,7 @@ const salesSummaryList = ref([])
 const salesBatchMap = ref({})
 const salesBatchLoading = ref({})
 const salesSummaryExpandedKeys = ref([])
+const salesSummaryTimeFilter = ref('createdAt')
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
@@ -455,6 +462,11 @@ const buildCreatedAtRangeParams = () => {
     createdAtEnd: createdAtEnd || undefined
   }
 }
+
+const buildSalesSummaryRangeParams = () => ({
+  ...buildCreatedAtRangeParams(),
+  timeFilter: salesSummaryTimeFilter.value
+})
 
 const pickZipFilename = (contentDisposition) => {
   if (!contentDisposition) return null
@@ -895,7 +907,7 @@ const loadSalesBatches = async (row, force = false) => {
   try {
     const { data } = await getQQCacheSalesBatches({
       extractorId,
-      ...buildCreatedAtRangeParams()
+      ...buildSalesSummaryRangeParams()
     })
     salesBatchMap.value[extractorId] = data || []
   } catch (e) {
@@ -987,7 +999,7 @@ const onExtractCustomHoursChange = async () => {
 
 const fetchSalesSummary = async () => {
   try {
-    const { data } = await getQQCacheSalesSummaryList(buildCreatedAtRangeParams())
+    const { data } = await getQQCacheSalesSummaryList(buildSalesSummaryRangeParams())
     salesSummaryList.value = data || []
     salesBatchMap.value = {}
     salesBatchLoading.value = {}
@@ -1116,6 +1128,13 @@ onMounted(() => {
   color: var(--el-text-color-primary);
   font-size: 15px;
   font-weight: 600;
+}
+
+.sales-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .sales-batch-panel {

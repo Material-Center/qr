@@ -190,7 +190,7 @@ func TestQQCacheSettleSalesBillingUpdatesBatchStatus(t *testing.T) {
 		require.Nil(t, record.BillingSettledBy)
 	}
 
-	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin("", "")
+	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin("", "", qqCacheSalesTimeFilterCreatedAt)
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
 	require.EqualValues(t, salesID, summaries[0].ExtractorID)
@@ -261,6 +261,7 @@ func TestQQCacheSalesSummaryListFiltersSalesWithoutExtractsInRange(t *testing.T)
 	summaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin(
 		todayStart.Format("2006-01-02 15:04:05"),
 		todayEnd.Format("2006-01-02 15:04:05"),
+		qqCacheSalesTimeFilterCreatedAt,
 	)
 	require.NoError(t, err)
 	require.Len(t, summaries, 1)
@@ -274,12 +275,92 @@ func TestQQCacheSalesSummaryListFiltersSalesWithoutExtractsInRange(t *testing.T)
 	require.NotContains(t, byID, salesWithoutExtractID)
 	require.NotContains(t, byID, adminExtractorID)
 
-	allSummaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin("", "")
+	allSummaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin("", "", qqCacheSalesTimeFilterCreatedAt)
 	require.NoError(t, err)
 	for _, item := range allSummaries {
 		byID[item.ExtractorID] = item
 	}
 	require.EqualValues(t, 2, byID[salesWithExtractID].ExtractedCount)
+}
+
+func TestQQCacheSalesSummaryTimeFilter(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6103)
+	uploadedAt := time.Date(2026, 7, 19, 12, 0, 0, 0, time.Local)
+	extractedAt := time.Date(2026, 7, 20, 18, 0, 0, 0, time.Local)
+	ini := "qqnum=51004\nguid=GUID004\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_time_filter",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	batch := model.SysQQCacheExtractBatch{
+		ExtractorID:  salesID,
+		ExtractCount: 1,
+		Status:       model.QQCacheExtractBatchStatusPendingSettlement,
+		ExtractedAt:  extractedAt,
+	}
+	require.NoError(t, global.GVA_DB.Create(&batch).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		GVA_MODEL:       global.GVA_MODEL{CreatedAt: uploadedAt, UpdatedAt: uploadedAt},
+		QQNum:           "51004",
+		INI:             &ini,
+		Extractor:       &salesID,
+		ExtractRecordID: &batch.ID,
+		ExtractionAt:    &extractedAt,
+	}).Error)
+
+	uploadStart := time.Date(2026, 7, 19, 0, 0, 0, 0, time.Local)
+	uploadEnd := time.Date(2026, 7, 19, 23, 59, 59, 0, time.Local)
+	extractStart := uploadStart.AddDate(0, 0, 1)
+	extractEnd := uploadEnd.AddDate(0, 0, 1)
+
+	uploadSummaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin(
+		uploadStart.Format("2006-01-02 15:04:05"),
+		uploadEnd.Format("2006-01-02 15:04:05"),
+		qqCacheSalesTimeFilterCreatedAt,
+	)
+	require.NoError(t, err)
+	require.Len(t, uploadSummaries, 1)
+
+	uploadExtractionSummaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin(
+		uploadStart.Format("2006-01-02 15:04:05"),
+		uploadEnd.Format("2006-01-02 15:04:05"),
+		qqCacheSalesTimeFilterExtractedAt,
+	)
+	require.NoError(t, err)
+	require.Empty(t, uploadExtractionSummaries)
+
+	extractSummaries, err := (&QQCacheService{}).ListSalesSummaryForAdmin(
+		extractStart.Format("2006-01-02 15:04:05"),
+		extractEnd.Format("2006-01-02 15:04:05"),
+		qqCacheSalesTimeFilterExtractedAt,
+	)
+	require.NoError(t, err)
+	require.Len(t, extractSummaries, 1)
+
+	uploadBatches, err := (&QQCacheService{}).ListSalesExtractBatchesForAdmin(
+		100,
+		salesID,
+		uploadStart.Format("2006-01-02 15:04:05"),
+		uploadEnd.Format("2006-01-02 15:04:05"),
+		qqCacheSalesTimeFilterExtractedAt,
+	)
+	require.NoError(t, err)
+	require.Empty(t, uploadBatches)
+
+	extractBatches, err := (&QQCacheService{}).ListSalesExtractBatchesForAdmin(
+		100,
+		salesID,
+		extractStart.Format("2006-01-02 15:04:05"),
+		extractEnd.Format("2006-01-02 15:04:05"),
+		qqCacheSalesTimeFilterExtractedAt,
+	)
+	require.NoError(t, err)
+	require.Len(t, extractBatches, 1)
+	require.EqualValues(t, batch.ID, extractBatches[0].ID)
 }
 
 func TestQQCacheGlobalBillingDoesNotSettleSalesBatch(t *testing.T) {
@@ -385,6 +466,7 @@ func TestQQCacheSalesBatchRedownloadUsesCreatedAtRangeAndDoesNotMutateState(t *t
 		salesID,
 		todayStart.Format("2006-01-02 15:04:05"),
 		todayEnd.Format("2006-01-02 15:04:05"),
+		qqCacheSalesTimeFilterCreatedAt,
 	)
 	require.NoError(t, err)
 	require.Len(t, batches, 1)

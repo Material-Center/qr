@@ -28,6 +28,11 @@ const (
 )
 
 const (
+	qqCacheSalesTimeFilterCreatedAt   = "createdAt"
+	qqCacheSalesTimeFilterExtractedAt = "extractedAt"
+)
+
+const (
 	qqCacheInternalToolActionCreated = "created"
 	qqCacheInternalToolActionSkipped = "skipped"
 	qqCacheInternalToolActionUpdated = "updated"
@@ -813,7 +818,7 @@ func (s *QQCacheService) ListSalesExtractHistory(extractorID uint, req systemReq
 	return items, total, nil
 }
 
-func (s *QQCacheService) ListSalesSummaryForAdmin(createdAtStart string, createdAtEnd string) ([]systemRes.QQCacheSalesAdminSummaryItem, error) {
+func (s *QQCacheService) ListSalesSummaryForAdmin(createdAtStart string, createdAtEnd string, timeFilter string) ([]systemRes.QQCacheSalesAdminSummaryItem, error) {
 	type row struct {
 		ExtractorID         uint   `gorm:"column:extractor_id"`
 		Username            string `gorm:"column:username"`
@@ -824,20 +829,17 @@ func (s *QQCacheService) ListSalesSummaryForAdmin(createdAtStart string, created
 		LastExtractionAtRaw string `gorm:"column:last_extraction_at"`
 	}
 	var rows []row
-	qqCacheAggregate := applyQQCacheCreatedAtRangeFilter(
-		global.GVA_DB.Table("sys_qq_cache_records").
-			Select(`
+	qqCacheAggregate := global.GVA_DB.Table("sys_qq_cache_records").
+		Select(`
 				extractor AS extractor_id,
 				COUNT(1) AS extracted_count,
 				SUM(CASE WHEN sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled_count,
 				SUM(CASE WHEN sales_settled_at IS NULL THEN 1 ELSE 0 END) AS unsettled_count,
 				MAX(extraction_at) AS last_extraction_at
 			`).
-			Where("extractor IS NOT NULL AND deleted_at IS NULL").
-			Group("extractor"),
-		createdAtStart,
-		createdAtEnd,
-	)
+		Where("extractor IS NOT NULL AND deleted_at IS NULL").
+		Group("extractor")
+	qqCacheAggregate = applyQQCacheSalesTimeRangeFilter(qqCacheAggregate, createdAtStart, createdAtEnd, timeFilter, "created_at", "extraction_at")
 	if err := global.GVA_DB.Table("sys_users AS u").
 		Select(`
 			u.id AS extractor_id,
@@ -879,7 +881,7 @@ func (s *QQCacheService) ListSalesSummaryForAdmin(createdAtStart string, created
 	return items, nil
 }
 
-func (s *QQCacheService) ListSalesExtractBatchesForAdmin(operatorRole uint, extractorID uint, createdAtStart string, createdAtEnd string) ([]systemRes.QQCacheSalesAdminBatchItem, error) {
+func (s *QQCacheService) ListSalesExtractBatchesForAdmin(operatorRole uint, extractorID uint, createdAtStart string, createdAtEnd string, timeFilter string) ([]systemRes.QQCacheSalesAdminBatchItem, error) {
 	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
 		return nil, errors.New("仅管理员可查看销售提取明细")
 	}
@@ -904,12 +906,7 @@ func (s *QQCacheService) ListSalesExtractBatchesForAdmin(operatorRole uint, extr
 		`).
 		Joins("JOIN sys_qq_cache_records AS r ON r.extract_record_id = b.id AND r.extractor = b.extractor_id AND r.deleted_at IS NULL").
 		Where("b.extractor_id = ? AND b.deleted_at IS NULL", extractorID)
-	if startAt, ok := parseTaskListTime(createdAtStart); ok {
-		db = db.Where("r.created_at >= ?", startAt)
-	}
-	if endAt, ok := parseTaskListTime(createdAtEnd); ok {
-		db = db.Where("r.created_at <= ?", endAt)
-	}
+	db = applyQQCacheSalesTimeRangeFilter(db, createdAtStart, createdAtEnd, timeFilter, "r.created_at", "b.extracted_at")
 	if err := db.Group("b.id, b.extracted_at").
 		Order("b.extracted_at DESC").
 		Order("b.id DESC").
@@ -1089,6 +1086,27 @@ func qqCacheSalesSettlementStatusText(status string) string {
 		return "已结算"
 	}
 	return "待结算"
+}
+
+func normalizeQQCacheSalesTimeFilter(value string) string {
+	if strings.TrimSpace(value) == qqCacheSalesTimeFilterExtractedAt {
+		return qqCacheSalesTimeFilterExtractedAt
+	}
+	return qqCacheSalesTimeFilterCreatedAt
+}
+
+func applyQQCacheSalesTimeRangeFilter(db *gorm.DB, startRaw string, endRaw string, timeFilter string, createdAtColumn string, extractedAtColumn string) *gorm.DB {
+	timeColumn := createdAtColumn
+	if normalizeQQCacheSalesTimeFilter(timeFilter) == qqCacheSalesTimeFilterExtractedAt {
+		timeColumn = extractedAtColumn
+	}
+	if startAt, ok := parseTaskListTime(startRaw); ok {
+		db = db.Where(timeColumn+" >= ?", startAt)
+	}
+	if endAt, ok := parseTaskListTime(endRaw); ok {
+		db = db.Where(timeColumn+" <= ?", endAt)
+	}
+	return db
 }
 
 func parseQQCacheSalesSQLTime(value string) *time.Time {

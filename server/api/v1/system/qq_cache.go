@@ -599,6 +599,7 @@ func (a *QQCacheApi) GetSalesHistory(c *gin.Context) {
 // @Summary   管理端按销售查询提取汇总
 // @Security  ApiKeyAuth
 // @Produce   application/json
+// @Param     timeFilter      query     string  false  "时间口径：createdAt(上传时间，默认) / extractedAt(提取时间)"
 // @Success   200   {object}  response.Response
 // @Router    /qqCache/sales/summaryList [get]
 func (a *QQCacheApi) GetSalesSummaryList(c *gin.Context) {
@@ -607,7 +608,7 @@ func (a *QQCacheApi) GetSalesSummaryList(c *gin.Context) {
 		response.FailWithMessage("仅管理员可查看销售提取汇总", c)
 		return
 	}
-	list, err := qqCacheService.ListSalesSummaryForAdmin(c.Query("createdAtStart"), c.Query("createdAtEnd"))
+	list, err := qqCacheService.ListSalesSummaryForAdmin(c.Query("createdAtStart"), c.Query("createdAtEnd"), c.Query("timeFilter"))
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
@@ -621,8 +622,9 @@ func (a *QQCacheApi) GetSalesSummaryList(c *gin.Context) {
 // @Security  ApiKeyAuth
 // @Produce   application/json
 // @Param     extractorId     query     int     true   "销售ID"
-// @Param     createdAtStart  query     string  false  "缓存创建开始时间"
-// @Param     createdAtEnd    query     string  false  "缓存创建结束时间"
+// @Param     createdAtStart  query     string  false  "时间范围开始"
+// @Param     createdAtEnd    query     string  false  "时间范围结束"
+// @Param     timeFilter      query     string  false  "时间口径：createdAt(上传时间，默认) / extractedAt(提取时间)"
 // @Success   200             {object}  response.Response{data=[]systemRes.QQCacheSalesAdminBatchItem}
 // @Router    /qqCache/sales/batches [get]
 func (a *QQCacheApi) GetSalesExtractBatches(c *gin.Context) {
@@ -641,6 +643,7 @@ func (a *QQCacheApi) GetSalesExtractBatches(c *gin.Context) {
 		uint(extractorID64),
 		c.Query("createdAtStart"),
 		c.Query("createdAtEnd"),
+		c.Query("timeFilter"),
 	)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
