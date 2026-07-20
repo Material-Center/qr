@@ -186,7 +186,14 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 		return system.SysPhoneRegisterTask{}, err
 	}
 	if blocked {
-		return system.SysPhoneRegisterTask{}, errors.New("该手机号段暂不支持提交")
+		var promoterSkipSetting system.SysUser
+		err = global.GVA_DB.Select("phone_register_skip_blocked_prefixes").Where("id = ?", promoterID).First(&promoterSkipSetting).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return system.SysPhoneRegisterTask{}, err
+		}
+		if errors.Is(err, gorm.ErrRecordNotFound) || promoterSkipSetting.PhoneRegisterSkipBlockedPrefixes == nil || !*promoterSkipSetting.PhoneRegisterSkipBlockedPrefixes {
+			return system.SysPhoneRegisterTask{}, errors.New("该手机号段暂不支持提交")
+		}
 	}
 	if !isValidPhoneRegisterSMSMode(smsReceiveMode) {
 		return system.SysPhoneRegisterTask{}, errors.New("不支持的收码方式")

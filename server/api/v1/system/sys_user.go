@@ -339,18 +339,23 @@ func (b *BaseApi) Register(c *gin.Context) {
 	if r.PhoneRegisterTaskDisabled != nil {
 		phoneRegisterTaskDisabled = *r.PhoneRegisterTaskDisabled
 	}
+	phoneRegisterSkipBlockedPrefixes := false
+	if r.PhoneRegisterSkipBlockedPrefixes != nil {
+		phoneRegisterSkipBlockedPrefixes = *r.PhoneRegisterSkipBlockedPrefixes
+	}
 	user := &system.SysUser{
-		Username:                  r.Username,
-		NickName:                  r.NickName,
-		Password:                  r.Password,
-		HeaderImg:                 r.HeaderImg,
-		AuthorityId:               r.AuthorityId,
-		Authorities:               authorities,
-		LeaderID:                  leaderID,
-		Enable:                    r.Enable,
-		Phone:                     r.Phone,
-		Email:                     r.Email,
-		PhoneRegisterTaskDisabled: &phoneRegisterTaskDisabled,
+		Username:                         r.Username,
+		NickName:                         r.NickName,
+		Password:                         r.Password,
+		HeaderImg:                        r.HeaderImg,
+		AuthorityId:                      r.AuthorityId,
+		Authorities:                      authorities,
+		LeaderID:                         leaderID,
+		Enable:                           r.Enable,
+		Phone:                            r.Phone,
+		Email:                            r.Email,
+		PhoneRegisterTaskDisabled:        &phoneRegisterTaskDisabled,
+		PhoneRegisterSkipBlockedPrefixes: &phoneRegisterSkipBlockedPrefixes,
 	}
 	userReturn, err := userService.Register(*user)
 	if err != nil {
@@ -599,16 +604,24 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 	if user.PhoneRegisterTaskDisabled != nil {
 		phoneRegisterTaskDisabled = *user.PhoneRegisterTaskDisabled
 	}
+	phoneRegisterSkipBlockedPrefixes := false
+	if targetUser.PhoneRegisterSkipBlockedPrefixes != nil {
+		phoneRegisterSkipBlockedPrefixes = *targetUser.PhoneRegisterSkipBlockedPrefixes
+	}
+	if user.PhoneRegisterSkipBlockedPrefixes != nil {
+		phoneRegisterSkipBlockedPrefixes = *user.PhoneRegisterSkipBlockedPrefixes
+	}
 	err = userService.SetUserInfo(system.SysUser{
 		GVA_MODEL: global.GVA_MODEL{
 			ID: user.ID,
 		},
-		NickName:                  user.NickName,
-		HeaderImg:                 user.HeaderImg,
-		Phone:                     user.Phone,
-		Email:                     user.Email,
-		Enable:                    user.Enable,
-		PhoneRegisterTaskDisabled: &phoneRegisterTaskDisabled,
+		NickName:                         user.NickName,
+		HeaderImg:                        user.HeaderImg,
+		Phone:                            user.Phone,
+		Email:                            user.Email,
+		Enable:                           user.Enable,
+		PhoneRegisterTaskDisabled:        &phoneRegisterTaskDisabled,
+		PhoneRegisterSkipBlockedPrefixes: &phoneRegisterSkipBlockedPrefixes,
 	})
 	if err != nil {
 		global.GVA_LOG.Error("设置失败!", zap.Error(err))

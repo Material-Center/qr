@@ -446,16 +446,17 @@ func (userService *UserService) DeleteUser(id int) (err error) {
 
 func (userService *UserService) SetUserInfo(req system.SysUser) error {
 	err := global.GVA_DB.Model(&system.SysUser{}).
-		Select("updated_at", "nick_name", "header_img", "phone", "email", "enable", "phone_register_task_disabled").
+		Select("updated_at", "nick_name", "header_img", "phone", "email", "enable", "phone_register_task_disabled", "phone_register_skip_blocked_prefixes").
 		Where("id=?", req.ID).
 		Updates(map[string]interface{}{
-			"updated_at":                   time.Now(),
-			"nick_name":                    req.NickName,
-			"header_img":                   req.HeaderImg,
-			"phone":                        req.Phone,
-			"email":                        req.Email,
-			"enable":                       req.Enable,
-			"phone_register_task_disabled": req.PhoneRegisterTaskDisabled,
+			"updated_at":                           time.Now(),
+			"nick_name":                            req.NickName,
+			"header_img":                           req.HeaderImg,
+			"phone":                                req.Phone,
+			"email":                                req.Email,
+			"enable":                               req.Enable,
+			"phone_register_task_disabled":         req.PhoneRegisterTaskDisabled,
+			"phone_register_skip_blocked_prefixes": req.PhoneRegisterSkipBlockedPrefixes,
 		}).Error
 	if err != nil {
 		return err

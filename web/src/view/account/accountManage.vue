@@ -103,6 +103,18 @@
             />
           </template>
         </el-table-column>
+        <el-table-column align="left" label="跳过禁用号段" min-width="140">
+          <template #default="scope">
+            <el-switch
+              v-model="scope.row.phoneRegisterSkipBlockedPrefixes"
+              inline-prompt
+              active-text="跳过"
+              inactive-text="正常"
+              :disabled="scope.row.authorityId !== ROLE_PROMOTER"
+              @change="() => switchBlockedPrefix(scope.row)"
+            />
+          </template>
+        </el-table-column>
         <el-table-column label="操作" min-width="300" fixed="right">
           <template #default="scope">
             <el-button type="primary" link icon="edit" @click="openEdit(scope.row)">
@@ -284,6 +296,13 @@
           <el-switch
             v-model="userForm.phoneRegisterTaskDisabled"
             active-text="禁用"
+            inactive-text="正常"
+          />
+        </el-form-item>
+        <el-form-item v-if="userForm.authorityId === ROLE_PROMOTER" label="跳过禁用号段">
+          <el-switch
+            v-model="userForm.phoneRegisterSkipBlockedPrefixes"
+            active-text="跳过"
             inactive-text="正常"
           />
         </el-form-item>
@@ -566,7 +585,8 @@ const fetchUsers = async () => {
   if (res.code === 0) {
     const list = (res.data.list || []).map((item) => ({
       ...item,
-      phoneRegisterTaskDisabled: item.phoneRegisterTaskDisabled === true
+      phoneRegisterTaskDisabled: item.phoneRegisterTaskDisabled === true,
+      phoneRegisterSkipBlockedPrefixes: item.phoneRegisterSkipBlockedPrefixes === true
     }))
     leaderOptions.value = list.filter((item) => item.authorityId === ROLE_LEADER)
     if (useLeaderTree.value) {
@@ -618,6 +638,7 @@ const userForm = ref({
   leaderId: undefined,
   enable: 1,
   phoneRegisterTaskDisabled: false,
+  phoneRegisterSkipBlockedPrefixes: false,
   headerImg: ''
 })
 
@@ -647,6 +668,7 @@ const openAdd = () => {
     leaderId: currentRoleId.value === ROLE_LEADER ? currentUserId.value : undefined,
     enable: 1,
     phoneRegisterTaskDisabled: false,
+    phoneRegisterSkipBlockedPrefixes: false,
     headerImg: ''
   }
   showDrawer.value = true
@@ -656,6 +678,7 @@ const openEdit = (row) => {
   drawerMode.value = 'edit'
   userForm.value = clearTreeFields(JSON.parse(JSON.stringify(row)))
   userForm.value.phoneRegisterTaskDisabled = userForm.value.phoneRegisterTaskDisabled === true
+  userForm.value.phoneRegisterSkipBlockedPrefixes = userForm.value.phoneRegisterSkipBlockedPrefixes === true
   showDrawer.value = true
 }
 
@@ -733,6 +756,18 @@ const switchTaskCreate = async (row) => {
   })
   if (res.code === 0) {
     ElMessage.success(`${row.phoneRegisterTaskDisabled ? '禁用' : '恢复'}成功`)
+    await nextTick()
+    await fetchUsers()
+  }
+}
+
+const switchBlockedPrefix = async (row) => {
+  const res = await setUserInfo({
+    ...clearTreeFields(row),
+    authorityIds: [row.authorityId]
+  })
+  if (res.code === 0) {
+    ElMessage.success(`${row.phoneRegisterSkipBlockedPrefixes ? '已跳过' : '已恢复'}禁用号段`)
     await nextTick()
     await fetchUsers()
   }

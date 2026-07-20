@@ -315,6 +315,77 @@ func TestCreateTaskUsesConfiguredBlockedPhonePrefixes(t *testing.T) {
 	require.EqualError(t, err, "该手机号段暂不支持提交")
 }
 
+func TestCreateTaskAllowsBlockedPrefixForConfiguredPromoter(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	enabled := true
+	skip := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                    modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                      0,
+		PhoneRegisterEnabled:         &enabled,
+		PhoneRegisterBlockedPrefixes: "188",
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:                        global.GVA_MODEL{ID: 1},
+		Username:                         "promoter_skip_prefix",
+		AuthorityId:                      300,
+		Enable:                           1,
+		PhoneRegisterSkipBlockedPrefixes: &skip,
+	}).Error)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.NoError(t, err)
+}
+
+func TestCreateTaskRejectsBlockedPrefixWithoutPromoterException(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	enabled := true
+	skip := false
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                    modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                      0,
+		PhoneRegisterEnabled:         &enabled,
+		PhoneRegisterBlockedPrefixes: "188",
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:                        global.GVA_MODEL{ID: 1},
+		Username:                         "promoter_blocked_prefix",
+		AuthorityId:                      300,
+		Enable:                           1,
+		PhoneRegisterSkipBlockedPrefixes: &skip,
+	}).Error)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "该手机号段暂不支持提交")
+}
+
+func TestCreateTaskSkipBlockedPrefixDoesNotBypassTaskDisabled(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	enabled := true
+	skip := true
+	disabled := true
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterConfig{
+		OwnerType:                    modelSystem.RegisterConfigOwnerAdmin,
+		OwnerID:                      0,
+		PhoneRegisterEnabled:         &enabled,
+		PhoneRegisterBlockedPrefixes: "188",
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:                        global.GVA_MODEL{ID: 1},
+		Username:                         "promoter_disabled",
+		AuthorityId:                      300,
+		Enable:                           1,
+		PhoneRegisterTaskDisabled:        &disabled,
+		PhoneRegisterSkipBlockedPrefixes: &skip,
+	}).Error)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "当前账号已禁用任务创建")
+}
+
 func TestCreateTaskWithStartDelaySetsAvailableAtAndExpiresAfterAvailableAt(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 	createPhoneRegisterTaskTestPromoter(t, 1)
