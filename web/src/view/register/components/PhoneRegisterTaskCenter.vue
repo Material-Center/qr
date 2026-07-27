@@ -924,6 +924,11 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
+  .phone-center :deep(.el-textarea__inner),
+  .phone-center :deep(.el-input__inner) {
+    font-size: 16px;
+  }
+
   .compact-page :deep(.el-card__header) {
     padding: 8px 10px;
   }
