@@ -232,20 +232,8 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	if promoter.PhoneRegisterTaskDisabled != nil && *promoter.PhoneRegisterTaskDisabled {
 		return system.SysPhoneRegisterTask{}, errors.New("当前账号已禁用任务创建")
 	}
-	if promoter.LeaderID != nil && *promoter.LeaderID != 0 {
-		var leader system.SysUser
-		if err = global.GVA_DB.Select("id, authority_id, enable").Where("id = ?", *promoter.LeaderID).First(&leader).Error; err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return system.SysPhoneRegisterTask{}, errors.New("上级团长不存在")
-			}
-			return system.SysPhoneRegisterTask{}, err
-		}
-		if leader.AuthorityId != phoneRoleLeader {
-			return system.SysPhoneRegisterTask{}, errors.New("上级账号不是团长")
-		}
-		if leader.Enable != 1 {
-			return system.SysPhoneRegisterTask{}, errors.New("上级团长已被禁用")
-		}
+	if err = s.ensurePromoterLeaderEnabled(promoter.LeaderID); err != nil {
+		return system.SysPhoneRegisterTask{}, err
 	}
 
 	now := time.Now()
@@ -382,7 +370,7 @@ func (s *PhoneRegisterTaskService) IsSubmitEnabledForUser(userID uint) (bool, st
 		return false, "今日手机号注册已关闭", nil
 	}
 	var user system.SysUser
-	if err := global.GVA_DB.Select("id, phone_register_task_disabled").Where("id = ?", userID).First(&user).Error; err != nil {
+	if err := global.GVA_DB.Select("id, leader_id, phone_register_task_disabled").Where("id = ?", userID).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, "账号不存在", nil
 		}
@@ -391,7 +379,30 @@ func (s *PhoneRegisterTaskService) IsSubmitEnabledForUser(userID uint) (bool, st
 	if user.PhoneRegisterTaskDisabled != nil && *user.PhoneRegisterTaskDisabled {
 		return false, "当前账号已禁用任务创建", nil
 	}
+	if err := s.ensurePromoterLeaderEnabled(user.LeaderID); err != nil {
+		return false, err.Error(), nil
+	}
 	return true, "", nil
+}
+
+func (s *PhoneRegisterTaskService) ensurePromoterLeaderEnabled(leaderID *uint) error {
+	if leaderID == nil || *leaderID == 0 {
+		return nil
+	}
+	var leader system.SysUser
+	if err := global.GVA_DB.Select("id, authority_id, enable").Where("id = ?", *leaderID).First(&leader).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return errors.New("上级团长不存在")
+		}
+		return err
+	}
+	if leader.AuthorityId != phoneRoleLeader {
+		return errors.New("上级账号不是团长")
+	}
+	if leader.Enable != 1 {
+		return errors.New("上级团长已被禁用")
+	}
+	return nil
 }
 
 func (s *PhoneRegisterTaskService) IsPhoneBlocked(phone string) (bool, error) {

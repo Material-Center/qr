@@ -408,6 +408,30 @@ func TestCreateTaskRejectsPromoterWhenLeaderDisabled(t *testing.T) {
 	require.EqualError(t, err, "上级团长已被禁用")
 }
 
+func TestIsSubmitEnabledForUserRejectsPromoterWhenLeaderDisabled(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	leaderID := uint(2)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: leaderID},
+		Username:    "disabled_leader_for_status",
+		AuthorityId: 200,
+		Enable:      2,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: 1},
+		Username:    "promoter_for_disabled_leader_status",
+		AuthorityId: 300,
+		LeaderID:    &leaderID,
+		Enable:      1,
+	}).Error)
+
+	enabled, message, err := (&PhoneRegisterTaskService{}).IsSubmitEnabledForUser(1)
+	require.NoError(t, err)
+	require.False(t, enabled)
+	require.Equal(t, "上级团长已被禁用", message)
+}
+
 func TestCreateTaskWithStartDelaySetsAvailableAtAndExpiresAfterAvailableAt(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 	createPhoneRegisterTaskTestPromoter(t, 1)
