@@ -386,6 +386,28 @@ func TestCreateTaskSkipBlockedPrefixDoesNotBypassTaskDisabled(t *testing.T) {
 	require.EqualError(t, err, "当前账号已禁用任务创建")
 }
 
+func TestCreateTaskRejectsPromoterWhenLeaderDisabled(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	leaderID := uint(2)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: leaderID},
+		Username:    "disabled_leader",
+		AuthorityId: 200,
+		Enable:      2,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: 1},
+		Username:    "promoter_with_disabled_leader",
+		AuthorityId: 300,
+		LeaderID:    &leaderID,
+		Enable:      1,
+	}).Error)
+
+	_, err := (&PhoneRegisterTaskService{}).CreateTask(1, "18800000000", modelSystem.PhoneRegisterSMSModePlatformSend)
+	require.EqualError(t, err, "上级团长已被禁用")
+}
+
 func TestCreateTaskWithStartDelaySetsAvailableAtAndExpiresAfterAvailableAt(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 	createPhoneRegisterTaskTestPromoter(t, 1)

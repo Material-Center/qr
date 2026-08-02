@@ -232,6 +232,21 @@ func (s *PhoneRegisterTaskService) CreateTask(promoterID uint, phone string, sms
 	if promoter.PhoneRegisterTaskDisabled != nil && *promoter.PhoneRegisterTaskDisabled {
 		return system.SysPhoneRegisterTask{}, errors.New("当前账号已禁用任务创建")
 	}
+	if promoter.LeaderID != nil && *promoter.LeaderID != 0 {
+		var leader system.SysUser
+		if err = global.GVA_DB.Select("id, authority_id, enable").Where("id = ?", *promoter.LeaderID).First(&leader).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return system.SysPhoneRegisterTask{}, errors.New("上级团长不存在")
+			}
+			return system.SysPhoneRegisterTask{}, err
+		}
+		if leader.AuthorityId != phoneRoleLeader {
+			return system.SysPhoneRegisterTask{}, errors.New("上级账号不是团长")
+		}
+		if leader.Enable != 1 {
+			return system.SysPhoneRegisterTask{}, errors.New("上级团长已被禁用")
+		}
+	}
 
 	now := time.Now()
 	var availableAt *time.Time
