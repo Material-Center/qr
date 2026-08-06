@@ -16,13 +16,14 @@
       <div class="extract-panel">
         <span class="extract-label">提取范围</span>
         <el-button-group>
-          <el-button
+          <!-- 临时隐藏不限筛选，保留原有默认与参数逻辑便于恢复。 -->
+          <!-- <el-button
             size="small"
             :type="!extractRecentMinutesValue ? 'primary' : 'default'"
             @click="setExtractRecentMinutes(undefined)"
           >
             不限
-          </el-button>
+          </el-button> -->
           <el-button
             v-for="item in recentMinuteOptions"
             :key="item.value"
@@ -33,6 +34,7 @@
             {{ item.shortLabel }}
           </el-button>
         </el-button-group>
+        <!-- 临时隐藏自定义小时筛选，保留原有输入与参数逻辑便于恢复。
         <el-input-number
           v-model="extractCustomHours"
           :min="1"
@@ -42,7 +44,7 @@
           placeholder="自定义小时"
           style="width: 150px"
           @change="onExtractCustomHoursChange"
-        />
+        /> -->
         <el-tag v-if="extractRangeAvailableText" class="extract-range-count" type="info" effect="plain">
           {{ extractRangeAvailableText }}
         </el-tag>
@@ -134,7 +136,8 @@ const recentMinuteOptions = [
   { label: '最近30分钟', shortLabel: '30分钟', value: 30 },
   { label: '最近1小时', shortLabel: '1小时', value: 60 },
   { label: '最近2小时', shortLabel: '2小时', value: 120 },
-  { label: '3小时以上', shortLabel: '3小时以上', value: -180 }
+  // 临时隐藏 3 小时以上筛选，保留配置便于恢复。
+  // { label: '3小时以上', shortLabel: '3小时以上', value: -180 }
 ]
 
 const normalizePositiveInteger = (value) => {
