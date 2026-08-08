@@ -19,7 +19,10 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const qqCacheExportIniMaxIDs = 100
+const (
+	qqCacheExportIniMaxIDs  = 100
+	qqCacheInQueryBatchSize = 1000
+)
 
 const (
 	qqCacheServiceRoleSuperAdmin = uint(888)
@@ -698,22 +701,26 @@ func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count 
 		for _, rec := range records {
 			ids = append(ids, rec.ID)
 		}
-		rsp := tx.Model(&system.SysQQCacheRecord{}).
-			Where("id IN ? AND extractor IS NULL", ids).
-			Updates(map[string]any{
-				"extractor":         extractorID,
-				"extract_record_id": batch.ID,
-				"extraction_at":     now,
-				"updated_at":        now,
-			})
-		if rsp.Error != nil {
-			return rsp.Error
-		}
-		if rsp.RowsAffected != int64(len(records)) {
-			return errors.New("部分缓存已被提取，请重试")
-		}
-		if err := tx.Where("id IN ?", ids).Find(&records).Error; err != nil {
+		var updated int64
+		if err := forEachQQCacheBatch(ids, func(batchIDs []uint) error {
+			rsp := tx.Model(&system.SysQQCacheRecord{}).
+				Where("id IN ? AND extractor IS NULL", batchIDs).
+				Updates(map[string]any{
+					"extractor":         extractorID,
+					"extract_record_id": batch.ID,
+					"extraction_at":     now,
+					"updated_at":        now,
+				})
+			if rsp.Error != nil {
+				return rsp.Error
+			}
+			updated += rsp.RowsAffected
+			return nil
+		}); err != nil {
 			return err
+		}
+		if updated != int64(len(records)) {
+			return errors.New("部分缓存已被提取，请重试")
 		}
 		return nil
 	})
@@ -1213,7 +1220,14 @@ func (s *QQCacheService) qqCacheRecordsByQQText(db *gorm.DB, raw string) ([]syst
 		return nil, errors.New("未解析到QQ账号")
 	}
 	var records []system.SysQQCacheRecord
-	if err := db.Where("qq_num IN ?", qqNums).Find(&records).Error; err != nil {
+	if err := forEachQQCacheBatch(qqNums, func(batchQQNums []string) error {
+		var batchRecords []system.SysQQCacheRecord
+		if err := db.Where("qq_num IN ?", batchQQNums).Find(&batchRecords).Error; err != nil {
+			return err
+		}
+		records = append(records, batchRecords...)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	if len(records) == 0 {
@@ -1239,9 +1253,17 @@ func (s *QQCacheService) ExportAccountListText(req systemReq.QQCacheExportAccoun
 	var records []system.SysQQCacheRecord
 	ids := uniqueQQCacheExportIDs(req.IDs)
 	if len(ids) > 0 {
-		if err := global.GVA_DB.Where("id IN ?", ids).Order("id desc").Find(&records).Error; err != nil {
+		if err := forEachQQCacheBatch(ids, func(batchIDs []uint) error {
+			var batchRecords []system.SysQQCacheRecord
+			if err := global.GVA_DB.Where("id IN ?", batchIDs).Find(&batchRecords).Error; err != nil {
+				return err
+			}
+			records = append(records, batchRecords...)
+			return nil
+		}); err != nil {
 			return "", 0, err
 		}
+		sort.Slice(records, func(i, j int) bool { return records[i].ID > records[j].ID })
 	} else {
 		db := applyQQCacheListFilters(global.GVA_DB.Model(&system.SysQQCacheRecord{}), qqCacheListFilter{
 			QQNum:          req.QQNum,
@@ -1314,12 +1336,19 @@ func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCache
 		LeaderUsername  string `gorm:"column:leader_username"`
 	}
 	var rows []row
-	if err := global.GVA_DB.Table("sys_phone_register_tasks AS t").
-		Select("t.qq_cache_record_id, t.sms_receive_mode, leader.nick_name AS leader_name, leader.username AS leader_username").
-		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id AND leader.deleted_at IS NULL").
-		Where("t.deleted_at IS NULL AND t.qq_cache_record_id IN ?", ids).
-		Order("t.id desc").
-		Scan(&rows).Error; err != nil {
+	if err := forEachQQCacheBatch(ids, func(batchIDs []uint) error {
+		var batchRows []row
+		if err := global.GVA_DB.Table("sys_phone_register_tasks AS t").
+			Select("t.qq_cache_record_id, t.sms_receive_mode, leader.nick_name AS leader_name, leader.username AS leader_username").
+			Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id AND leader.deleted_at IS NULL").
+			Where("t.deleted_at IS NULL AND t.qq_cache_record_id IN ?", batchIDs).
+			Order("t.id desc").
+			Scan(&batchRows).Error; err != nil {
+			return err
+		}
+		rows = append(rows, batchRows...)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
@@ -1336,6 +1365,19 @@ func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCache
 		}
 	}
 	return result, nil
+}
+
+func forEachQQCacheBatch[T any](values []T, fn func([]T) error) error {
+	for start := 0; start < len(values); start += qqCacheInQueryBatchSize {
+		end := start + qqCacheInQueryBatchSize
+		if end > len(values) {
+			end = len(values)
+		}
+		if err := fn(values[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func buildQQCacheExportAccountListLine(record system.SysQQCacheRecord, task qqCacheExportAccountTaskInfo) string {

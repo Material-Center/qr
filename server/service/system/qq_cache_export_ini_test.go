@@ -569,6 +569,47 @@ func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
 	require.Nil(t, stored.ExtractionAt)
 }
 
+func TestQQCacheExportAccountTaskMapBatchesRecordIDs(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	records := make([]model.SysQQCacheRecord, qqCacheInQueryBatchSize+1)
+	for i := range records {
+		records[i] = model.SysQQCacheRecord{QQNum: fmt.Sprintf("batch-%d", i)}
+	}
+	require.NoError(t, global.GVA_DB.Create(&records).Error)
+
+	tasks := make([]model.SysPhoneRegisterTask, len(records))
+	for i := range records {
+		tasks[i] = model.SysPhoneRegisterTask{
+			QQCacheRecordID: &records[i].ID,
+			SMSReceiveMode:  model.PhoneRegisterSMSModePlatformSend,
+		}
+	}
+	require.NoError(t, global.GVA_DB.Create(&tasks).Error)
+
+	taskMap, err := (&QQCacheService{}).qqCacheExportAccountTaskMap(records)
+	require.NoError(t, err)
+	require.Len(t, taskMap, len(records))
+}
+
+func TestQQCacheRecordsByQQTextBatchesQQNums(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	records := make([]model.SysQQCacheRecord, qqCacheInQueryBatchSize+1)
+	qqNums := make([]string, len(records))
+	for i := range records {
+		qqNums[i] = fmt.Sprintf("%d", 900000+i)
+		records[i] = model.SysQQCacheRecord{QQNum: qqNums[i]}
+	}
+	require.NoError(t, global.GVA_DB.Create(&records).Error)
+
+	got, err := (&QQCacheService{}).qqCacheRecordsByQQText(global.GVA_DB, strings.Join(qqNums, "\n"))
+	require.NoError(t, err)
+	require.Len(t, got, len(records))
+	require.Equal(t, qqNums[0], got[0].QQNum)
+	require.Equal(t, qqNums[len(qqNums)-1], got[len(got)-1].QQNum)
+}
+
 func TestExportAccountListTextIncludesDeviceLeaderAndReceiveMode(t *testing.T) {
 	setupQQCacheTestDB(t)
 
