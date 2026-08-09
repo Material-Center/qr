@@ -1,157 +1,191 @@
-# Device Account Type Design
+# 设备账号类型管理设计方案
 
-## Goal
+## 一、目标
 
-Add an administrator-managed device capability that classifies QQ cache accounts by account type. Administrators can filter and export QQ cache records by type. Sales extraction is limited by a global administrator setting of allowed account types.
+新增一套由管理员维护的设备配置能力，根据上传账号时携带的设备 ID，为 QQ 缓存记录写入账号类型。管理员可以按账号类型筛选和导出数据；销售只能导出管理员全局配置允许的账号类型。
 
-The change must be non-destructive:
+本次必须满足以下非破坏性要求：
 
-- Existing online QQ cache data is treated as the default account type.
-- Unconfigured devices continue to produce default account type records.
-- Device configuration changes only affect future uploads and imports.
-- Administrators remain unrestricted when exporting QQ cache data.
+- 线上已有 QQ 缓存数据统一视为“默认账号类型”。
+- 未配置的设备继续产生“默认账号类型”数据。
+- 修改设备配置只影响后续上传或导入的数据，不回溯修改历史记录。
+- 管理员和超级管理员的导出能力不受销售导出配置限制。
+- 发布后如果没有配置销售允许导出的账号类型，销售不能导出任何数据。
 
-## Account Types
+## 二、账号类型
 
-The first version supports two account types:
+第一期只支持两种账号类型：
 
-- `default`: existing/default account type.
-- `pc`: PC account type.
+| 类型值 | 展示名称 | 说明 |
+| --- | --- | --- |
+| `default` | 默认账号 | 现有线上数据和未配置设备上传的数据 |
+| `pc` | PC号 | 配置为 PC 类型的设备后续上传的数据 |
 
-The backend owns the enum and exposes it to the frontend so labels stay consistent across Device Management, QQ Cache Management, and Sales Extract.
+类型值由后端统一定义，并提供查询接口给前端使用，避免设备管理和 QQ 缓存管理各自维护枚举。
 
-## Device Management
+后端需要提供统一的类型校验和标准化方法：
 
-Add a new independent administrator-only menu named `设备管理`. It is separate from the existing Redis-based device heartbeat/busy-state service. This menu is a persistent configuration surface and does not show or mutate online device state.
+- QQ 缓存中的空值、`NULL` 和历史异常类型值在读取时按 `default` 处理。
+- 新增或修改配置时只允许保存后端支持的类型值。
+- 销售配置读取到历史无效值时忽略无效值；保存时如果包含无效值则直接返回参数错误，不能静默保存。
 
-The first version manages:
-
-- device ID.
-- account type.
-- optional remark.
-
-Suggested table:
+## 三、总体数据流
 
 ```text
-sys_devices
+管理员配置设备 ID -> 设备配置表
+                         |
+设备上传/缓存导入 -> 根据设备 ID 解析账号类型 -> 写入 QQ 缓存记录
+                                                   |
+                              管理员筛选/导出 <- 记录上的账号类型快照
+                                                   |
+销售允许类型全局配置 -> 销售汇总和提取查询增加允许类型限制
+```
+
+QQ 缓存记录保存的是上传当时的账号类型快照。查询时不能实时关联设备配置表，否则管理员后续修改设备类型会导致历史数据被动态重分类，不符合已确认的需求。
+
+## 四、设备管理
+
+### 4.1 菜单和职责
+
+新增独立一级菜单“设备管理”，只对管理员角色 `100` 和超级管理员角色 `888` 开放。
+
+该菜单管理的是持久化业务配置，与现有 Redis 设备心跳、忙碌、冷却和在线状态无关：
+
+- 不展示设备在线状态。
+- 不修改 Redis 设备状态。
+- 不复用或扩展现有 `DeviceService` 的职责。
+- 后端建议使用 `DeviceConfigService`，避免和现有设备状态服务混淆。
+
+第一期管理以下字段：
+
+- 设备 ID。
+- 账号类型。
+- 备注。
+
+### 4.2 数据模型
+
+建议新增模型 `SysDeviceConfig`，对应表 `sys_device_configs`：
+
+```text
 id
-device_id       unique, required
-account_type    default / pc, required
-remark
+device_id       唯一、必填
+account_type    default / pc、必填
+remark          可选
 created_at
 updated_at
 deleted_at
 ```
 
-Backend behavior:
+设备 ID 保存前需要去除首尾空格，空设备 ID 不允许保存。
 
-- Only administrator roles can access device CRUD APIs: role `100` and role `888`.
-- Sales and upload clients cannot view or modify device configuration.
-- `ResolveAccountType(deviceID)` returns:
-  - configured account type if the device exists and the value is valid.
-  - `default` when the device ID is empty, missing, deleted, or invalid.
-- QQ cache services only depend on `ResolveAccountType`; they do not own device CRUD.
+设备 ID 在创建后不可修改，编辑时只允许修改账号类型和备注。这样可以保持设备配置的稳定标识，并避免修改设备 ID 时与其他有效或已软删除记录产生冲突。
 
-Frontend behavior:
+删除使用软删除。由于 `device_id` 唯一，保存设备时需要使用 `Unscoped` 查询历史软删除记录：如果设备曾被删除，则恢复并更新原记录，不能直接插入导致唯一键冲突。
 
-- New `设备管理` menu is assigned only to administrator roles.
-- List supports searching by device ID and account type.
-- Add/edit uses an account type dropdown.
-- Delete is a soft delete.
+### 4.3 解析规则
 
-## QQ Cache Record Changes
+`ResolveAccountType(deviceID)` 的行为固定为：
 
-Add `account_type` to QQ cache records:
+- 设备存在、未删除且账号类型有效：返回配置的账号类型。
+- 设备 ID 为空：返回 `default`。
+- 设备不存在或已删除：返回 `default`。
+- 配置值异常：记录告警日志并返回 `default`，不能阻断账号上传。
+
+QQ 缓存服务只依赖该解析方法，不直接承担设备配置的增删改查职责。
+
+### 4.4 接口
 
 ```text
-qq_cache_records.account_type  default / pc, indexed
+POST /deviceConfig/list       分页查询设备配置
+POST /deviceConfig/save       新增或修改设备配置
+POST /deviceConfig/delete     软删除设备配置
+GET  /qqCache/accountTypes    查询后端支持的账号类型
 ```
 
-Write behavior:
+列表支持按设备 ID 模糊查询、按账号类型精确筛选。
 
-- App upload, phone-register upload, internal tool import, and admin import resolve account type from `deviceId` and write it into the QQ cache record.
-- Upsert/update of an existing QQ number updates `account_type` using the current upload/import `deviceId`, matching the existing behavior that replaces phone, password, INI, client version, and device ID.
-- Device configuration changes do not backfill existing QQ cache records.
+`save` 使用同一个接口处理新增和修改，但必须在服务层校验设备 ID 唯一性、账号类型合法性以及软删除记录恢复逻辑。
 
-Read compatibility:
-
-- `NULL` or empty `account_type` is treated as `default`.
-- Admin filters for `default` include `account_type IS NULL`, `account_type = ''`, and `account_type = 'default'`.
-
-## QQ Cache Management
-
-Admin QQ Cache Management adds an account type filter and table column.
-
-Affected admin operations:
-
-- List supports `accountType`.
-- Account list export supports `accountType` when exporting by current filters.
-- Pending INI extraction by count supports `accountType` as an optional filter.
-- Selected-row export continues to use selected IDs and remains unrestricted.
-- TXT-based export by QQ list remains unrestricted because it is explicitly account-driven; it can export matching accounts regardless of type.
-
-Administrators and super administrators are not limited by sales allowed-type configuration.
-
-## Sales Export Configuration
-
-Add a global QQ cache setting for sales allowed export account types:
+保存请求结构：
 
 ```json
 {
-  "salesAllowedAccountTypes": ["default", "pc"]
+  "id": 0,
+  "deviceId": "device-001",
+  "accountType": "pc",
+  "remark": "PC设备"
 }
 ```
 
-This setting is managed in admin QQ Cache Management because it controls QQ cache sales extraction.
+保存判定规则：
 
-Rules:
+| 请求情况 | 处理方式 |
+| --- | --- |
+| `id = 0`，设备 ID 不存在 | 新增配置 |
+| `id = 0`，设备 ID 对应软删除记录 | 恢复原记录并更新账号类型、备注 |
+| `id = 0`，设备 ID 对应有效记录 | 返回“设备已存在” |
+| `id > 0`，有效记录存在且设备 ID 一致 | 只更新账号类型、备注 |
+| `id > 0`，记录不存在、已删除或设备 ID 不一致 | 返回参数错误，不执行更新 |
 
-- Empty or missing configuration means sales cannot export any account type.
-- The setting is global for all sales users.
-- Invalid account type values are ignored.
-- The admin UI should make an empty setting explicit.
+## 五、QQ 缓存记录改造
 
-Store this setting in the existing `sys_params` table to avoid adding another configuration table. Use a dedicated key such as `qq_cache_sales_allowed_account_types`, with the value stored as a JSON string array. Missing row, empty value, invalid JSON, or an empty parsed array all mean sales cannot export any account type.
+### 5.1 表字段
 
-## Sales Extraction
-
-Sales-facing endpoints must apply the global allowed-type filter:
-
-- `GET /qqCache/sales/summary`
-- `POST /qqCache/sales/extract`
-
-Behavior:
-
-- If no allowed account type is configured:
-  - summary returns zero available count.
-  - extract fails with a clear message such as `未配置可导出账号类型`.
-- If allowed types are configured:
-  - summary counts only pending records whose normalized account type is allowed.
-  - extract locks and exports only pending records whose normalized account type is allowed.
-- Existing recent-minute filters still apply after the allowed-type constraint.
-
-Sales history and settlement remain based on actual extracted batches and records. They do not need to be hidden by current allowed-type changes, because changing allowed types later must not erase past extraction history.
-
-## API Shape
-
-Device module:
+在 `sys_qq_cache_records` 对应模型中新增：
 
 ```text
-POST /device/list
-POST /device/save
-POST /device/delete
-GET  /device/accountTypes
+account_type    VARCHAR(32) NOT NULL DEFAULT 'default'，普通索引
 ```
 
-QQ cache additions:
+GORM 模型使用普通 `string` 字段，并明确配置 `not null`、`default:default` 和索引。新增字段时由数据库默认值将存量行呈现为 `default`，不执行按设备 ID 回填或重分类。
 
-```text
-GET  /qqCache/accountTypes
-GET  /qqCache/salesAllowedAccountTypes
-POST /qqCache/salesAllowedAccountTypes
-```
+业务查询仍防御性兼容 `NULL`、空字符串和异常类型值，用于处理历史手工数据或迁移不完整的环境；正式迁移完成后表约束不允许继续写入 `NULL`。如果迁移前检查发现已有同名可空字段，发布脚本需要先把其中的 `NULL` 和空值修正为 `default`，再增加非空约束。
 
-Existing QQ cache requests add optional `accountType` where filter-driven exports or lists are used:
+### 5.2 写入规则
+
+不同入口的写入行为如下：
+
+| 场景 | 设备 ID 为空 | 设备 ID 非空 |
+| --- | --- | --- |
+| App 上传 | 写入 `default` | 按设备配置解析并写入 |
+| 手机号注册上传 | 保持现有校验并返回 `deviceId不能为空` | 按设备配置解析并写入 |
+| 内部工具或管理员导入新账号 | 写入 `default` | 按设备配置解析并写入 |
+| App 上传覆盖已有 QQ | 按本次请求更新为 `default` | 按本次请求重新解析并更新 |
+| 强制导入覆盖已有 QQ | 保留原 `device_id` 和 `account_type` | 同时更新 `device_id` 和重新解析后的 `account_type` |
+| 非强制导入命中已有 QQ 并跳过 | 不修改 | 不修改 |
+
+强制导入未传设备 ID 时保留原值，是对现有导入语义的延续，可避免管理员只更新密码或 INI 时把已有 PC 号误改成默认账号。
+
+设备配置修改后不回填 QQ 缓存表。只有该设备后续再次上传或明确携带设备 ID 强制导入时，相关 QQ 记录才按新的设备配置更新账号类型。
+
+### 5.3 读取兼容
+
+统一封装账号类型查询条件，避免列表、统计和导出出现不一致：
+
+- 查询 `default` 时匹配：`account_type IS NULL`、去除空格后为空、等于 `default`，或不属于当前支持类型集合的历史异常值。
+- 查询 `pc` 时只匹配 `account_type = 'pc'`。
+- 未传账号类型时不增加过滤条件。
+
+返回给前端的 `accountType` 也需要标准化，空值和所有不支持的类型统一返回 `default`，避免页面显示空白或“未知类型”。
+
+## 六、管理员 QQ 缓存管理
+
+QQ 缓存管理页面新增：
+
+- 账号类型筛选框。
+- 账号类型表格列。
+- “销售可导出账号类型”全局配置入口。
+
+账号类型筛选影响以下功能：
+
+- 分页列表和列表总数。
+- 当前时间范围内的待提取、已提取和总数统计。
+- 按当前筛选条件导出账号列表。
+- 按数量提取待提取 INI。
+
+管理员按数量提取时，账号类型是可选条件；未选择时保持现有逻辑，允许提取全部类型。
+
+现有请求模型增加可选字段：
 
 ```text
 QQCacheList.accountType
@@ -159,51 +193,205 @@ QQCacheExportPendingIniZip.accountType
 QQCacheExportAccountList.accountType
 ```
 
-Sales extract does not accept arbitrary requested account types in the first version. It uses the global allowed set only.
+服务端收到不支持的非空账号类型时返回参数错误，不能把无效值当成“不过滤”。
 
-## Permissions
+以下操作保持原语义，不受筛选框和销售配置限制：
 
-- Device Management APIs: administrator and super administrator only.
-- Device Management menu: administrator and super administrator only.
-- QQ cache sales allowed-type configuration: administrator and super administrator only.
-- Admin QQ cache list/export: administrator and super administrator only, unrestricted by sales config.
-- Sales extract: sales role only, restricted by global allowed types.
+- 按选中行 ID 导出 INI。
+- 按选中行 ID 导出账号列表。
+- 按上传的 QQ 文本文件导出 INI 或账号列表。
+- 管理员重新下载销售历史批次。
+- 管理员计费和销售结算。
 
-## Migration
+管理员页面中的计费结算统计继续保持全局统计，不随账号类型筛选变化，避免改变现有结算口径。
 
-Use additive migrations only:
+## 七、销售可导出类型配置
 
-- Add `account_type` to QQ cache records with a default of `default` where supported.
-- Add an index on `account_type`.
-- Add `sys_devices`.
+### 7.1 存储方式
 
-No data rewrite is required for existing QQ cache rows. Runtime query compatibility treats blank values as `default`.
+使用现有 `sys_params` 表保存全局配置，不新增配置表。
 
-## Testing
+固定参数键：
 
-Backend tests should cover:
+```text
+qq_cache_sales_allowed_account_types
+```
 
-- `ResolveAccountType` returns configured type and falls back to `default`.
-- QQ cache upload/import writes `default` for unconfigured devices.
-- QQ cache upload/import writes `pc` for configured PC devices.
-- Existing blank account type matches admin `default` filters.
-- Admin list/export filters by account type.
-- Sales summary returns zero when no allowed types are configured.
-- Sales extract fails when no allowed types are configured.
-- Sales summary/extract only include globally allowed account types.
-- Admin exports remain unaffected by sales allowed-type configuration.
+参数值保存为 JSON 字符串数组，例如：
 
-Frontend verification should cover:
+```json
+["default", "pc"]
+```
 
-- Device Management menu visibility for admin roles only.
-- Device create/edit/delete flow.
-- QQ cache account type filter and column.
-- Sales allowed-type configuration save/load.
-- Sales extract page shows zero available when config is empty.
+配置规则：
 
-## Out of Scope
+- 参数不存在、值为空、JSON 非法或解析后为空数组：销售不能导出任何类型。
+- 保存空数组表示明确禁止销售导出全部类型。
+- 类型去重后保存。
+- 保存请求包含不支持的类型时返回明确错误。
+- 不创建默认允许配置，发布后必须由管理员主动配置。
 
-- Per-sales-user account type permissions.
-- Dynamic reclassification of historical QQ cache records when a device config changes.
-- Merging persistent Device Management with Redis online/busy device state.
-- Backfilling existing QQ cache records from historical device IDs.
+`sys_params.key` 当前没有唯一约束，因此该业务配置不能直接依赖通用参数管理的新增接口，也不能对整个 `sys_params.key` 直接增加唯一索引，以免影响已有重复业务参数。
+
+专用读写逻辑固定为：
+
+- 读取时使用固定键并按 `id DESC` 查询第一条，确保结果确定。
+- 保存时在事务中先按固定键更新全部已有记录；如果更新条数为 `0` 再创建一条。
+- 极端情况下两个首次保存请求并发创建了重复记录，读取仍以最大 `id` 为准；后续任意一次保存会把该固定键的全部重复记录收敛为同一个值。
+- 增量迁移可以保留重复记录，不删除用户数据；但需要保证读取顺序和后续收敛规则一致。
+
+### 7.2 接口
+
+```text
+GET /qqCache/salesAllowedAccountTypes    管理员读取配置
+PUT /qqCache/salesAllowedAccountTypes    管理员保存配置
+```
+
+保存请求：
+
+```json
+{
+  "accountTypes": ["default", "pc"]
+}
+```
+
+读取接口即使未配置也返回空数组，前端需要明确展示“销售当前不可导出任何账号类型”。
+
+## 八、销售提取
+
+以下销售接口必须应用全局允许类型限制：
+
+```text
+GET  /qqCache/sales/summary
+POST /qqCache/sales/extract
+```
+
+处理规则：
+
+- 未配置允许类型时，汇总接口的 `available` 返回 `0`。
+- 未配置允许类型时，提取接口直接失败，提示 `未配置可导出账号类型`。
+- 已配置允许类型时，`available` 只统计未提取、INI 有效且账号类型在允许集合中的记录。
+- 提取时先读取并校验允许类型，再在事务中的加锁查询和更新条件里应用同一组类型条件。
+- 现有“最近多少分钟”条件继续生效，并与允许类型条件同时满足。
+- 销售请求不能自行传入账号类型来扩大或缩小范围，第一期完全以管理员全局配置为准。
+
+销售汇总中的今日已提取、今日未结算和计费数据，以及销售历史和结算记录，继续按实际已发生的提取记录统计，不受管理员之后修改允许类型的影响。
+
+## 九、权限设计
+
+| 能力 | 允许角色 | 额外约束 |
+| --- | --- | --- |
+| 设备管理菜单和接口 | `100`、`888` | 服务端再次校验角色 |
+| 账号类型枚举接口 | `100`、`888` | 供两个管理页面使用 |
+| 销售允许类型配置 | `100`、`888` | 服务端再次校验角色 |
+| QQ 缓存管理和管理员导出 | `100`、`888` | 不受销售配置限制 |
+| 销售汇总和提取 | `600` | 必须受全局允许类型限制 |
+
+权限必须同时落实在以下三层：
+
+- 菜单角色关联，控制页面是否可见。
+- Casbin/API 权限数据，控制路由访问。
+- API 方法内角色校验，防止权限数据误配后越权。
+
+设备上传角色、App 提取角色、团长和地推不能访问设备配置和销售配置接口。
+
+## 十、数据库迁移与发布
+
+### 10.1 表结构迁移
+
+仅做增量变更：
+
+- 新增 `sys_device_configs` 表。
+- QQ 缓存表新增 `account_type` 字段和索引。
+- 不删除、不重命名现有字段。
+- 不批量改写历史 QQ 缓存数据。
+
+需要同时把新模型加入：
+
+- 正常启动的 `RegisterTables` 自动迁移列表。
+- 初始化数据库的 `ensure_tables` 列表和表存在性检查。
+
+如果生产环境关闭了自动迁移，必须先执行对应的增量 DDL，再启动引用新字段的后端版本。
+
+### 10.2 菜单和权限增量
+
+`server/source/system` 中的初始化数据主要服务于新库初始化，线上已有数据库不能只修改初始化数组后就认为菜单和权限会自动更新。
+
+发布时需要提供可重复执行的增量逻辑或迁移脚本，按唯一业务键补齐：
+
+- “设备管理”菜单。
+- 以下 API 元数据：
+  - `POST /deviceConfig/list`
+  - `POST /deviceConfig/save`
+  - `POST /deviceConfig/delete`
+  - `GET /qqCache/accountTypes`
+  - `GET /qqCache/salesAllowedAccountTypes`
+  - `PUT /qqCache/salesAllowedAccountTypes`
+- 角色 `100`、`888` 与“设备管理”菜单的关联。
+- 角色 `100`、`888` 对上述六个接口的 Casbin 规则。
+
+增量逻辑必须幂等，重复发布不能产生重复菜单、重复 API 或重复 Casbin 规则，也不能覆盖用户已有的其他菜单权限。
+
+### 10.3 发布后的默认行为
+
+- 历史账号继续按 `default` 查询和展示。
+- 未配置设备继续写入 `default`。
+- 不自动创建销售允许类型配置。
+- 管理员未主动保存配置前，销售汇总可用数量为 `0`，销售提取被拒绝。
+
+## 十一、测试范围
+
+### 11.1 后端测试
+
+- 已配置设备返回对应账号类型，未配置、已删除和异常配置回退为 `default`。
+- 软删除设备重新保存时恢复原记录，不触发唯一键冲突。
+- App 上传和手机号注册上传正确写入账号类型。
+- 手机号注册上传缺少设备 ID 时继续返回原有错误，不能因账号类型默认逻辑放宽校验。
+- 新账号导入未传设备 ID 时写入 `default`。
+- 强制覆盖已有账号且未传设备 ID 时保留原设备和账号类型。
+- 强制覆盖已有账号且传设备 ID 时同步更新设备和账号类型。
+- 历史空账号类型能被 `default` 条件匹配，并对外返回 `default`。
+- 历史异常账号类型能被 `default` 条件匹配，并对外返回 `default`。
+- 管理员列表、统计、按筛选导出和按数量提取正确应用账号类型。
+- 未配置销售允许类型时，销售可用数量为 `0` 且提取失败。
+- 销售汇总和提取只包含允许类型，并继续应用最近分钟条件。
+- 管理员导出不受销售允许类型配置影响。
+- 非管理员无法访问设备管理和销售配置接口。
+- `sys_params` 存在重复固定键时按最大 `id` 稳定读取，保存后所有重复记录收敛为同一配置。
+- 两个管理员角色逐个验证新增菜单和六个接口可访问，其他角色逐个验证不可访问。
+- 线上增量脚本重复执行不会产生重复菜单、API 或权限规则。
+
+### 11.2 前端验证
+
+- 只有管理员和超级管理员能看到“设备管理”。
+- 设备新增、修改、删除、恢复和筛选流程正常。
+- QQ 缓存列表能按账号类型筛选并正确显示历史默认数据。
+- 账号类型筛选能传递给对应统计和导出请求。
+- 销售允许类型配置能够正确读取、保存和展示空配置状态。
+- 销售未获允许时页面显示可用数量为 `0`，提取失败信息明确。
+
+## 十二、不在本期范围
+
+- 按销售用户分别配置账号类型权限。
+- 设备配置变化后自动重分类历史 QQ 缓存。
+- 将持久化设备管理与 Redis 在线、忙碌、冷却状态合并。
+- 根据历史设备 ID 批量回填账号类型。
+- 销售自行选择本次要提取的账号类型。
+
+## 十三、实施约束与验收条件
+
+本方案只允许新增字段、新增表、新增菜单和新增查询条件，不删除、不重命名现有数据结构，也不按设备配置重写历史 QQ 缓存。
+
+实现和发布验收必须确认：
+
+- 避免新增持久化设备配置与现有 Redis `DeviceService` 职责混合。
+- 避免管理员导入未传设备 ID 时错误重置已有账号类型。
+- 明确软删除设备重新添加时的唯一键处理。
+- 明确历史空账号类型在查询和响应中的统一兼容。
+- 明确销售配置空值默认拒绝导出，且管理员导出不受影响。
+- 明确线上已有数据库必须增量补齐菜单、API 和 Casbin 权限，不能只依赖新库初始化代码。
+- 保持手机号注册上传的设备 ID 必填校验和任务关联逻辑不变。
+- `account_type` 最终数据库结构为非空且默认 `default`，迁移异常环境先修正空值再加约束。
+- 所有新增菜单和接口分别验证管理员可访问、其他角色不可访问。
+
+只有上述约束、测试和线上增量步骤全部满足后，才判定本次变更符合无破坏性发布要求。
