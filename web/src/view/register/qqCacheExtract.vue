@@ -50,14 +50,15 @@
         </el-tag>
         <span class="extract-label">提取数量</span>
         <el-input-number
+          class="extract-count-input"
           v-model="extractCount"
           :min="1"
           :max="extractMax"
           :disabled="extractMax <= 0"
           controls-position="right"
-          style="width: 160px"
         />
         <el-button
+          class="extract-action"
           type="primary"
           :disabled="extractMax <= 0 || extracting"
           :loading="extracting"
@@ -352,6 +353,10 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.extract-count-input {
+  width: 160px;
+}
+
 .table-header {
   display: flex;
   align-items: center;
@@ -363,5 +368,38 @@ onMounted(() => {
   color: #303133;
   font-size: 15px;
   font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .extract-panel {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .extract-panel :deep(.el-button-group) {
+    display: flex;
+    width: 100%;
+  }
+
+  .extract-panel :deep(.el-button-group .el-button) {
+    flex: 1;
+    min-width: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .extract-range-count {
+    white-space: normal;
+  }
+
+  .extract-count-input,
+  .extract-action {
+    width: 100%;
+  }
+
+  .extract-count-input :deep(.el-input__wrapper) {
+    width: 100%;
+  }
 }
 </style>
