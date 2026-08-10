@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="gva-table-box">
+    <div class="app-table-box">
       <el-row :gutter="12" class="mb-3">
         <el-col :xs="24" :sm="8">
           <el-card shadow="never">当前可提取数量：{{ summary.available }}</el-card>
@@ -68,7 +68,7 @@
       </div>
     </div>
 
-    <div class="gva-table-box">
+    <div class="app-table-box">
       <div class="table-header">
         <span class="table-title">今日提取历史</span>
         <el-button icon="refresh" @click="fetchAll">刷新</el-button>
@@ -88,7 +88,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           :current-page="page"
           :page-size="pageSize"

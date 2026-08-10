@@ -1,7 +1,7 @@
 <template>
   <div @click="clickFull">
-    <div v-if="isShow" class="gvaIcon gvaIcon-fullscreen-expand" />
-    <div v-else class="gvaIcon gvaIcon-fullscreen-shrink" />
+    <div v-if="isShow" class="appIcon appIcon-fullscreen-expand" />
+    <div v-else class="appIcon appIcon-fullscreen-shrink" />
   </div>
 </template>
 

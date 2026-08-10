@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="gva-search-box">
+    <div class="app-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="创建时间">
           <el-date-picker
@@ -150,7 +150,7 @@
       </div>
     </div>
 
-    <div class="gva-table-box">
+    <div class="app-table-box">
       <el-row :gutter="12" class="mb-3">
         <el-col :xs="24" :sm="12" :md="6">
           <el-card shadow="never">待提取数量：{{ extractStats.pending }}</el-card>
@@ -217,7 +217,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           :current-page="page"
           :page-size="pageSize"
@@ -230,7 +230,7 @@
       </div>
     </div>
 
-    <div class="gva-table-box">
+    <div class="app-table-box">
       <div class="sales-summary-header">
         <span class="sales-summary-title">销售提取汇总</span>
         <div class="sales-summary-actions">

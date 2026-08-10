@@ -51,11 +51,11 @@
       <div
         class="flex-1 bg-white text-slate-700 dark:text-slate-400 dark:bg-slate-900"
       >
-        <div class="gva-table-box mt-0 mb-0">
+        <div class="app-table-box mt-0 mb-0">
           <warning-bar
             title="点击“文件名”可以编辑；选择的类别即是上传的类别。"
           />
-          <div class="gva-btn-list gap-3">
+          <div class="app-btn-list gap-3">
             <upload-common
               :image-common="imageCommon"
               :classId="search.classId"
@@ -150,7 +150,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="gva-pagination">
+          <div class="app-pagination">
             <el-pagination
               :current-page="page"
               :page-size="pageSize"
@@ -358,7 +358,7 @@
       cancelButtonText: '取消',
       inputType: 'textarea',
       inputPlaceholder:
-        '我的图片|https://my-oss.com/my.png\nhttps://my-oss.com/my_1.png',
+        '我的图片|https://example.com/my.png\nhttps://example.com/my_1.png',
       inputPattern: /\S/,
       inputErrorMessage: '不能为空'
     })

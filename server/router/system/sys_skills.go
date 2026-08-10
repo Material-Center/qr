@@ -6,7 +6,6 @@ type SkillsRouter struct{}
 
 func (s *SkillsRouter) InitSkillsRouter(Router *gin.RouterGroup, pubRouter *gin.RouterGroup) {
 	skillsRouter := Router.Group("skills")
-	skillsRouterPub := pubRouter.Group("skills")
 	{
 		skillsRouter.GET("getTools", skillsApi.GetTools)
 		skillsRouter.POST("getSkillList", skillsApi.GetSkillList)
@@ -28,8 +27,5 @@ func (s *SkillsRouter) InitSkillsRouter(Router *gin.RouterGroup, pubRouter *gin.
 		skillsRouter.POST("getGlobalConstraint", skillsApi.GetGlobalConstraint)
 		skillsRouter.POST("saveGlobalConstraint", skillsApi.SaveGlobalConstraint)
 		skillsRouter.POST("packageSkill", skillsApi.PackageSkill)
-	}
-	{
-		skillsRouterPub.POST("downloadOnlineSkill", skillsApi.DownloadOnlineSkill)
 	}
 }

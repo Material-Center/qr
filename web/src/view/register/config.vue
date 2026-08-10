@@ -89,7 +89,7 @@
             <el-input v-model="form.ip138Token" show-password placeholder="可选：用于按手机号定位代理地区" />
           </el-form-item>
           <el-form-item label="签名 ApiBase">
-            <el-input v-model="form.apiBase" placeholder="例如: http://sign9.owo.vin" />
+            <el-input v-model="form.apiBase" placeholder="请输入签名服务地址" />
           </el-form-item>
           <el-form-item label="签名 ApiToken">
             <el-input v-model="form.apiToken" show-password placeholder="请输入签名服务 apiToken" />
@@ -264,8 +264,8 @@ const captchaAccountLabel = computed(() => {
   return '验证码账号'
 })
 const captchaAccountPlaceholder = computed(() => {
-  if (form.value.captchaPlatform === 'ac') return '例如: http://39.99.146.154:16168'
-  if (form.value.captchaPlatform === 'fj') return '可留空，默认: http://156.238.235.35:8860/'
+  if (form.value.captchaPlatform === 'ac') return '请输入 AC 服务地址'
+  if (form.value.captchaPlatform === 'fj') return '可留空，默认使用内置服务地址'
   return 'YY 平台账号'
 })
 const captchaPasswordLabel = computed(() => {

@@ -4,8 +4,8 @@
   >
     <iframe
         v-if="reloadFlag"
-        id="gva-base-load-dom"
-        class="gva-body-h bg-gray-50 dark:bg-slate-800 w-full border-t border-gray-200 dark:border-slate-700"
+        id="app-base-load-dom"
+        class="app-body-h bg-gray-50 dark:bg-slate-800 w-full border-t border-gray-200 dark:border-slate-700"
         :src="url"
     ></iframe>
   </div>
@@ -24,7 +24,7 @@
 
 
   defineOptions({
-    name: 'GvaLayoutIframe'
+    name: 'AppLayoutIframe'
   })
 
   useResponsive(true)
@@ -39,7 +39,7 @@
   const router = useRouter()
   const route = useRoute()
 
-  const url = route.query.url || 'https://www.gin-vue-admin.com'
+  const url = route.query.url || 'about:blank'
 
   onMounted(() => {
     // 挂载一些通用的事件

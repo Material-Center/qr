@@ -39,22 +39,22 @@ cors:
     whitelist:
         - allow-origin: http://www.qq123qq.com
           allow-methods: POST, GET, OPTIONS, DELETE, PUT
-          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id
+          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id,X-Req-Timestamp,X-Req-Nonce,X-Req-Signature
           expose-headers: Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type, New-Token, New-Expires-At
           allow-credentials: true
         - allow-origin: http://www.qq123qq.com:1111
           allow-methods: POST, GET, OPTIONS, DELETE, PUT
-          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id
+          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id,X-Req-Timestamp,X-Req-Nonce,X-Req-Signature
           expose-headers: Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type, New-Token, New-Expires-At
           allow-credentials: true
         - allow-origin: https://www.qq123qq.com
           allow-methods: POST, GET, OPTIONS, DELETE, PUT
-          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id
+          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id,X-Req-Timestamp,X-Req-Nonce,X-Req-Signature
           expose-headers: Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type, New-Token, New-Expires-At
           allow-credentials: true
         - allow-origin: http://210.16.170.132:1111
           allow-methods: POST, GET, OPTIONS, DELETE, PUT
-          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id
+          allow-headers: Content-Type,AccessToken,X-CSRF-Token, Authorization, Token,X-Token,X-User-Id,X-Req-Timestamp,X-Req-Nonce,X-Req-Signature
           expose-headers: Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type, New-Token, New-Expires-At
           allow-credentials: true
 db-list:
@@ -97,8 +97,8 @@ hua-wei-obs:
     access-key: you-access-key
     secret-key: you-secret-key
 jwt:
-    signing-key: cc220dab-7196-4c67-beaa-3ba2c5ebab5a
-    expires-time: 7d
+    signing-key: fb24d16fe5cde75ddcdbd3dbb6dadb04ced66aa7f976d1762d77e55a6e6602ff
+    expires-time: 3d
     buffer-time: 1d
     issuer: qr
 local:
@@ -241,8 +241,10 @@ system:
     oss-type: local
     router-prefix: ""
     addr: 8888
-    iplimit-count: 15000
-    iplimit-time: 3600
+    iplimit-count: 6000
+    iplimit-time: 60
+    login-iplimit-count: 30
+    login-iplimit-time: 1800
     use-multipoint: true
     use-redis: true
     use-mongo: false

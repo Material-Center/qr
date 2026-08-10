@@ -17,7 +17,7 @@
             </div>
             <div class="mb-9">
               <p class="text-center text-4xl font-bold">
-                {{ $GIN_VUE_ADMIN.appName }}
+                {{ $APP_CONFIG.appName }}
               </p>
               <p class="text-center text-sm font-normal text-gray-500 mt-2.5">
                 A management platform using Golang and Vue
@@ -101,32 +101,12 @@
       </div>
     </div>
 
-    <BottomInfo class="left-0 right-0 absolute bottom-3 mx-auto w-full z-20">
-      <div class="links items-center justify-center gap-2 hidden md:flex">
-        <a href="https://www.gin-vue-admin.com/" target="_blank">
-          <img src="@/assets/docs.png" class="w-8 h-8" alt="文档" />
-        </a>
-        <a href="https://support.qq.com/product/371961" target="_blank">
-          <img src="@/assets/kefu.png" class="w-8 h-8" alt="客服" />
-        </a>
-        <a
-          href="https://github.com/flipped-aurora/gin-vue-admin"
-          target="_blank"
-        >
-          <img src="@/assets/github.png" class="w-8 h-8" alt="github" />
-        </a>
-        <a href="https://space.bilibili.com/322210472" target="_blank">
-          <img src="@/assets/video.png" class="w-8 h-8" alt="视频站" />
-        </a>
-      </div>
-    </BottomInfo>
   </div>
 </template>
 
 <script setup>
   import { captcha } from '@/api/user'
   import { checkDB } from '@/api/initdb'
-  import BottomInfo from '@/components/bottomInfo/bottomInfo.vue'
   import { reactive, ref } from 'vue'
   import { ElMessage } from 'element-plus'
   import { useRouter } from 'vue-router'

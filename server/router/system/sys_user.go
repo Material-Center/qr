@@ -10,16 +10,17 @@ type UserRouter struct{}
 func (s *UserRouter) InitUserRouter(Router *gin.RouterGroup) {
 	userRouter := Router.Group("user").Use(middleware.OperationRecord())
 	userRouterWithoutRecord := Router.Group("user")
+	requestSignature := middleware.RequestSignatureGuard()
 	{
-		userRouter.POST("admin_register", baseApi.Register)               // 管理员注册账号
-		userRouter.POST("changePassword", baseApi.ChangePassword)         // 用户修改密码
-		userRouter.POST("setUserAuthority", baseApi.SetUserAuthority)     // 设置用户权限
-		userRouter.DELETE("deleteUser", baseApi.DeleteUser)               // 删除用户
-		userRouter.PUT("setUserInfo", baseApi.SetUserInfo)                // 设置用户信息
-		userRouter.PUT("setSelfInfo", baseApi.SetSelfInfo)                // 设置自身信息
-		userRouter.POST("setUserAuthorities", baseApi.SetUserAuthorities) // 设置用户权限组
-		userRouter.POST("resetPassword", baseApi.ResetPassword)           // 重置用户密码
-		userRouter.PUT("setSelfSetting", baseApi.SetSelfSetting)          // 用户界面配置
+		userRouter.POST("admin_register", requestSignature, baseApi.Register)               // 管理员注册账号
+		userRouter.POST("changePassword", baseApi.ChangePassword)                           // 用户修改密码
+		userRouter.POST("setUserAuthority", requestSignature, baseApi.SetUserAuthority)     // 设置用户权限
+		userRouter.DELETE("deleteUser", requestSignature, baseApi.DeleteUser)               // 删除用户
+		userRouter.PUT("setUserInfo", baseApi.SetUserInfo)                                  // 设置用户信息
+		userRouter.PUT("setSelfInfo", baseApi.SetSelfInfo)                                  // 设置自身信息
+		userRouter.POST("setUserAuthorities", requestSignature, baseApi.SetUserAuthorities) // 设置用户权限组
+		userRouter.POST("resetPassword", requestSignature, baseApi.ResetPassword)           // 重置用户密码
+		userRouter.PUT("setSelfSetting", baseApi.SetSelfSetting)                            // 用户界面配置
 	}
 	{
 		userRouterWithoutRecord.POST("getUserList", baseApi.GetUserList) // 分页获取用户列表

@@ -1,7 +1,7 @@
 <template>
   <div>
-    <div class="gva-table-box">
-      <div class="gva-btn-list">
+    <div class="app-table-box">
+      <div class="app-btn-list">
         <el-button type="primary" icon="plus" @click="goAutoCode(null)">
           新增
         </el-button>
@@ -77,7 +77,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           :current-page="page"
           :page-size="pageSize"
@@ -226,7 +226,7 @@
                   @click="aiAddFunc"
                   type="primary"
                   class="absolute right-2 bottom-2"
-                  ><ai-gva />帮写</el-button
+                  ><ai-tool />帮写</el-button
                 >
               </div>
             </el-form-item>
@@ -234,7 +234,7 @@
               <v-ace-editor
                 v-model:value="autoFunc.apiFunc"
                 lang="golang"
-                theme="github_dark"
+                theme="tomorrow_night"
                 class="h-80 w-full"
               />
             </el-form-item>
@@ -242,7 +242,7 @@
               <v-ace-editor
                 v-model:value="autoFunc.serverFunc"
                 lang="golang"
-                theme="github_dark"
+                theme="tomorrow_night"
                 class="h-80 w-full"
               />
             </el-form-item>
@@ -250,7 +250,7 @@
               <v-ace-editor
                 v-model:value="autoFunc.jsFunc"
                 lang="javascript"
-                theme="github_dark"
+                theme="tomorrow_night"
                 class="h-80 w-full"
               />
             </el-form-item>
@@ -264,7 +264,7 @@
                 placeholder="请输入方法介绍"
               />
               <el-button type="primary" @click="autoComplete"
-                ><ai-gva />补全</el-button
+                ><ai-tool />补全</el-button
               >
             </div>
           </el-form-item>
@@ -327,7 +327,7 @@
   import { VAceEditor } from 'vue3-ace-editor'
   import 'ace-builds/src-noconflict/mode-javascript'
   import 'ace-builds/src-noconflict/mode-golang'
-  import 'ace-builds/src-noconflict/theme-github_dark'
+  import 'ace-builds/src-noconflict/theme-tomorrow_night'
 
   defineOptions({
     name: 'AutoCodeAdmin'

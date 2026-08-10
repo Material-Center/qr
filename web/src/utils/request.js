@@ -1,4 +1,5 @@
 import axios from 'axios' // 引入axios
+import SparkMD5 from 'spark-md5'
 import { useUserStore } from '@/pinia/modules/user'
 import { ElLoading, ElMessage } from 'element-plus'
 import { emitter } from '@/utils/bus'
@@ -7,6 +8,114 @@ import router from '@/router/index'
 const service = axios.create({
   timeout: 180000
 })
+
+const fromB64 = (value) => {
+  let bits = 0
+  let size = 0
+  let output = ''
+  for (const item of value.replace(/=+$/, '')) {
+    const code = item.charCodeAt(0)
+    let chunk = -1
+    if (code >= 65 && code <= 90) {
+      chunk = code - 65
+    } else if (code >= 97 && code <= 122) {
+      chunk = code - 71
+    } else if (code >= 48 && code <= 57) {
+      chunk = code + 4
+    } else if (item === '+' || item === '-') {
+      chunk = 62
+    } else if (item === '/' || item === '_') {
+      chunk = 63
+    }
+    if (chunk < 0) {
+      continue
+    }
+    bits = (bits << 6) | chunk
+    size += 6
+    if (size >= 8) {
+      size -= 8
+      output += String.fromCharCode((bits >> size) & 0xff)
+    }
+  }
+  return output
+}
+
+const requestProofSeed = fromB64('cXItd2ViLXJlcXVlc3Qtc2lnbmF0dXJlLXYx')
+const guardedRoutes = [
+  'YmFzZS9sb2dpbg==',
+  'YmFzZS9jYXB0Y2hh',
+  'c3lzdGVtL3NldFN5c3RlbUNvbmZpZw==',
+  'c3lzdGVtL3JlbG9hZFN5c3RlbQ==',
+  'dXNlci9hZG1pbl9yZWdpc3Rlcg==',
+  'dXNlci9zZXRVc2VyQXV0aG9yaXR5',
+  'dXNlci9zZXRVc2VyQXV0aG9yaXRpZXM=',
+  'dXNlci9yZXNldFBhc3N3b3Jk',
+  'dXNlci9kZWxldGVVc2Vy',
+  'cXFDYWNoZS9zYWxlcy9leHRyYWN0'
+].reduce((routes, item) => routes.add(`/${fromB64(item)}`), new Set())
+
+const utcDayKey = (timestamp) => {
+  const date = new Date(timestamp)
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}${month}${day}`
+}
+
+const nextProofNonce = () => {
+  const webCrypto = globalThis.crypto
+  if (webCrypto?.randomUUID) {
+    return webCrypto.randomUUID()
+  }
+  if (!webCrypto?.getRandomValues) {
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+  const bytes = new Uint8Array(16)
+  webCrypto.getRandomValues(bytes)
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+const canAttachProof = (data) => {
+  if (!data) return true
+  if (typeof data === 'string') return true
+  if (typeof FormData !== 'undefined' && data instanceof FormData) return false
+  if (typeof Blob !== 'undefined' && data instanceof Blob) return false
+  if (data instanceof ArrayBuffer) return false
+  return typeof data === 'object'
+}
+
+const normalizedPath = (url = '') => {
+  try {
+    return new URL(url, window.location.origin).pathname
+  } catch {
+    return url.split('?')[0]
+  }
+}
+
+const attachRequestProof = (config) => {
+  const path = normalizedPath(config.url)
+  if (!guardedRoutes.has(path) || !canAttachProof(config.data)) {
+    return
+  }
+
+  const timestamp = Date.now()
+  const nonce = nextProofNonce()
+  const method = (config.method || 'get').toUpperCase()
+  const body = typeof config.data === 'string' ? config.data : (config.data ? JSON.stringify(config.data) : '')
+  const key = SparkMD5.hash(utcDayKey(timestamp) + requestProofSeed)
+  const signature = SparkMD5.hash(`${key}\n${method}\n${path}\n${timestamp}\n${nonce}\n${body}`)
+
+  if (typeof config.data !== 'undefined' && config.data !== null) {
+    config.data = body
+  }
+  config.headers = {
+    ...config.headers,
+    'X-Req-Timestamp': String(timestamp),
+    'X-Req-Nonce': nonce,
+    'X-Req-Signature': signature
+  }
+}
+
 let activeAxios = 0
 let timer
 let loadingInstance
@@ -18,7 +127,7 @@ const showLoading = (
     target: null
   }
 ) => {
-  const loadDom = document.getElementById('gva-base-load-dom')
+  const loadDom = document.getElementById('app-base-load-dom')
   activeAxios++
 
   // 清除之前的定时器
@@ -109,6 +218,7 @@ service.interceptors.request.use(
       'x-user-id': userStore.userInfo.ID,
       ...config.headers
     }
+    attachRequestProof(config)
     return config
   },
   (error) => {

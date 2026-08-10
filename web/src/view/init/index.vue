@@ -16,25 +16,14 @@
           <div
             class="font-sans text-4xl font-bold text-center mb-4 dark:text-white"
           >
-            GIN-VUE-ADMIN
+            营销系统
           </div>
           <p class="text-gray-600 dark:text-gray-300 mb-2">初始化须知</p>
           <p class="text-gray-600 dark:text-gray-300 mb-2">
-            1.您需有用一定的VUE和GOLANG基础
+            1.请确认已完成服务器、数据库和缓存服务准备
           </p>
           <p class="text-gray-600 dark:text-gray-300 mb-2">
-            2.请您确认是否已经阅读过<a
-              class="text-blue-600 font-bold"
-              href="https://www.gin-vue-admin.com"
-              target="_blank"
-              >官方文档</a
-            >
-            <a
-              class="text-blue-600 font-bold"
-              href="https://www.bilibili.com/video/BV1kv4y1g7nT?p=2"
-              target="_blank"
-              >初始化视频</a
-            >
+            2.请确认初始化操作来自可信管理员
           </p>
           <p class="text-gray-600 dark:text-gray-300 mb-2">
             3.请您确认是否了解后续的配置流程
@@ -46,12 +35,9 @@
             >
           </p>
           <p class="text-gray-600 dark:text-gray-300 mb-2">
-            注：开发组不为文档中书写过的内容提供无偿服务
+            注：初始化完成后请及时关闭初始化入口
           </p>
           <p class="flex items-center justify-between mt-8">
-            <el-button type="primary" size="large" @click="goDoc">
-              阅读文档
-            </el-button>
             <el-button type="primary" size="large" @click="showNext">
               我已确认
             </el-button>
@@ -157,10 +143,6 @@
     }, 20)
   }
 
-  const goDoc = () => {
-    window.open('https://www.gin-vue-admin.com/guide/start-quickly/env.html')
-  }
-
   const out = ref(false)
 
   const form = reactive({
@@ -246,7 +228,7 @@
           port: '3306',
           userName: 'root',
           password: '',
-          dbName: 'gva',
+          dbName: 'qr',
           dbPath: ''
         })
     }
@@ -275,23 +257,20 @@
           message: res.msg
         })
         
-        // 显示AI助手配置提示弹窗
+        // 显示配置完成提示弹窗
         ElMessageBox.confirm(
-          '已经完成基础数据库初始化！建议先进行编辑器AI助手配置，以获得更好的开发体验。',
+          '已经完成基础数据库初始化，请返回登录页继续操作。',
           '配置完成',
           {
-            confirmButtonText: '查看AI配置文档',
-            cancelButtonText: '稍后配置',
+            confirmButtonText: '返回登录页',
+            cancelButtonText: '留在当前页',
             type: 'success',
             center: true
           }
         ).then(() => {
-          // 点击确认按钮，打开AI配置文档
-          window.open('https://www.gin-vue-admin.com/guide/server/mcp.html', '_blank')
           router.push({ name: 'Login' })
         }).catch(() => {
-          // 点击取消按钮或关闭弹窗，直接跳转到登录页
-          router.push({ name: 'Login' })
+          // User cancelled
         })
       }
       loading.close()

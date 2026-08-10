@@ -18,7 +18,7 @@
             'min-w-fit'
           "
         >
-          {{ $GIN_VUE_ADMIN.appName }}
+          {{ $APP_CONFIG.appName }}
         </div>
       </div>
 
@@ -34,11 +34,11 @@
           {{ fmtTitle(item.meta.title, route) }}
         </el-breadcrumb-item>
       </el-breadcrumb>
-      <gva-aside
+      <app-aside
         v-if="config.side_mode === 'head' && !isMobile"
         class="flex-1"
       />
-      <gva-aside
+      <app-aside
         v-if="config.side_mode === 'combination' && !isMobile"
         mode="head"
         class="flex-1"
@@ -102,7 +102,7 @@
   import { computed } from 'vue'
   import { setUserAuthority } from '@/api/user'
   import { fmtTitle } from '@/utils/fmtRouterTitle'
-  import gvaAside from '@/view/layout/aside/index.vue'
+  import AppAside from '@/view/layout/aside/index.vue'
   import Logo from '@/components/logo/index.vue'
 
   const userStore = useUserStore()

@@ -1,6 +1,6 @@
 <template>
   <div class="phone-register-task-manage">
-    <div v-if="showTaskList" class="gva-search-box">
+    <div v-if="showTaskList" class="app-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="完成时间">
           <el-date-picker
@@ -114,7 +114,7 @@
       </el-form>
     </div>
 
-    <div class="gva-table-box">
+    <div class="app-table-box">
       <el-row v-if="showCounters" :gutter="12" class="mb-3 counter-row">
         <el-col :span="6">
           <el-card shadow="never" class="counter-card">成功任务：{{ counters.success }}</el-card>
@@ -203,7 +203,7 @@
           </el-table-column>
         </el-table>
 
-        <div class="gva-pagination">
+        <div class="app-pagination">
           <el-pagination
             :current-page="page"
             :page-size="pageSize"
@@ -874,30 +874,30 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 768px) {
-  .phone-register-task-manage :deep(.gva-search-box .el-form) {
+  .phone-register-task-manage :deep(.app-search-box .el-form) {
     display: block;
   }
 
-  .phone-register-task-manage :deep(.gva-search-box .el-form-item) {
+  .phone-register-task-manage :deep(.app-search-box .el-form-item) {
     display: flex;
     margin-right: 0;
     margin-bottom: 8px;
   }
 
-  .phone-register-task-manage :deep(.gva-search-box .el-form-item__label) {
+  .phone-register-task-manage :deep(.app-search-box .el-form-item__label) {
     width: 72px;
     justify-content: flex-start;
     padding-right: 8px;
   }
 
-  .phone-register-task-manage :deep(.gva-search-box .el-form-item__content) {
+  .phone-register-task-manage :deep(.app-search-box .el-form-item__content) {
     flex: 1;
     min-width: 0;
   }
 
-  .phone-register-task-manage :deep(.gva-search-box .el-input),
-  .phone-register-task-manage :deep(.gva-search-box .el-select),
-  .phone-register-task-manage :deep(.gva-search-box .el-date-editor) {
+  .phone-register-task-manage :deep(.app-search-box .el-input),
+  .phone-register-task-manage :deep(.app-search-box .el-select),
+  .phone-register-task-manage :deep(.app-search-box .el-date-editor) {
     width: 100% !important;
   }
 
@@ -929,7 +929,7 @@ onBeforeUnmount(() => {
     line-height: 1.25;
   }
 
-  .phone-register-task-manage :deep(.gva-pagination) {
+  .phone-register-task-manage :deep(.app-pagination) {
     overflow-x: auto;
     padding-bottom: 4px;
   }

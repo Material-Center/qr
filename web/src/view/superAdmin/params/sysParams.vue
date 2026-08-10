@@ -1,7 +1,7 @@
 <template>
   <div>
     <warning-bar title="获取参数且缓存方法已在前端utils/params 已经封装完成 不必自己书写 使用方法查看文件内注释" />
-    <div class="gva-search-box">
+    <div class="app-search-box">
       <el-form
         ref="elSearchFormRef"
         :inline="true"
@@ -81,8 +81,8 @@
         </el-form-item>
       </el-form>
     </div>
-    <div class="gva-table-box">
-      <div class="gva-btn-list">
+    <div class="app-table-box">
+      <div class="app-btn-list">
         <el-button type="primary" icon="plus" @click="openDialog"
           >新增</el-button
         >
@@ -157,7 +157,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           layout="total, sizes, prev, pager, next, jumper"
           :current-page="page"
@@ -241,11 +241,7 @@
           来获取对应的参数。
         </p>
         <p class="text-sm text-gray-600">
-          后端需要提前
-          <code class="bg-blue-100 px-1 py-0.5 rounded"
-            >import
-            "github.com/flipped-aurora/gin-vue-admin/server/service/system"</code
-          >
+          后端需要提前引入参数服务
         </p>
         <p class="mb-2 text-sm text-gray-600">
           然后调用

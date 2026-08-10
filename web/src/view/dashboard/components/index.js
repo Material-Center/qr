@@ -1,19 +1,11 @@
-import GvaBanner from './banner.vue'
-import GvaCard from './card.vue'
-import GvaChart from './charts.vue'
-import GvaTable from './table.vue'
-import GvaNotice from './notice.vue'
-import GvaQuickLink from './quickLinks.vue'
-import GvaWiki from './wiki.vue'
-import GvaPluginTable from './pluginTable.vue'
+import AppCard from './card.vue'
+import AppChart from './charts.vue'
+import AppNotice from './notice.vue'
+import AppQuickLink from './quickLinks.vue'
 
 export {
-  GvaBanner,
-  GvaCard,
-  GvaChart,
-  GvaTable,
-  GvaNotice,
-  GvaQuickLink,
-  GvaWiki,
-  GvaPluginTable
+  AppCard,
+  AppChart,
+  AppNotice,
+  AppQuickLink
 }

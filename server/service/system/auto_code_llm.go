@@ -17,7 +17,7 @@ import (
 // 入参为通用 JSONMap，需包含 mode（例如 ai/butler/eye/painter 等）以及业务 prompt/payload
 func (s *AutoCodeService) LLMAuto(ctx context.Context, llm common.JSONMap) (interface{}, error) {
 	if global.GVA_CONFIG.AutoCode.AiPath == "" {
-		return nil, errors.New("请先前往插件市场个人中心获取AiPath并填入config.yaml中")
+		return nil, errors.New("请先配置AiPath")
 	}
 
 	// 构建调用路径：{AiPath} 中的 {FUNC} 由 mode 替换

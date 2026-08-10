@@ -1,5 +1,5 @@
 <template>
-  <div class="gva-form-box">
+  <div class="app-form-box">
     <div class="p-4 bg-white dark:bg-slate-900">
       <WarningBar
         title="目前只支持标准插件（通过插件模板生成的标准目录插件），非标准插件请自行打包"

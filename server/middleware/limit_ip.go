@@ -26,6 +26,10 @@ type LimitConfig struct {
 
 func (l LimitConfig) LimitWithTime() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if l.Expire <= 0 || l.Limit <= 0 {
+			c.Next()
+			return
+		}
 		if err := l.CheckOrMark(l.GenerationKey(c), l.Expire, l.Limit); err != nil {
 			c.JSON(http.StatusOK, gin.H{"code": response.ERROR, "msg": err.Error()})
 			c.Abort()
@@ -39,6 +43,10 @@ func (l LimitConfig) LimitWithTime() gin.HandlerFunc {
 // DefaultGenerationKey 默认生成key
 func DefaultGenerationKey(c *gin.Context) string {
 	return "GVA_Limit" + c.ClientIP()
+}
+
+func LoginGenerationKey(c *gin.Context) string {
+	return "GVA_Login_Limit" + c.ClientIP()
 }
 
 func DefaultCheckOrMark(key string, expire int, limit int) (err error) {
@@ -59,6 +67,19 @@ func DefaultLimit() gin.HandlerFunc {
 		Expire:        global.GVA_CONFIG.System.LimitTimeIP,
 		Limit:         global.GVA_CONFIG.System.LimitCountIP,
 	}.LimitWithTime()
+}
+
+func DefaultLoginLimitConfig() LimitConfig {
+	return LimitConfig{
+		GenerationKey: LoginGenerationKey,
+		CheckOrMark:   DefaultCheckOrMark,
+		Expire:        global.GVA_CONFIG.System.LoginLimitTimeIP,
+		Limit:         global.GVA_CONFIG.System.LoginLimitCountIP,
+	}
+}
+
+func DefaultLoginLimit() gin.HandlerFunc {
+	return DefaultLoginLimitConfig().LimitWithTime()
 }
 
 // SetLimitWithTime 设置访问次数

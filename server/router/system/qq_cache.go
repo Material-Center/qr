@@ -12,6 +12,7 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 	qqCacheRouterWithoutRecord := Router.Group("qqCache")
 	publicQQCacheRouter := PublicGroup.Group("qqCache")
 	publicInternalToolRouter := PublicGroup.Group("internalTool")
+	requestSignature := middleware.RequestSignatureGuard()
 	{
 		// upload/extract/import/export 请求体或响应中含敏感缓存内容，不进入操作日志
 		qqCacheRouterWithoutRecord.POST("upload", qqCacheApi.Upload)
@@ -30,7 +31,7 @@ func (r *QQCacheRouter) InitQQCacheRouter(Router *gin.RouterGroup, PublicGroup *
 		qqCacheRouter.POST("billing/settle", qqCacheApi.SettleBilling)
 		qqCacheRouterWithoutRecord.GET("billing/history", qqCacheApi.GetBillingSettlementHistory)
 		qqCacheRouterWithoutRecord.GET("sales/summary", qqCacheApi.GetSalesSummary)
-		qqCacheRouterWithoutRecord.POST("sales/extract", qqCacheApi.SalesExtract)
+		qqCacheRouterWithoutRecord.POST("sales/extract", requestSignature, qqCacheApi.SalesExtract)
 		qqCacheRouter.POST("sales/history", qqCacheApi.GetSalesHistory)
 		qqCacheRouterWithoutRecord.GET("sales/summaryList", qqCacheApi.GetSalesSummaryList)
 		qqCacheRouterWithoutRecord.GET("sales/batches", qqCacheApi.GetSalesExtractBatches)

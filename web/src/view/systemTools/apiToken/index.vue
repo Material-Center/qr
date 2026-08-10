@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="gva-search-box">
+    <div class="app-search-box">
       <el-form :inline="true" :model="searchInfo">
           <el-form-item label="用户ID">
               <el-input v-model.number="searchInfo.userId" placeholder="搜索用户ID" />
@@ -17,8 +17,8 @@
         </el-form-item>
       </el-form>
     </div>
-    <div class="gva-table-box">
-      <div class="gva-btn-list">
+    <div class="app-table-box">
+      <div class="app-btn-list">
         <el-button type="primary" icon="plus" @click="openDrawer">签发</el-button>
       </div>
       <el-table
@@ -61,7 +61,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           :current-page="page"
           :page-size="pageSize"

@@ -1,6 +1,6 @@
 <template>
   <div class="account-manage-page">
-    <div class="gva-search-box">
+    <div class="app-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="用户名">
           <el-input v-model="searchInfo.username" placeholder="用户名" />
@@ -21,8 +21,8 @@
       </el-form>
     </div>
 
-    <div class="gva-table-box">
-      <div class="gva-btn-list">
+    <div class="app-table-box">
+      <div class="app-btn-list">
         <el-button v-if="canManage" type="primary" icon="plus" @click="openAdd">
           新增账号
         </el-button>
@@ -139,7 +139,7 @@
         </el-table-column>
       </el-table>
 
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           :current-page="page"
           :page-size="pageSize"
@@ -922,32 +922,32 @@ fetchUsers()
 }
 
 @media (max-width: 768px) {
-  .account-manage-page :deep(.gva-search-box .el-form) {
+  .account-manage-page :deep(.app-search-box .el-form) {
     display: block;
   }
 
-  .account-manage-page :deep(.gva-search-box .el-form-item) {
+  .account-manage-page :deep(.app-search-box .el-form-item) {
     display: flex;
     margin-right: 0;
     margin-bottom: 8px;
   }
 
-  .account-manage-page :deep(.gva-search-box .el-form-item__label) {
+  .account-manage-page :deep(.app-search-box .el-form-item__label) {
     width: 64px;
     justify-content: flex-start;
     padding-right: 8px;
   }
 
-  .account-manage-page :deep(.gva-search-box .el-form-item__content) {
+  .account-manage-page :deep(.app-search-box .el-form-item__content) {
     flex: 1;
     min-width: 0;
   }
 
-  .account-manage-page :deep(.gva-search-box .el-input) {
+  .account-manage-page :deep(.app-search-box .el-input) {
     width: 100%;
   }
 
-  .account-manage-page :deep(.gva-btn-list) {
+  .account-manage-page :deep(.app-btn-list) {
     margin-bottom: 8px;
   }
 
@@ -960,7 +960,7 @@ fetchUsers()
     line-height: 1.25;
   }
 
-  .account-manage-page :deep(.gva-pagination) {
+  .account-manage-page :deep(.app-pagination) {
     overflow-x: auto;
     padding-bottom: 4px;
   }

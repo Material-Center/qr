@@ -43,7 +43,6 @@ func (i *initApiIgnore) InitializeData(ctx context.Context) (context.Context, er
 		return ctx, system.ErrMissingDBContext
 	}
 	entities := []sysModel.SysIgnoreApi{
-		{Method: "GET", Path: "/swagger/*any"},
 		{Method: "GET", Path: "/api/freshCasbin"},
 		{Method: "GET", Path: "/uploads/file/*filepath"},
 		{Method: "GET", Path: "/health"},
@@ -70,7 +69,7 @@ func (i *initApiIgnore) DataInserted(ctx context.Context) bool {
 	if !ok {
 		return false
 	}
-	if errors.Is(db.Where("path = ? AND method = ?", "/swagger/*any", "GET").
+	if errors.Is(db.Where("path = ? AND method = ?", "/health", "GET").
 		First(&sysModel.SysIgnoreApi{}).Error, gorm.ErrRecordNotFound) {
 		return false
 	}

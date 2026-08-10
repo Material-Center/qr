@@ -21,9 +21,9 @@ import (
 // @Tag.Name        SysUser
 // @Tag.Description 用户
 
-// @title                       Gin-Vue-Admin Swagger API接口文档
+// @title                       API接口文档
 // @version                     v2.9.0
-// @description                 使用gin+vue进行极速开发的全栈开发基础平台
+// @description                 系统接口文档
 // @securityDefinitions.apikey  ApiKeyAuth
 // @in                          header
 // @name                        x-token

@@ -35,7 +35,7 @@
   const { device } = storeToRefs(appStore)
 
   defineOptions({
-    name: 'GvaAside'
+    name: 'AppAside'
   })
   const route = useRoute()
   const router = useRouter()
@@ -63,7 +63,7 @@
   }
 
   watchEffect(() => {
-    if (route.name === 'gvaLayoutIframe') {
+    if (route.name === 'appLayoutIframe') {
       active.value = decodeURIComponent(route.query.url)
       return
     }
@@ -110,7 +110,7 @@
         window.open(index, '_blank')
         return
     }
-    if (index === 'gvaLayoutIframe') {
+    if (index === 'appLayoutIframe') {
       query.url = decodeURIComponent(index)
     }
     router.push({ name: index, query, params })

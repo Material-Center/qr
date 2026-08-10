@@ -1,10 +1,9 @@
 <template>
   <div>
     <WarningBar
-      title="本功能提供同步的表格导出功能，大数据量的异步表格导出功能，可以选择点我定制"
-      href="https://flipped-aurora.feishu.cn/docx/KwjxdnvatozgwIxGV0rcpkZSn4d"
+      title="本功能提供同步的表格导出功能。"
     />
-    <div class="gva-search-box">
+    <div class="app-search-box">
       <el-form
         ref="elSearchFormRef"
         :inline="true"
@@ -65,8 +64,8 @@
         </el-form-item>
       </el-form>
     </div>
-    <div class="gva-table-box">
-      <div class="gva-btn-list">
+    <div class="app-table-box">
+      <div class="app-btn-list">
         <el-button type="primary" icon="plus" @click="openDialog"
           >新增</el-button
         >
@@ -95,7 +94,7 @@
         </el-table-column>
         <el-table-column align="left" label="数据库" width="120">
           <template #default="scope">
-            <span>{{ scope.row.dbName || 'GVA库' }}</span>
+            <span>{{ scope.row.dbName || '默认库' }}</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -159,7 +158,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           layout="total, sizes, prev, pager, next, jumper"
           :current-page="page"
@@ -256,13 +255,13 @@
               v-model="prompt"
               :clearable="true"
               :rows="5"
-              placeholder="试试描述你要做的导出功能让AI帮你完成，在此之前请选择你需要导出的表所在的业务库，如不做选择，则默认使用gva库"
+              placeholder="试试描述你要做的导出功能让AI帮你完成，在此之前请选择你需要导出的表所在的业务库，如不做选择，则默认使用默认库"
             />
             <el-button
               class="absolute bottom-2 right-2"
               type="primary"
               @click="autoExport"
-              ><el-icon><ai-gva /></el-icon>帮写</el-button
+              ><el-icon><ai-tool /></el-icon>帮写</el-button
             >
           </div>
         </el-form-item>
@@ -286,7 +285,7 @@
               :disabled="!formData.tableName"
               type="primary"
               @click="getColumnFunc(true)"
-              ><el-icon><ai-gva /></el-icon>自动补全</el-button
+              ><el-icon><ai-tool /></el-icon>自动补全</el-button
             >
             <el-button
               :disabled="!formData.tableName"
@@ -449,7 +448,7 @@
           <v-ace-editor
             v-model:value="webCode"
             lang="vue"
-            theme="github_dark"
+            theme="tomorrow_night"
             class="w-full h-96"
             :options="{ showPrintMargin: false, fontSize: 14 }"
           />
@@ -492,7 +491,7 @@
               <v-ace-editor
                 v-model:value="previewSQLCode"
                 lang="sql"
-                theme="github_dark"
+                theme="tomorrow_night"
                 class="w-full h-96"
                 :options="aceOptions"
               />
@@ -525,7 +524,7 @@
   import { VAceEditor } from 'vue3-ace-editor'
 
   import 'ace-builds/src-noconflict/mode-vue'
-  import 'ace-builds/src-noconflict/theme-github_dark'
+  import 'ace-builds/src-noconflict/theme-tomorrow_night'
   import 'ace-builds/src-noconflict/mode-sql'
 
   defineOptions({

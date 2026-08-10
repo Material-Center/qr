@@ -153,8 +153,8 @@ const apiDialogResponse = ref(null)
 
 const mcpServerConfig = ref(JSON.stringify({
   "mcpServers": {
-    "gva": {
-      "url": "https://127.0.0.1/sse"
+    "local": {
+      "url": "http://127.0.0.1/sse"
     }
   }
 }, null, 2))

@@ -2,7 +2,7 @@
   <el-sub-menu
     ref="subMenu"
     :index="routerInfo.name"
-    class="gva-sub-menu dark:text-slate-300 relative"
+    class="app-sub-menu dark:text-slate-300 relative"
   >
     <template #title>
       <div
@@ -58,7 +58,7 @@
 </script>
 
 <style lang="scss">
-  .gva-sub-menu {
+  .app-sub-menu {
     .el-sub-menu__title {
       height: v-bind('sideHeight') !important;
     }

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="gva-search-box">
+    <div class="app-search-box">
       <el-form ref="searchForm" :inline="true" :model="searchInfo">
         <el-form-item label="路径">
           <el-input v-model="searchInfo.path" placeholder="路径" />
@@ -40,8 +40,8 @@
         </el-form-item>
       </el-form>
     </div>
-    <div class="gva-table-box">
-      <div class="gva-btn-list">
+    <div class="app-table-box">
+      <div class="app-btn-list">
         <el-button type="primary" icon="plus" @click="openDialog('addApi')">
           新增
         </el-button>
@@ -131,7 +131,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="gva-pagination">
+      <div class="app-pagination">
         <el-pagination
           :current-page="page"
           :page-size="pageSize"
@@ -178,7 +178,7 @@
         >
         <el-button type="primary" size="small" @click="apiCompletion">
           <el-icon size="18">
-            <ai-gva />
+            <ai-tool />
           </el-icon>
           自动填充
         </el-button>

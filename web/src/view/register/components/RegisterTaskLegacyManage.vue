@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div v-if="showTaskList" class="gva-search-box">
+    <div v-if="showTaskList" class="app-search-box">
       <el-form :inline="true" :model="searchInfo">
         <el-form-item label="完成时间">
           <el-date-picker
@@ -74,7 +74,7 @@
       </el-form>
     </div>
 
-    <div class="gva-table-box">
+    <div class="app-table-box">
       <el-row v-if="showCounters" :gutter="12" class="mb-3">
         <el-col :span="8">
           <el-card shadow="never">成功登录QQ：{{ counters.success }}</el-card>
@@ -88,7 +88,7 @@
       </el-row>
 
       <template v-if="showTaskList">
-        <div v-if="canDownloadCache" class="gva-btn-list">
+        <div v-if="canDownloadCache" class="app-btn-list">
           <el-button
             type="primary"
             :disabled="multipleSelection.length === 0"
@@ -145,7 +145,7 @@
           </el-table-column>
         </el-table>
 
-        <div class="gva-pagination">
+        <div class="app-pagination">
           <el-pagination
             :current-page="page"
             :page-size="pageSize"

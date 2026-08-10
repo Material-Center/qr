@@ -10,10 +10,11 @@ type SysRouter struct{}
 func (s *SysRouter) InitSystemRouter(Router *gin.RouterGroup) {
 	sysRouter := Router.Group("system").Use(middleware.OperationRecord())
 	sysRouterWithoutRecord := Router.Group("system")
+	requestSignature := middleware.RequestSignatureGuard()
 
 	{
-		sysRouter.POST("setSystemConfig", systemApi.SetSystemConfig) // 设置配置文件内容
-		sysRouter.POST("reloadSystem", systemApi.ReloadSystem)       // 重启服务
+		sysRouter.POST("setSystemConfig", requestSignature, systemApi.SetSystemConfig) // 设置配置文件内容
+		sysRouter.POST("reloadSystem", requestSignature, systemApi.ReloadSystem)       // 重启服务
 	}
 	{
 		sysRouterWithoutRecord.POST("getSystemConfig", systemApi.GetSystemConfig) // 获取配置文件内容

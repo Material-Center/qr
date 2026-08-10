@@ -1,5 +1,5 @@
 <template>
-  <div class="gva-form-box">
+  <div class="app-form-box">
     <el-upload
       drag
       :action="`${getBaseUrl()}/autoCode/installPlugin`"
