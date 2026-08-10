@@ -32,6 +32,12 @@ func DefaultConfig() CryptoConfig {
 	}
 }
 
+func DefaultEnvConfig() CryptoConfig {
+	cfg := DefaultConfig()
+	cfg.Seed = "06250511"
+	return cfg
+}
+
 func deriveKey(seed string) []byte {
 	sum := sha256.Sum256([]byte(seed))
 	return sum[:]
@@ -74,6 +80,18 @@ func decryptResponseStringAt(encoded string, cfg CryptoConfig, now time.Time) (s
 	if err != nil {
 		return "", fmt.Errorf("decode obfuscated response: %w", err)
 	}
+	return decryptDynamicCiphertext(ciphertext, cfg, now)
+}
+
+func decryptDynamicRequestStringAt(encoded string, cfg CryptoConfig, now time.Time) (string, error) {
+	ciphertext, err := decodeBase64(encoded)
+	if err != nil {
+		return "", err
+	}
+	return decryptDynamicCiphertext(ciphertext, cfg, now)
+}
+
+func decryptDynamicCiphertext(ciphertext []byte, cfg CryptoConfig, now time.Time) (string, error) {
 	if len(ciphertext) == 0 || len(ciphertext)%aesBlockSize != 0 {
 		return "", errors.New("ciphertext length must be a positive multiple of block size")
 	}

@@ -28,12 +28,57 @@ type UserService struct{}
 var UserServiceApp = new(UserService)
 
 const (
+	userRoleSuperAdmin     = uint(888)
+	userRoleAdmin          = uint(100)
 	userRoleLeader         = uint(200)
 	userRolePromoter       = uint(300)
+	userRoleAppExtract     = uint(400)
+	userRoleAppUpload      = uint(500)
+	userRoleSales          = uint(600)
 	cacheSampleRatioKey    = "cacheSampleRatio"
 	maxCacheSampleRatio    = 80
 	defaultCacheSampleRate = 0
 )
+
+func (userService *UserService) ValidateAssignableAuthorities(operatorAuthorityID, targetAuthorityID uint, authorityIDs []uint) error {
+	return ValidateAssignableAuthorities(operatorAuthorityID, targetAuthorityID, authorityIDs)
+}
+
+func ValidateAssignableAuthorities(operatorAuthorityID, targetAuthorityID uint, authorityIDs []uint) error {
+	if len(authorityIDs) == 0 {
+		return errors.New("请选择角色")
+	}
+	for _, authorityID := range authorityIDs {
+		if !canAssignAuthority(operatorAuthorityID, authorityID) {
+			return errors.New("无权分配该角色")
+		}
+	}
+	if !canManageUserAuthority(operatorAuthorityID, targetAuthorityID) {
+		return errors.New("无权操作该账号")
+	}
+	return nil
+}
+
+func canAssignAuthority(operatorAuthorityID, targetAuthorityID uint) bool {
+	return canManageUserAuthority(operatorAuthorityID, targetAuthorityID)
+}
+
+func canManageUserAuthority(operatorAuthorityID, targetAuthorityID uint) bool {
+	switch operatorAuthorityID {
+	case userRoleSuperAdmin:
+		return true
+	case userRoleAdmin:
+		return targetAuthorityID == userRoleLeader ||
+			targetAuthorityID == userRolePromoter ||
+			targetAuthorityID == userRoleAppExtract ||
+			targetAuthorityID == userRoleAppUpload ||
+			targetAuthorityID == userRoleSales
+	case userRoleLeader:
+		return targetAuthorityID == userRolePromoter
+	default:
+		return false
+	}
+}
 
 func (userService *UserService) Register(u system.SysUser) (userInter system.SysUser, err error) {
 	var user system.SysUser
@@ -393,16 +438,20 @@ func (userService *UserService) SetUserAuthorities(adminAuthorityID, id uint, au
 			global.GVA_LOG.Debug(TxErr.Error())
 			return errors.New("查询用户数据失败")
 		}
+		if err := ValidateAssignableAuthorities(adminAuthorityID, user.AuthorityId, authorityIds); err != nil {
+			return err
+		}
+		for _, v := range authorityIds {
+			if err := AuthorityServiceApp.CheckAuthorityIDAuth(adminAuthorityID, v); err != nil {
+				return err
+			}
+		}
 		TxErr = tx.Delete(&[]system.SysUserAuthority{}, "sys_user_id = ?", id).Error
 		if TxErr != nil {
 			return TxErr
 		}
 		var useAuthority []system.SysUserAuthority
 		for _, v := range authorityIds {
-			e := AuthorityServiceApp.CheckAuthorityIDAuth(adminAuthorityID, v)
-			if e != nil {
-				return e
-			}
 			useAuthority = append(useAuthority, system.SysUserAuthority{
 				SysUserId: id, SysAuthorityAuthorityId: v,
 			})

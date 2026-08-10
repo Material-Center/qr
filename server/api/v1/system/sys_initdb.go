@@ -1,6 +1,9 @@
 package system
 
 import (
+	"net/http"
+	"os"
+
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
@@ -11,6 +14,18 @@ import (
 
 type DBApi struct{}
 
+func initAPIEnabled() bool {
+	return os.Getenv("QR_ENABLE_INIT_API") == "1"
+}
+
+func failInitAPIDisabled(c *gin.Context) {
+	c.JSON(http.StatusForbidden, response.Response{
+		Code: response.ERROR,
+		Data: map[string]interface{}{},
+		Msg:  "初始化接口已禁用",
+	})
+}
+
 // InitDB
 // @Tags     InitDB
 // @Summary  初始化用户数据库
@@ -19,6 +34,10 @@ type DBApi struct{}
 // @Success  200   {object}  response.Response{data=string}  "初始化用户数据库"
 // @Router   /init/initdb [post]
 func (i *DBApi) InitDB(c *gin.Context) {
+	if !initAPIEnabled() {
+		failInitAPIDisabled(c)
+		return
+	}
 	if global.GVA_DB != nil {
 		global.GVA_LOG.Error("已存在数据库配置!")
 		response.FailWithMessage("已存在数据库配置", c)
@@ -45,6 +64,10 @@ func (i *DBApi) InitDB(c *gin.Context) {
 // @Success  200  {object}  response.Response{data=map[string]interface{},msg=string}  "初始化用户数据库"
 // @Router   /init/checkdb [post]
 func (i *DBApi) CheckDB(c *gin.Context) {
+	if !initAPIEnabled() {
+		failInitAPIDisabled(c)
+		return
+	}
 	var (
 		message  = "前往初始化数据库"
 		needInit = true

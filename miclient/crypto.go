@@ -3,10 +3,12 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -45,6 +47,38 @@ func encryptString(plain string, cfg CryptoConfig) (string, error) {
 	return base64.StdEncoding.EncodeToString(encrypted), nil
 }
 
+func encryptDynamicString(plain string, cfg CryptoConfig) (string, error) {
+	return encryptDynamicStringAt(plain, cfg, time.Now())
+}
+
+func encryptDynamicStringAt(plain string, cfg CryptoConfig, now time.Time) (string, error) {
+	prefix := make([]byte, aesBlockSize)
+	if _, err := io.ReadFull(rand.Reader, prefix); err != nil {
+		return "", err
+	}
+	body := append(prefix, []byte(plain)...)
+	padded := pkcs7Pad(body, aesBlockSize)
+	seed := responseSeedAt(cfg, now)
+	encrypted, err := encryptCBC(padded, seed, cfg.IV)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(encrypted), nil
+}
+
+func responseSeedAt(cfg CryptoConfig, now time.Time) string {
+	prefix := cfg.ResponseSeedPrefix
+	if prefix == "" {
+		prefix = "python38x64"
+	}
+
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.FixedZone("America/Los_Angeles", -8*60*60)
+	}
+	return prefix + now.In(loc).Format("1504")
+}
+
 func decryptString(encoded string, cfg CryptoConfig) (string, error) {
 	ciphertext, err := decodeBase64(encoded)
 	if err != nil {
@@ -63,14 +97,32 @@ func decryptResponseStringAt(encoded string, cfg CryptoConfig, now time.Time) (s
 	}
 
 	trimmed := strings.TrimSpace(encoded)
+	var lastErr error
+	if ciphertext, err := decodeBase64(trimmed); err == nil {
+		if decrypted, err := decryptDynamicResponseCiphertext(ciphertext, cfg, now); err == nil {
+			return decrypted, nil
+		} else {
+			lastErr = err
+		}
+	} else {
+		lastErr = err
+	}
+
 	if len(trimmed) <= 6 {
-		return "", errors.New("obfuscated response is too short")
+		if lastErr == nil {
+			lastErr = errors.New("obfuscated response is too short")
+		}
+		return "", lastErr
 	}
 
 	ciphertext, err := decodeBase64(trimmed[6:])
 	if err != nil {
 		return "", fmt.Errorf("decode obfuscated response: %w", err)
 	}
+	return decryptDynamicResponseCiphertext(ciphertext, cfg, now)
+}
+
+func decryptDynamicResponseCiphertext(ciphertext []byte, cfg CryptoConfig, now time.Time) (string, error) {
 	if len(ciphertext) == 0 || len(ciphertext)%aesBlockSize != 0 {
 		return "", errors.New("ciphertext length must be a positive multiple of block size")
 	}

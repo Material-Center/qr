@@ -95,6 +95,30 @@ func TestDecryptObfuscatedResponseRemovesWireAndPlaintextPrefixes(t *testing.T) 
 	}
 }
 
+func TestEncryptDynamicStringWorksWithMinimalConfig(t *testing.T) {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("load LA timezone: %v", err)
+	}
+	now := time.Date(2026, 5, 24, 0, 26, 0, 0, loc)
+	cfg := CryptoConfig{
+		Seed: "06250511",
+		IV:   "0625051106250511",
+	}
+
+	encrypted, err := encryptDynamicStringAt("payload", cfg, now)
+	if err != nil {
+		t.Fatalf("encryptDynamicStringAt returned error: %v", err)
+	}
+	decrypted, err := decryptResponseStringAt(encrypted, cfg, now)
+	if err != nil {
+		t.Fatalf("decryptResponseStringAt returned error: %v", err)
+	}
+	if decrypted != "payload" {
+		t.Fatalf("decrypted = %q, want payload", decrypted)
+	}
+}
+
 func encryptObfuscatedFixture(plain, seed string, cfg CryptoConfig) string {
 	prefixBlock := []byte("0123456789abcdef")
 	padded := pkcs7Pad(append(prefixBlock, []byte(plain)...), aesBlockSize)

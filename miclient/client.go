@@ -12,6 +12,7 @@ import (
 )
 
 const defaultBaseURL = "http://py.j8nda.xyz:9999"
+const defaultUploadBaseURL = "http://120.77.84.13"
 
 type Client struct {
 	baseURL    string

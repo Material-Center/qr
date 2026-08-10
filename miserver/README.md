@@ -1,16 +1,36 @@
 # miserver
 
-Local Go server for the activation-style endpoints used by `miclient`.
+Local Go server suite for the MI-related endpoints used by `miclient`.
 
 The response shapes are based on real requests made with `miclient` against
 the current default server.
+
+It listens locally on three ports by default:
+
+- `127.0.0.2:9999` for authorization APIs.
+- `127.0.0.2:80` for upload APIs.
+- `127.0.0.2:8888` for environment pool APIs.
+
+Only env environment-pool state is stored in local SQLite. Authorization and
+upload endpoints are local mock/protocol-validation paths.
 
 It exposes:
 
 - `POST /shanghaitime`
 - `POST /get_device`
 - `POST /use_code`
+- `POST /stoptime`
 - `POST /上传`
+- `POST /add_env`
+- `POST /get_env`
+- `POST /query_env_list`
+- `POST /query_env`
+- `POST /freeze_env`
+- `POST /unfreeze_env`
+- `POST /delete_env`
+- `POST /clean_env`
+- `POST /query_by_device`
+- `GET /stats`
 
 `/shanghaitime` returns an encrypted `data` string. The encrypted value uses
 the observed response wrapper:
@@ -44,7 +64,8 @@ the observed response wrapper:
 }
 ```
 
-The current upstream response observed with dummy input is plain JSON:
+Upload data is decrypted for protocol validation but is not written to SQLite.
+The mock response is:
 
 ```json
 {
@@ -63,7 +84,7 @@ The current upstream response observed with dummy input is plain JSON:
 
 ```bash
 go test ./...
-go run . -addr 127.0.0.1:9999
+go run . -bind-ip 127.0.0.2 -db ./miserver.db
 ```
 
 Build a Windows binary:
@@ -82,22 +103,21 @@ From another shell:
 
 ```bash
 cd ../miclient
-go run . -base-url http://127.0.0.1:9999 shanghaitime
-go run . -base-url http://127.0.0.1:9999 -device 1546c952 get-device
-go run . -base-url http://127.0.0.1:9999 -device 1546c952 -code ABC123 use-code
-go run . -base-url http://127.0.0.1:9999 -device 1546c952 -current-time "2026-05-24 16:08:50" -phone 13800138000 -account qq123 -password pwd123 upload
+go run . -base-url http://127.0.0.2:9999 shanghaitime
+go run . -base-url http://127.0.0.2:9999 -device 1546c952 get-device
+go run . -base-url http://127.0.0.2:9999 -device 1546c952 -code ABC123 use-code
+go run . -upload-base-url http://127.0.0.2:80 -device 1546c952 -current-time "2026-05-24 16:08:50" -phone 13800138000 -account qq123 -password pwd123 upload
+go run . -env-base-url http://127.0.0.2:8888 -device 1546c952 -device-code cepheus -serial-backup-name backup-a -android-id android-a -key key-a add-env
+go run . -env-base-url http://127.0.0.2:8888 -device 1546c952 -device-code cepheus -older-than-days 3 get-env
+go run . -env-base-url http://127.0.0.2:8888 stats-env
 ```
 
 Crypto constants are configurable:
 
 ```bash
 go run . \
-  -addr 127.0.0.1:9999 \
+  -bind-ip 127.0.0.2 \
   -seed python3806250511 \
   -iv 0625051106250511 \
   -response-seed-prefix python38x64
-```
-
-```hosts
-py.j8nda.xyz 127.0.0.1
 ```

@@ -91,6 +91,42 @@ func TestGetDeviceReturnsCurrentInterfacePlainPayload(t *testing.T) {
 	}
 }
 
+func TestStopTimeReturnsDefaultMockState(t *testing.T) {
+	cfg := DefaultConfig()
+	now := fixedLATime()
+	srv := NewServer(ServerConfig{
+		Crypto: cfg,
+		Now:    func() time.Time { return now },
+	})
+
+	encryptedDevice, err := encryptUploadFixtureString("1546c952", cfg)
+	if err != nil {
+		t.Fatalf("encrypt device: %v", err)
+	}
+	body, err := json.Marshal(map[string]string{
+		"encrypted_device": encryptedDevice,
+		"encrypted_key":    "ignored",
+	})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/stoptime", bytes.NewReader(body))
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["success"] != true || resp["stopped"] != false {
+		t.Fatalf("response = %#v", resp)
+	}
+}
+
 func TestUseCodeReturnsCurrentInterfaceInvalidCodeResponse(t *testing.T) {
 	cfg := DefaultConfig()
 	now := fixedLATime()
@@ -131,6 +167,7 @@ func TestUploadDecryptsChineseFieldsAndReturnsCurrentInterfaceMessage(t *testing
 	if err != nil {
 		t.Fatalf("encrypt device: %v", err)
 	}
+
 	body := encryptedUploadFixture(t, cfg, map[string]string{
 		"设备":   "1546c952",
 		"当前时间": "2026-05-24 16:08:50",
@@ -219,7 +256,7 @@ func TestAccessLogIncludesNotFoundRequests(t *testing.T) {
 func TestEndpointsRejectNonPostMethods(t *testing.T) {
 	srv := NewServer(ServerConfig{Crypto: DefaultConfig()})
 
-	for _, path := range []string{"/shanghaitime", "/get_device", "/use_code", "/上传"} {
+	for _, path := range []string{"/shanghaitime", "/get_device", "/use_code", "/stoptime", "/上传"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		srv.Handler().ServeHTTP(rec, req)
@@ -256,6 +293,21 @@ func encryptUploadFixtureString(plain string, cfg CryptoConfig) (string, error) 
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(encrypted), nil
+}
+
+func newTestStore(t *testing.T) *Store {
+	t.Helper()
+
+	store, err := OpenStore(":memory:")
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Fatalf("close test store: %v", err)
+		}
+	})
+	return store
 }
 
 func fixedLATime() time.Time {

@@ -1,6 +1,9 @@
 package system
 
 import (
+	"errors"
+	"reflect"
+
 	"github.com/flipped-aurora/gin-vue-admin/server/config"
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
@@ -29,12 +32,20 @@ func (systemConfigService *SystemConfigService) GetSystemConfig() (conf config.S
 //@return: err error
 
 func (systemConfigService *SystemConfigService) SetSystemConfig(system system.System) (err error) {
+	if hasSecurityConfigChange(global.GVA_CONFIG, system.Config) {
+		return errors.New("禁止通过接口修改安全配置")
+	}
 	cs := utils.StructToMap(system.Config)
 	for k, v := range cs {
 		global.GVA_VP.Set(k, v)
 	}
 	err = global.GVA_VP.WriteConfig()
 	return err
+}
+
+func hasSecurityConfigChange(current, next config.Server) bool {
+	current.Zap = next.Zap
+	return !reflect.DeepEqual(current, next)
 }
 
 //@author: [SliverHorn](https://github.com/SliverHorn)

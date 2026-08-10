@@ -330,6 +330,10 @@ func (b *BaseApi) Register(c *gin.Context) {
 	if len(authorityIDs) == 0 && r.AuthorityId != 0 {
 		authorityIDs = []uint{r.AuthorityId}
 	}
+	if err := userService.ValidateAssignableAuthorities(operatorAuthorityID, r.AuthorityId, authorityIDs); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
 	for _, v := range authorityIDs {
 		authorities = append(authorities, system.SysAuthority{
 			AuthorityId: v,
