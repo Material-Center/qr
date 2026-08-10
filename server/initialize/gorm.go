@@ -37,6 +37,7 @@ func Gorm() *gorm.DB {
 func RegisterTables() {
 	if global.GVA_CONFIG.System.DisableAutoMigrate {
 		global.GVA_LOG.Info("auto-migrate is disabled, skipping table registration")
+		logDeviceAccountTypePermissionError(ensureDeviceAccountTypePermissions())
 		return
 	}
 
@@ -72,6 +73,7 @@ func RegisterTables() {
 		system.SysRegisterConfig{},
 		system.SysQQCacheRecord{},
 		system.SysQQCacheExtractBatch{},
+		system.SysDeviceConfig{},
 
 		example.ExaFile{},
 		example.ExaCustomer{},
@@ -90,5 +92,6 @@ func RegisterTables() {
 		global.GVA_LOG.Error("register biz_table failed", zap.Error(err))
 		os.Exit(0)
 	}
+	logDeviceAccountTypePermissionError(ensureDeviceAccountTypePermissions())
 	global.GVA_LOG.Info("register table success")
 }

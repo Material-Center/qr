@@ -8,6 +8,28 @@ export const getQQCacheList = (data) => {
   })
 }
 
+export const getQQCacheAccountTypes = () => {
+  return service({
+    url: '/qqCache/accountTypes',
+    method: 'get'
+  })
+}
+
+export const getQQCacheSalesAllowedAccountTypes = () => {
+  return service({
+    url: '/qqCache/salesAllowedAccountTypes',
+    method: 'get'
+  })
+}
+
+export const saveQQCacheSalesAllowedAccountTypes = (data) => {
+  return service({
+    url: '/qqCache/salesAllowedAccountTypes',
+    method: 'put',
+    data
+  })
+}
+
 export const resetQQCacheExtract = (data) => {
   return service({
     url: '/qqCache/resetExtract',

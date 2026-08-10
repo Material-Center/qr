@@ -31,6 +31,10 @@ const (
 	qqCacheInternalToolZipBytes = 500 * 1024
 )
 
+func isQQCacheAdminRole(role uint) bool {
+	return role == qqCacheRoleAdmin || role == qqCacheRoleSuperAdmin
+}
+
 // Upload
 // @Tags      QQCache
 // @Summary   App上传QQ缓存
@@ -391,7 +395,7 @@ func (a *QQCacheApi) Extract(c *gin.Context) {
 // @Router    /qqCache/list [post]
 func (a *QQCacheApi) List(c *gin.Context) {
 	role := utils.GetUserAuthorityId(c)
-	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+	if !isQQCacheAdminRole(role) {
 		response.FailWithMessage("仅管理员可查看缓存管理", c)
 		return
 	}
@@ -407,9 +411,9 @@ func (a *QQCacheApi) List(c *gin.Context) {
 	}
 	var pending, extracted, statsTotal int64
 	if req.RecentMinutes != 0 {
-		pending, extracted, statsTotal, err = qqCacheService.CountExtractStatsByRecentMinutes(req.RecentMinutes)
+		pending, extracted, statsTotal, err = qqCacheService.CountExtractStatsByRecentMinutesAndAccountType(req.RecentMinutes, req.AccountType)
 	} else {
-		pending, extracted, statsTotal, err = qqCacheService.CountExtractStatsByCreatedRange(req.CreatedAtStart, req.CreatedAtEnd)
+		pending, extracted, statsTotal, err = qqCacheService.CountExtractStatsByCreatedRangeAndAccountType(req.CreatedAtStart, req.CreatedAtEnd, req.AccountType)
 	}
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)
@@ -441,6 +445,44 @@ func (a *QQCacheApi) List(c *gin.Context) {
 			BillingSettled:   billingSettled,
 		},
 	}, "获取成功", c)
+}
+
+func (a *QQCacheApi) AccountTypes(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		response.FailWithMessage("仅管理员可查看账号类型", c)
+		return
+	}
+	response.OkWithDetailed(qqCacheService.AccountTypes(), "获取成功", c)
+}
+
+func (a *QQCacheApi) GetSalesAllowedAccountTypes(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		response.FailWithMessage("仅管理员可查看销售可导出账号类型", c)
+		return
+	}
+	accountTypes, err := qqCacheService.GetSalesAllowedAccountTypes()
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{"accountTypes": accountTypes}, "获取成功", c)
+}
+
+func (a *QQCacheApi) SaveSalesAllowedAccountTypes(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		response.FailWithMessage("仅管理员可配置销售可导出账号类型", c)
+		return
+	}
+	var req systemReq.QQCacheSalesAllowedAccountTypes
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	if err := qqCacheService.SaveSalesAllowedAccountTypes(req.AccountTypes); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithMessage("保存成功", c)
 }
 
 // SettleBilling
@@ -818,7 +860,7 @@ func (a *QQCacheApi) ExportIniZip(c *gin.Context) {
 // @Router    /qqCache/exportPendingIniZip [post]
 func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
 	role := utils.GetUserAuthorityId(c)
-	if role != qqCacheRoleAdmin && role != qqCacheRoleSuperAdmin {
+	if !isQQCacheAdminRole(role) {
 		response.FailWithMessage("仅管理员可提取缓存", c)
 		return
 	}
@@ -831,9 +873,9 @@ func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
 	var count int
 	var err error
 	if req.RecentMinutes != 0 {
-		zipBytes, count, err = qqCacheService.ExportPendingIniZipByCountWithRecentMinutes(req.Count, utils.GetUserID(c), req.RecentMinutes)
+		zipBytes, count, err = qqCacheService.ExportPendingIniZipByCountWithRecentMinutesAndAccountType(req.Count, utils.GetUserID(c), req.RecentMinutes, req.AccountType)
 	} else {
-		zipBytes, count, err = qqCacheService.ExportPendingIniZipByCount(req.Count, utils.GetUserID(c), req.CreatedAtStart, req.CreatedAtEnd)
+		zipBytes, count, err = qqCacheService.ExportPendingIniZipByCountAndAccountType(req.Count, utils.GetUserID(c), req.CreatedAtStart, req.CreatedAtEnd, req.AccountType)
 	}
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)

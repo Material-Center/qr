@@ -67,7 +67,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 
 	for _, menu := range allMenus {
 		if menu.ParentId == 0 {
-			if menu.Name == "qqCacheManage" || menu.Name == "qqCacheExtract" {
+			if menu.Name == "qqCacheManage" || menu.Name == "qqCacheExtract" || menu.Name == "deviceManage" {
 				continue
 			}
 			basicMenus = append(basicMenus, menu)
@@ -91,6 +91,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	phoneRegisterManageChild, hasPhoneRegisterManageChild := menuNameMap["phoneRegisterTaskManage"]
 	qqCacheMenu, hasQQCacheMenu := menuNameMap["qqCacheManage"]
 	qqCacheExtractMenu, hasQQCacheExtractMenu := menuNameMap["qqCacheExtract"]
+	deviceManageMenu, hasDeviceManageMenu := menuNameMap["deviceManage"]
 	registerCenterChild, hasRegisterCenterChild := menuNameMap["registerTaskCenter"]
 	phoneRegisterCenterChild, hasPhoneRegisterCenterChild := menuNameMap["phoneRegisterTaskCenter"]
 	registerConfigChild, hasRegisterConfigChild := menuNameMap["registerConfig"]
@@ -144,6 +145,9 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	adminMenus = append(adminMenus, adminRegisterMenus...)
 	if hasQQCacheMenu {
 		adminMenus = append(adminMenus, qqCacheMenu)
+	}
+	if hasDeviceManageMenu {
+		adminMenus = append(adminMenus, deviceManageMenu)
 	}
 	if err = assignMenus(100, adminMenus, "为管理员分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为管理员分配菜单失败")

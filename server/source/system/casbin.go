@@ -274,6 +274,9 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/qqCache/upload", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/extract", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/list", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/accountTypes", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/salesAllowedAccountTypes", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/qqCache/salesAllowedAccountTypes", V2: "PUT"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/resetExtract", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/importZip", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/exportIniZip", V2: "POST"},
@@ -289,6 +292,9 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/qqCache/sales/settle", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/sales/settlement/history", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/roleHint", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/deviceConfig/list", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/deviceConfig/save", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/deviceConfig/delete", V2: "POST"},
 
 		// 100 管理员（业务角色）
 		{Ptype: "p", V0: "100", V1: "/menu/getMenu", V2: "POST"},
@@ -323,6 +329,9 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/registerConfig/setMyConfig", V2: "PUT"},
 		{Ptype: "p", V0: "100", V1: "/registerConfig/checkMyConfig", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/list", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/accountTypes", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/salesAllowedAccountTypes", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/qqCache/salesAllowedAccountTypes", V2: "PUT"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/resetExtract", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/importZip", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/exportIniZip", V2: "POST"},
@@ -338,6 +347,9 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/qqCache/sales/settle", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/sales/settlement/history", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/qqCache/roleHint", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/deviceConfig/list", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/deviceConfig/save", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/deviceConfig/delete", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 
 		// 200 团长（业务角色）

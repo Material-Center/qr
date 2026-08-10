@@ -27,6 +27,7 @@ func setupQQCacheTestDB(t *testing.T) {
 		&model.SysQQCacheRecord{},
 		&model.SysPhoneRegisterTask{},
 		&model.SysUser{},
+		&model.SysDeviceConfig{},
 	))
 	global.GVA_DB = db
 }
@@ -206,6 +207,114 @@ func TestInternalToolImportQQCacheForceUpdatesOnlyCacheFields(t *testing.T) {
 	require.Equal(t, billingSettledBy, *stored.BillingSettledBy)
 }
 
+func TestUploadByAppStoresConfiguredAccountType(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	_, err := (&DeviceConfigService{}).SaveDeviceConfig(systemReq.DeviceConfigSave{
+		DeviceID:    "pc-device",
+		AccountType: AccountTypePC,
+	})
+	require.NoError(t, err)
+
+	record, err := (&QQCacheService{}).UploadByApp(5001, systemReq.QQCacheUpload{
+		QQNum:    "11001",
+		QQPwd:    "pwd",
+		INI:      "qqnum=11001\nguid=GUID11001\n",
+		DeviceID: "pc-device",
+	})
+	require.NoError(t, err)
+	require.Equal(t, AccountTypePC, record.AccountType)
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "11001").First(&stored).Error)
+	require.Equal(t, AccountTypePC, stored.AccountType)
+}
+
+func TestUploadByAppStoresDefaultAccountTypeWhenDeviceMissing(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	record, err := (&QQCacheService{}).UploadByApp(5001, systemReq.QQCacheUpload{
+		QQNum:    "11002",
+		QQPwd:    "pwd",
+		INI:      "qqnum=11002\nguid=GUID11002\n",
+		DeviceID: "unknown-device",
+	})
+	require.NoError(t, err)
+	require.Equal(t, AccountTypeDefault, record.AccountType)
+}
+
+func TestUploadPhoneRegisterStillRejectsMissingDeviceID(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	_, _, err := (&QQCacheService{}).UploadPhoneRegister(systemReq.QQCacheUpload{
+		QQNum: "11003",
+		QQPwd: "pwd",
+		INI:   "qqnum=11003\nguid=GUID11003\n",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "deviceId不能为空")
+}
+
+func TestInternalToolImportQQCacheForceWithoutDevicePreservesAccountType(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	oldINI := "old ini"
+	oldDeviceID := "pc-device"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum:       "11004",
+		QQPwd:       "oldpwd",
+		INI:         &oldINI,
+		DeviceID:    &oldDeviceID,
+		AccountType: AccountTypePC,
+	}).Error)
+
+	record, action, err := (&QQCacheService{}).InternalToolImportQQCache(systemReq.InternalToolQQCacheImport{
+		QQNum: "11004",
+		QQPwd: "newpwd",
+		INI:   "new ini",
+		Force: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, qqCacheInternalToolActionUpdated, action)
+	require.Equal(t, AccountTypePC, record.AccountType)
+
+	var stored model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "11004").First(&stored).Error)
+	require.NotNil(t, stored.DeviceID)
+	require.Equal(t, oldDeviceID, *stored.DeviceID)
+	require.Equal(t, AccountTypePC, stored.AccountType)
+}
+
+func TestInternalToolImportQQCacheForceWithDeviceUpdatesAccountType(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	_, err := (&DeviceConfigService{}).SaveDeviceConfig(systemReq.DeviceConfigSave{
+		DeviceID:    "pc-device",
+		AccountType: AccountTypePC,
+	})
+	require.NoError(t, err)
+	oldINI := "old ini"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum:       "11005",
+		QQPwd:       "oldpwd",
+		INI:         &oldINI,
+		AccountType: AccountTypeDefault,
+	}).Error)
+
+	record, action, err := (&QQCacheService{}).InternalToolImportQQCache(systemReq.InternalToolQQCacheImport{
+		QQNum:    "11005",
+		QQPwd:    "newpwd",
+		INI:      "new ini",
+		DeviceID: "pc-device",
+		Force:    true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, qqCacheInternalToolActionUpdated, action)
+	require.Equal(t, AccountTypePC, record.AccountType)
+	require.NotNil(t, record.DeviceID)
+	require.Equal(t, "pc-device", *record.DeviceID)
+}
+
 func TestAdminImportQQCacheOverwritesExistingByDefault(t *testing.T) {
 	setupQQCacheTestDB(t)
 
@@ -265,6 +374,50 @@ func TestQQCacheListForAdminFiltersClientVersion(t *testing.T) {
 	require.EqualValues(t, 1, total)
 	require.Len(t, list, 1)
 	require.Equal(t, "10004", list[0].QQNum)
+}
+
+func TestQQCacheListForAdminFiltersAccountTypeAndNormalizesDefault(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	ini := "qqnum=12001\nguid=GUID12001\n"
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "12001", INI: &ini, AccountType: AccountTypePC},
+		{QQNum: "12002", INI: &ini, AccountType: AccountTypeDefault},
+		{QQNum: "12003", INI: &ini, AccountType: ""},
+		{QQNum: "12004", INI: &ini, AccountType: "mobile"},
+	}).Error)
+
+	pcList, total, err := (&QQCacheService{}).ListForAdmin(systemReq.QQCacheList{
+		PageInfo:    commonReq.PageInfo{Page: 1, PageSize: 10},
+		AccountType: AccountTypePC,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, pcList, 1)
+	require.Equal(t, "12001", pcList[0].QQNum)
+	require.Equal(t, AccountTypePC, pcList[0].AccountType)
+
+	defaultList, total, err := (&QQCacheService{}).ListForAdmin(systemReq.QQCacheList{
+		PageInfo:    commonReq.PageInfo{Page: 1, PageSize: 10},
+		AccountType: AccountTypeDefault,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 3, total)
+	require.Len(t, defaultList, 3)
+	for _, record := range defaultList {
+		require.Equal(t, AccountTypeDefault, record.AccountType)
+	}
+}
+
+func TestQQCacheListForAdminRejectsInvalidAccountType(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	_, _, err := (&QQCacheService{}).ListForAdmin(systemReq.QQCacheList{
+		PageInfo:    commonReq.PageInfo{Page: 1, PageSize: 10},
+		AccountType: "mobile",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "账号类型不支持")
 }
 
 func TestQQCacheListForAdminUsesStablePaginationOrder(t *testing.T) {
@@ -420,6 +573,32 @@ func TestExportPendingIniZipByCountUsesOldestCreatedRecords(t *testing.T) {
 	require.Equal(t, "80002", extracted[1].QQNum)
 }
 
+func TestQQCacheCountAndExportPendingIniZipFilterAccountType(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	ini := "qqnum=12101\nguid=GUID12101\n"
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "12101", INI: &ini, AccountType: AccountTypePC},
+		{QQNum: "12102", INI: &ini, AccountType: AccountTypeDefault},
+		{QQNum: "12103", INI: &ini, AccountType: ""},
+	}).Error)
+
+	pending, extracted, total, err := (&QQCacheService{}).CountExtractStatsByCreatedRangeAndAccountType("", "", AccountTypePC)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, pending)
+	require.EqualValues(t, 0, extracted)
+	require.EqualValues(t, 1, total)
+
+	_, count, err := (&QQCacheService{}).ExportPendingIniZipByCountAndAccountType(2, 99, "", "", AccountTypePC)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
+	var extractedRecords []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", 99).Find(&extractedRecords).Error)
+	require.Len(t, extractedRecords, 1)
+	require.Equal(t, "12101", extractedRecords[0].QQNum)
+}
+
 func TestExportPendingIniZipByCountFiltersRecentMinutesWindow(t *testing.T) {
 	setupQQCacheTestDB(t)
 
@@ -567,6 +746,23 @@ func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
 	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "50001").First(&stored).Error)
 	require.Nil(t, stored.Extractor)
 	require.Nil(t, stored.ExtractionAt)
+}
+
+func TestExportAccountListTextFiltersAccountType(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "12201", QQPwd: "pwd1", AccountType: AccountTypePC},
+		{QQNum: "12202", QQPwd: "pwd2", AccountType: AccountTypeDefault},
+	}).Error)
+
+	text, count, err := (&QQCacheService{}).ExportAccountListText(systemReq.QQCacheExportAccountList{
+		AccountType: AccountTypePC,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.Contains(t, text, "12201")
+	require.NotContains(t, text, "12202")
 }
 
 func TestQQCacheExportAccountTaskMapBatchesRecordIDs(t *testing.T) {
