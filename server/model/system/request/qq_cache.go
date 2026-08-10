@@ -34,6 +34,7 @@ type QQCacheList struct {
 	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
 	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
 	RecentMinutes  int    `json:"recentMinutes" form:"recentMinutes"`
+	AccountType    string `json:"accountType" form:"accountType"`
 }
 
 type QQCacheResetExtract struct {
@@ -51,6 +52,7 @@ type QQCacheExportPendingIniZip struct {
 	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
 	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
 	RecentMinutes  int    `json:"recentMinutes" form:"recentMinutes"`
+	AccountType    string `json:"accountType" form:"accountType"`
 }
 
 type QQCacheSalesExtract struct {
@@ -83,4 +85,9 @@ type QQCacheExportAccountList struct {
 	Extracted      *bool  `json:"extracted" form:"extracted"`
 	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
 	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
+	AccountType    string `json:"accountType" form:"accountType"`
+}
+
+type QQCacheSalesAllowedAccountTypes struct {
+	AccountTypes []string `json:"accountTypes" form:"accountTypes"`
 }

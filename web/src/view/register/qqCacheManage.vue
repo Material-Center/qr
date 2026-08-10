@@ -20,6 +20,16 @@
         <el-form-item label="设备ID">
           <el-input v-model="searchInfo.deviceId" clearable placeholder="请输入设备ID" />
         </el-form-item>
+        <el-form-item label="账号类型">
+          <el-select v-model="searchInfo.accountType" clearable style="width: 150px">
+            <el-option
+              v-for="item in accountTypes"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="版本号">
           <el-input v-model="searchInfo.clientVersion" clearable placeholder="请输入版本号" />
         </el-form-item>
@@ -88,6 +98,7 @@
             <el-button type="primary" plain @click="onExportAccountList">导出账号列表</el-button>
           </el-tooltip>
         </div>
+        <el-button type="primary" plain @click="openSalesAllowedDialog">销售导出类型</el-button>
         <el-upload
           class="qq-file-upload"
           accept=".txt,text/plain"
@@ -188,6 +199,11 @@
         <el-table-column label="ID" prop="ID" width="80" />
         <el-table-column label="QQ账号" prop="qqNum" min-width="140" />
         <el-table-column label="版本号" prop="clientVersion" min-width="110" />
+        <el-table-column label="账号类型" width="120">
+          <template #default="{ row }">
+            {{ accountTypeLabel(row.accountType) }}
+          </template>
+        </el-table-column>
         <el-table-column label="设备ID" prop="deviceId" min-width="160" show-overflow-tooltip />
         <el-table-column label="提取人" min-width="120">
           <template #default="{ row }">
@@ -341,6 +357,30 @@
         <el-table-column label="数量" prop="settledCount" width="120" />
       </el-table>
     </el-dialog>
+
+    <el-dialog v-model="salesAllowedDialogVisible" title="销售导出类型" width="460px">
+      <el-checkbox-group v-model="salesAllowedAccountTypes">
+        <el-checkbox
+          v-for="item in accountTypes"
+          :key="item.value"
+          :label="item.value"
+        >
+          {{ item.label }}
+        </el-checkbox>
+      </el-checkbox-group>
+      <el-alert
+        v-if="!salesAllowedAccountTypes.length"
+        class="sales-allowed-alert"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="销售当前不可导出任何账号类型"
+      />
+      <template #footer>
+        <el-button @click="salesAllowedDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveSalesAllowedTypes">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -355,13 +395,16 @@ import {
   exportPendingQQCacheIniZip,
   exportQQCacheIniZipByQQFile,
   exportQQCacheIniZip,
+  getQQCacheAccountTypes,
   getQQCacheBillingHistory,
   getQQCacheList,
+  getQQCacheSalesAllowedAccountTypes,
   getQQCacheSalesBatches,
   getQQCacheSalesSettlementHistory,
   getQQCacheSalesSummaryList,
   importQQCacheZip,
   resetQQCacheExtract,
+  saveQQCacheSalesAllowedAccountTypes,
   settleQQCacheBilling,
   settleQQCacheSalesBilling
 } from '@/api/qqCache'
@@ -375,6 +418,7 @@ const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
 const selectedRows = ref([])
+const accountTypes = ref([])
 const importZipInputRef = ref(null)
 const extractCount = ref(1)
 const extractRecentMinutes = ref(undefined)
@@ -398,11 +442,14 @@ const salesBatchMap = ref({})
 const salesBatchLoading = ref({})
 const salesSummaryExpandedKeys = ref([])
 const salesSummaryTimeFilter = ref('createdAt')
+const salesAllowedDialogVisible = ref(false)
+const salesAllowedAccountTypes = ref([])
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
   clientVersion: '',
   deviceId: '',
+  accountType: '',
   extracted: undefined,
   extractorId: undefined
 })
@@ -509,6 +556,15 @@ const extractorDisplay = (extractorId) => {
   const item = salesSummaryMap.value.get(Number(extractorId))
   if (!item) return `ID ${extractorId}`
   return item.extractorName || item.nickName || item.username || `ID ${extractorId}`
+}
+
+const accountTypeLabel = (value) => {
+  return accountTypes.value.find((item) => item.value === value)?.label || '默认账号'
+}
+
+const fetchAccountTypes = async () => {
+  const { data } = await getQQCacheAccountTypes()
+  accountTypes.value = data || []
 }
 
 const dayStart = (base = new Date()) => {
@@ -699,6 +755,7 @@ const buildAccountListExportPayload = () => {
     qqNum: searchInfo.value.qqNum || undefined,
     clientVersion: searchInfo.value.clientVersion || undefined,
     deviceId: searchInfo.value.deviceId || undefined,
+    accountType: searchInfo.value.accountType || undefined,
     extractorId: searchInfo.value.extractorId || undefined,
     extracted: searchInfo.value.extracted,
     createdAtStart: createdAtStart || undefined,
@@ -748,7 +805,8 @@ const onExportPendingIniZip = async () => {
     })
     const res = await exportPendingQQCacheIniZip({
       count,
-      recentMinutes: recentMinutesParam()
+      recentMinutes: recentMinutesParam(),
+      accountType: searchInfo.value.accountType || undefined
     })
     const ok = await handleZipDownload(res, qqCacheExtractZipName(count))
     if (ok) {
@@ -962,6 +1020,7 @@ const fetchList = async () => {
       qqNum: searchInfo.value.qqNum || undefined,
       clientVersion: searchInfo.value.clientVersion || undefined,
       deviceId: searchInfo.value.deviceId || undefined,
+      accountType: searchInfo.value.accountType || undefined,
       extractorId: searchInfo.value.extractorId || undefined,
       extracted: searchInfo.value.extracted,
       createdAtStart: createdAtStart || undefined,
@@ -1020,6 +1079,7 @@ const resetSearch = () => {
     qqNum: '',
     clientVersion: '',
     deviceId: '',
+    accountType: '',
     extracted: undefined,
     extractorId: undefined
   }
@@ -1038,6 +1098,27 @@ const handleSizeChange = (val) => {
   fetchList()
 }
 
+const openSalesAllowedDialog = async () => {
+  try {
+    if (!accountTypes.value.length) {
+      await fetchAccountTypes()
+    }
+    const { data } = await getQQCacheSalesAllowedAccountTypes()
+    salesAllowedAccountTypes.value = data?.accountTypes || []
+    salesAllowedDialogVisible.value = true
+  } catch (e) {
+    ElMessage.error(e?.message || '配置加载失败')
+  }
+}
+
+const saveSalesAllowedTypes = async () => {
+  await saveQQCacheSalesAllowedAccountTypes({
+    accountTypes: salesAllowedAccountTypes.value
+  })
+  ElMessage.success('保存成功')
+  salesAllowedDialogVisible.value = false
+}
+
 const onResetExtract = async (row) => {
   if (!row?.ID) return
   await ElMessageBox.confirm('确认重置该账号的提取状态？', '提示', {
@@ -1052,6 +1133,7 @@ const onResetExtract = async (row) => {
 
 onMounted(() => {
   searchInfo.value.createdAtRange = todayDateTimeRange()
+  fetchAccountTypes()
   fetchSalesSummary()
   fetchList()
 })
@@ -1122,6 +1204,10 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.sales-allowed-alert {
+  margin-top: 12px;
 }
 
 .sales-summary-title {

@@ -24,6 +24,8 @@ const (
 	qqCacheInQueryBatchSize = 1000
 )
 
+const qqCacheSalesAllowedAccountTypesKey = "qq_cache_sales_allowed_account_types"
+
 const (
 	qqCacheServiceRoleSuperAdmin = uint(888)
 	qqCacheServiceRoleAdmin      = uint(100)
@@ -105,6 +107,7 @@ func (s *QQCacheService) InternalToolImportQQCache(req systemReq.InternalToolQQC
 			}
 			if deviceID := strings.TrimSpace(req.DeviceID); deviceID != "" {
 				updates["device_id"] = deviceID
+				updates["account_type"] = (&DeviceConfigService{}).ResolveAccountTypeTx(tx, deviceID)
 			}
 			if err := tx.Unscoped().Model(&record).Updates(updates).Error; err != nil {
 				return err
@@ -123,6 +126,7 @@ func (s *QQCacheService) InternalToolImportQQCache(req systemReq.InternalToolQQC
 			ClientVersion: clientVersion,
 			INI:           stringPtr(iniText),
 			DeviceID:      trimToPtr(req.DeviceID),
+			AccountType:   (&DeviceConfigService{}).ResolveAccountTypeTx(tx, req.DeviceID),
 		}
 		if err := tx.Create(&record).Error; err != nil {
 			return err
@@ -201,6 +205,7 @@ func (s *QQCacheService) uploadRecordTx(tx *gorm.DB, req systemReq.QQCacheUpload
 	phone := trimToPtr(req.Phone)
 	deviceID := trimToPtr(req.DeviceID)
 	clientVersion := extractQQCacheINIValue(iniText, "clientVersion")
+	accountType := (&DeviceConfigService{}).ResolveAccountTypeTx(tx, req.DeviceID)
 	entity := system.SysQQCacheRecord{
 		Phone:         phone,
 		QQNum:         qqNum,
@@ -208,6 +213,7 @@ func (s *QQCacheService) uploadRecordTx(tx *gorm.DB, req systemReq.QQCacheUpload
 		ClientVersion: clientVersion,
 		INI:           stringPtr(iniText),
 		DeviceID:      deviceID,
+		AccountType:   accountType,
 	}
 	if err := tx.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "qq_num"}},
@@ -217,6 +223,7 @@ func (s *QQCacheService) uploadRecordTx(tx *gorm.DB, req systemReq.QQCacheUpload
 			"client_version":    clientVersion,
 			"ini":               iniText,
 			"device_id":         deviceID,
+			"account_type":      accountType,
 			"extractor":         nil,
 			"extract_record_id": nil,
 			"extraction_at":     nil,
@@ -299,11 +306,19 @@ func (s *QQCacheService) ListForAdmin(req systemReq.QQCacheList) (list []system.
 		Extracted:      req.Extracted,
 		CreatedAtStart: req.CreatedAtStart,
 		CreatedAtEnd:   req.CreatedAtEnd,
+		AccountType:    req.AccountType,
 	})
+	if db.Error != nil {
+		err = db.Error
+		return
+	}
 	if err = db.Count(&total).Error; err != nil {
 		return
 	}
 	err = db.Order("updated_at desc").Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
+	for i := range list {
+		list[i].AccountType = NormalizeQQCacheAccountType(list[i].AccountType)
+	}
 	return
 }
 
@@ -315,6 +330,7 @@ type qqCacheListFilter struct {
 	Extracted      *bool
 	CreatedAtStart string
 	CreatedAtEnd   string
+	AccountType    string
 }
 
 func applyQQCacheListFilters(db *gorm.DB, filter qqCacheListFilter) *gorm.DB {
@@ -337,7 +353,134 @@ func applyQQCacheListFilters(db *gorm.DB, filter qqCacheListFilter) *gorm.DB {
 			db = db.Where("extractor IS NULL")
 		}
 	}
+	var err error
+	db, err = applyQQCacheAccountTypeFilter(db, filter.AccountType)
+	if err != nil {
+		db.AddError(err)
+		return db
+	}
 	return applyQQCacheCreatedAtRangeFilter(db, filter.CreatedAtStart, filter.CreatedAtEnd)
+}
+
+func applyQQCacheAccountTypeFilter(db *gorm.DB, accountType string) (*gorm.DB, error) {
+	accountType = strings.TrimSpace(accountType)
+	if accountType == "" {
+		return db, nil
+	}
+	if err := ValidateQQCacheAccountType(accountType); err != nil {
+		return db, err
+	}
+	if accountType == AccountTypeDefault {
+		return db.Where(
+			"(account_type IS NULL OR TRIM(account_type) = '' OR account_type = ? OR account_type NOT IN ?)",
+			AccountTypeDefault,
+			supportedQQCacheAccountTypeValues(),
+		), nil
+	}
+	return db.Where("account_type = ?", accountType), nil
+}
+
+func applyQQCacheAllowedAccountTypesFilter(db *gorm.DB, accountTypes []string) *gorm.DB {
+	if len(accountTypes) == 0 {
+		return db.Where("1 = 0")
+	}
+	allowed := make([]string, 0, len(accountTypes))
+	includeDefault := false
+	for _, accountType := range accountTypes {
+		accountType = strings.TrimSpace(accountType)
+		if accountType == AccountTypeDefault {
+			includeDefault = true
+			continue
+		}
+		if isSupportedQQCacheAccountType(accountType) {
+			allowed = append(allowed, accountType)
+		}
+	}
+	if includeDefault {
+		if len(allowed) == 0 {
+			return db.Where(
+				"(account_type IS NULL OR TRIM(account_type) = '' OR account_type = ? OR account_type NOT IN ?)",
+				AccountTypeDefault,
+				supportedQQCacheAccountTypeValues(),
+			)
+		}
+		return db.Where(
+			"((account_type IS NULL OR TRIM(account_type) = '' OR account_type = ? OR account_type NOT IN ?) OR account_type IN ?)",
+			AccountTypeDefault,
+			supportedQQCacheAccountTypeValues(),
+			allowed,
+		)
+	}
+	if len(allowed) == 0 {
+		return db.Where("1 = 0")
+	}
+	return db.Where("account_type IN ?", allowed)
+}
+
+func supportedQQCacheAccountTypeValues() []string {
+	options := SupportedQQCacheAccountTypes()
+	values := make([]string, 0, len(options))
+	for _, option := range options {
+		values = append(values, option.Value)
+	}
+	return values
+}
+
+func (s *QQCacheService) GetSalesAllowedAccountTypes() ([]string, error) {
+	var param system.SysParams
+	if err := global.GVA_DB.Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).
+		Order("id desc").
+		First(&param).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	var values []string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(param.Value)), &values); err != nil {
+		return []string{}, nil
+	}
+	sanitized, err := SanitizeQQCacheAccountTypes(values)
+	if err != nil {
+		return []string{}, nil
+	}
+	return sanitized, nil
+}
+
+func (s *QQCacheService) SaveSalesAllowedAccountTypes(values []string) error {
+	sanitized, err := SanitizeQQCacheAccountTypes(values)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(sanitized)
+	if err != nil {
+		return err
+	}
+	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		var existingCount int64
+		if err := tx.Model(&system.SysParams{}).
+			Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).
+			Count(&existingCount).Error; err != nil {
+			return err
+		}
+		updates := map[string]any{
+			"name":       "QQ缓存销售可导出账号类型",
+			"value":      string(raw),
+			"desc":       "销售提取QQ缓存时允许导出的账号类型",
+			"updated_at": time.Now(),
+		}
+		if existingCount > 0 {
+			return tx.Model(&system.SysParams{}).
+				Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).
+				Updates(updates).Error
+		}
+		return tx.Create(&system.SysParams{
+			Name:  "QQ缓存销售可导出账号类型",
+			Key:   qqCacheSalesAllowedAccountTypesKey,
+			Value: string(raw),
+			Desc:  "销售提取QQ缓存时允许导出的账号类型",
+		}).Error
+	})
 }
 
 func (s *QQCacheService) CountExtractStats() (pending int64, extracted int64, total int64, err error) {
@@ -345,11 +488,18 @@ func (s *QQCacheService) CountExtractStats() (pending int64, extracted int64, to
 }
 
 func (s *QQCacheService) CountExtractStatsByCreatedRange(createdAtStart string, createdAtEnd string) (pending int64, extracted int64, total int64, err error) {
+	return s.CountExtractStatsByCreatedRangeAndAccountType(createdAtStart, createdAtEnd, "")
+}
+
+func (s *QQCacheService) CountExtractStatsByCreatedRangeAndAccountType(createdAtStart string, createdAtEnd string, accountType string) (pending int64, extracted int64, total int64, err error) {
 	db := applyQQCacheCreatedAtRangeFilter(
 		global.GVA_DB.Model(&system.SysQQCacheRecord{}),
 		createdAtStart,
 		createdAtEnd,
 	)
+	if db, err = applyQQCacheAccountTypeFilter(db, accountType); err != nil {
+		return
+	}
 	if err = db.Count(&total).Error; err != nil {
 		return
 	}
@@ -358,6 +508,9 @@ func (s *QQCacheService) CountExtractStatsByCreatedRange(createdAtStart string, 
 		createdAtStart,
 		createdAtEnd,
 	).Where("extractor IS NULL")
+	if pendingDB, err = applyQQCacheAccountTypeFilter(pendingDB, accountType); err != nil {
+		return
+	}
 	if err = pendingDB.Count(&pending).Error; err != nil {
 		return
 	}
@@ -366,6 +519,9 @@ func (s *QQCacheService) CountExtractStatsByCreatedRange(createdAtStart string, 
 		createdAtStart,
 		createdAtEnd,
 	).Where("extractor IS NOT NULL")
+	if extractedDB, err = applyQQCacheAccountTypeFilter(extractedDB, accountType); err != nil {
+		return
+	}
 	if err = extractedDB.Count(&extracted).Error; err != nil {
 		return
 	}
@@ -373,12 +529,19 @@ func (s *QQCacheService) CountExtractStatsByCreatedRange(createdAtStart string, 
 }
 
 func (s *QQCacheService) CountExtractStatsByRecentMinutes(recentMinutes int) (pending int64, extracted int64, total int64, err error) {
+	return s.CountExtractStatsByRecentMinutesAndAccountType(recentMinutes, "")
+}
+
+func (s *QQCacheService) CountExtractStatsByRecentMinutesAndAccountType(recentMinutes int, accountType string) (pending int64, extracted int64, total int64, err error) {
 	if recentMinutes == 0 {
-		return s.CountExtractStats()
+		return s.CountExtractStatsByCreatedRangeAndAccountType("", "", accountType)
 	}
 	base, err := applyQQCacheRecentMinutesFilter(global.GVA_DB.Model(&system.SysQQCacheRecord{}), recentMinutes)
 	if err != nil {
 		return 0, 0, 0, err
+	}
+	if base, err = applyQQCacheAccountTypeFilter(base, accountType); err != nil {
+		return
 	}
 	if err = base.Count(&total).Error; err != nil {
 		return
@@ -392,6 +555,9 @@ func (s *QQCacheService) CountExtractStatsByRecentMinutes(recentMinutes int) (pe
 	if err != nil {
 		return 0, 0, 0, err
 	}
+	if pendingDB, err = applyQQCacheAccountTypeFilter(pendingDB, accountType); err != nil {
+		return
+	}
 	if err = pendingDB.Count(&pending).Error; err != nil {
 		return
 	}
@@ -402,6 +568,9 @@ func (s *QQCacheService) CountExtractStatsByRecentMinutes(recentMinutes int) (pe
 	)
 	if err != nil {
 		return 0, 0, 0, err
+	}
+	if extractedDB, err = applyQQCacheAccountTypeFilter(extractedDB, accountType); err != nil {
+		return
 	}
 	if err = extractedDB.Count(&extracted).Error; err != nil {
 		return
@@ -551,8 +720,15 @@ func (s *QQCacheService) ResetExtractByID(id uint) error {
 }
 
 func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint, createdAtStart string, createdAtEnd string) ([]byte, int, error) {
+	return s.ExportPendingIniZipByCountAndAccountType(count, extractorID, createdAtStart, createdAtEnd, "")
+}
+
+func (s *QQCacheService) ExportPendingIniZipByCountAndAccountType(count int, extractorID uint, createdAtStart string, createdAtEnd string, accountType string) ([]byte, int, error) {
 	if count <= 0 {
 		return nil, 0, errors.New("提取数量必须大于0")
+	}
+	if err := ValidateQQCacheAccountType(accountType); err != nil {
+		return nil, 0, err
 	}
 	var records []system.SysQQCacheRecord
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
@@ -563,6 +739,11 @@ func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint,
 			createdAtStart,
 			createdAtEnd,
 		)
+		var filterErr error
+		query, filterErr = applyQQCacheAccountTypeFilter(query, accountType)
+		if filterErr != nil {
+			return filterErr
+		}
 		if err := query.
 			Order("created_at asc").
 			Order("id asc").
@@ -600,14 +781,21 @@ func (s *QQCacheService) ExportPendingIniZipByCount(count int, extractorID uint,
 }
 
 func (s *QQCacheService) ExportPendingIniZipByCountWithRecentMinutes(count int, extractorID uint, recentMinutes int) ([]byte, int, error) {
+	return s.ExportPendingIniZipByCountWithRecentMinutesAndAccountType(count, extractorID, recentMinutes, "")
+}
+
+func (s *QQCacheService) ExportPendingIniZipByCountWithRecentMinutesAndAccountType(count int, extractorID uint, recentMinutes int, accountType string) ([]byte, int, error) {
 	if count <= 0 {
 		return nil, 0, errors.New("提取数量必须大于0")
 	}
 	if err := validateQQCacheRecentMinutes(recentMinutes); err != nil {
 		return nil, 0, err
 	}
+	if err := ValidateQQCacheAccountType(accountType); err != nil {
+		return nil, 0, err
+	}
 	if recentMinutes == 0 {
-		return s.ExportPendingIniZipByCount(count, extractorID, "", "")
+		return s.ExportPendingIniZipByCountAndAccountType(count, extractorID, "", "", accountType)
 	}
 	var records []system.SysQQCacheRecord
 	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
@@ -617,6 +805,10 @@ func (s *QQCacheService) ExportPendingIniZipByCountWithRecentMinutes(count int, 
 				Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
 			recentMinutes,
 		)
+		if err != nil {
+			return err
+		}
+		query, err = applyQQCacheAccountTypeFilter(query, accountType)
 		if err != nil {
 			return err
 		}
@@ -664,9 +856,16 @@ func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count 
 	if count <= 0 {
 		return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("提取数量必须大于0")
 	}
+	allowedTypes, err := s.GetSalesAllowedAccountTypes()
+	if err != nil {
+		return nil, 0, system.SysQQCacheExtractBatch{}, err
+	}
+	if len(allowedTypes) == 0 {
+		return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("未配置可导出账号类型")
+	}
 	var records []system.SysQQCacheRecord
 	var batch system.SysQQCacheExtractBatch
-	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+	err = global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		query, err := applyQQCacheRecentMinutesFilter(
 			tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("extractor IS NULL").
@@ -676,6 +875,7 @@ func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count 
 		if err != nil {
 			return err
 		}
+		query = applyQQCacheAllowedAccountTypesFilter(query, allowedTypes)
 		if err := query.
 			Order("created_at asc").
 			Order("id asc").
@@ -705,6 +905,9 @@ func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count 
 		if err := forEachQQCacheBatch(ids, func(batchIDs []uint) error {
 			rsp := tx.Model(&system.SysQQCacheRecord{}).
 				Where("id IN ? AND extractor IS NULL", batchIDs).
+				Scopes(func(db *gorm.DB) *gorm.DB {
+					return applyQQCacheAllowedAccountTypesFilter(db, allowedTypes)
+				}).
 				Updates(map[string]any{
 					"extractor":         extractorID,
 					"extract_record_id": batch.ID,
@@ -754,6 +957,10 @@ func (s *QQCacheService) GetSalesSummary(extractorID uint, date string) (systemR
 
 func (s *QQCacheService) GetSalesSummaryWithRecentMinutes(extractorID uint, date string, recentMinutes int) (systemRes.QQCacheSalesSummary, error) {
 	var summary systemRes.QQCacheSalesSummary
+	allowedTypes, err := s.GetSalesAllowedAccountTypes()
+	if err != nil {
+		return summary, err
+	}
 	availableDB, err := applyQQCacheRecentMinutesFilter(
 		global.GVA_DB.Model(&system.SysQQCacheRecord{}).
 			Where("extractor IS NULL").
@@ -763,6 +970,7 @@ func (s *QQCacheService) GetSalesSummaryWithRecentMinutes(extractorID uint, date
 	if err != nil {
 		return summary, err
 	}
+	availableDB = applyQQCacheAllowedAccountTypesFilter(availableDB, allowedTypes)
 	if err := availableDB.
 		Count(&summary.Available).Error; err != nil {
 		return summary, err
@@ -1273,13 +1481,20 @@ func (s *QQCacheService) ExportAccountListText(req systemReq.QQCacheExportAccoun
 			Extracted:      req.Extracted,
 			CreatedAtStart: req.CreatedAtStart,
 			CreatedAtEnd:   req.CreatedAtEnd,
+			AccountType:    req.AccountType,
 		})
+		if db.Error != nil {
+			return "", 0, db.Error
+		}
 		if err := db.Order("updated_at desc").Order("id desc").Find(&records).Error; err != nil {
 			return "", 0, err
 		}
 	}
 	if len(records) == 0 {
 		return "", 0, errors.New("暂无可导出的账号")
+	}
+	for i := range records {
+		records[i].AccountType = NormalizeQQCacheAccountType(records[i].AccountType)
 	}
 	return s.buildQQCacheExportAccountListText(records)
 }

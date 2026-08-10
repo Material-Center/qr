@@ -31,6 +31,7 @@ type ApiGroup struct {
 	PhoneRegisterTaskApi
 	RegisterConfigApi
 	QQCacheApi
+	DeviceConfigApi
 }
 
 var (
@@ -63,4 +64,5 @@ var (
 	registerConfigService    = service.ServiceGroupApp.SystemServiceGroup.RegisterConfigService
 	qqCacheService           = service.ServiceGroupApp.SystemServiceGroup.QQCacheService
 	deviceService            = service.ServiceGroupApp.SystemServiceGroup.DeviceService
+	deviceConfigService      = service.ServiceGroupApp.SystemServiceGroup.DeviceConfigService
 )

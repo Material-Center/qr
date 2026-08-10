@@ -28,6 +28,7 @@ type RouterGroup struct {
 	PhoneRegisterTaskRouter
 	RegisterConfigRouter
 	QQCacheRouter
+	DeviceConfigRouter
 }
 
 var (
@@ -57,4 +58,5 @@ var (
 	phoneRegisterTaskApi = api.ApiGroupApp.SystemApiGroup.PhoneRegisterTaskApi
 	registerConfigApi    = api.ApiGroupApp.SystemApiGroup.RegisterConfigApi
 	qqCacheApi           = api.ApiGroupApp.SystemApiGroup.QQCacheApi
+	deviceConfigApi      = api.ApiGroupApp.SystemApiGroup.DeviceConfigApi
 )

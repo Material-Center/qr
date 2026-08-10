@@ -26,8 +26,15 @@ func setupQQCacheSalesTestDB(t *testing.T) {
 		&model.SysUser{},
 		&model.SysQQCacheRecord{},
 		&model.SysQQCacheExtractBatch{},
+		&model.SysParams{},
 	))
 	global.GVA_DB = db
+	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypeDefault, AccountTypePC}))
+}
+
+func clearQQCacheSalesAllowedAccountTypes(t *testing.T) {
+	t.Helper()
+	require.NoError(t, global.GVA_DB.Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).Delete(&model.SysParams{}).Error)
 }
 
 func TestQQCacheSalesSummaryUsesGlobalAvailableAndTodaySalesCounts(t *testing.T) {
@@ -53,6 +60,148 @@ func TestQQCacheSalesSummaryUsesGlobalAvailableAndTodaySalesCounts(t *testing.T)
 	require.EqualValues(t, 2, summary.Available)
 	require.EqualValues(t, 2, summary.TodayExtracted)
 	require.EqualValues(t, 1, summary.TodayUnsettled)
+}
+
+func TestQQCacheSalesMissingAllowedAccountTypesBlocksExport(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+	clearQQCacheSalesAllowedAccountTypes(t)
+
+	salesID := uint(6010)
+	ini := "qqnum=91001\nguid=GUID91001\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
+		QQNum:       "91001",
+		INI:         &ini,
+		AccountType: AccountTypeDefault,
+	}).Error)
+
+	summary, err := (&QQCacheService{}).GetSalesSummary(salesID, "")
+	require.NoError(t, err)
+	require.EqualValues(t, 0, summary.Available)
+
+	_, count, batch, err := (&QQCacheService{}).ExportSalesPendingIniZipByCount(1, salesID)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "未配置可导出账号类型")
+	require.Zero(t, count)
+	require.Zero(t, batch.ID)
+}
+
+func TestQQCacheSalesAllowedAccountTypesFiltersSummaryAndExtract(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypePC}))
+
+	salesID := uint(6011)
+	ini := "qqnum=92001\nguid=GUID92001\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_pc",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "92001", INI: &ini, AccountType: AccountTypePC},
+		{QQNum: "92002", INI: &ini, AccountType: AccountTypeDefault},
+	}).Error)
+
+	summary, err := (&QQCacheService{}).GetSalesSummary(salesID, "")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.Available)
+
+	_, count, batch, err := (&QQCacheService{}).ExportSalesPendingIniZipByCount(2, salesID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.EqualValues(t, 1, batch.ExtractCount)
+
+	var extracted []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", salesID).Find(&extracted).Error)
+	require.Len(t, extracted, 1)
+	require.Equal(t, "92001", extracted[0].QQNum)
+}
+
+func TestQQCacheSalesAllowedAccountTypesReadsLatestDuplicateAndSaveConverges(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+	clearQQCacheSalesAllowedAccountTypes(t)
+
+	require.NoError(t, global.GVA_DB.Create(&model.SysParams{
+		Name:  "旧配置",
+		Key:   qqCacheSalesAllowedAccountTypesKey,
+		Value: `["default"]`,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysParams{
+		Name:  "新配置",
+		Key:   qqCacheSalesAllowedAccountTypesKey,
+		Value: `["pc"]`,
+	}).Error)
+
+	types, err := (&QQCacheService{}).GetSalesAllowedAccountTypes()
+	require.NoError(t, err)
+	require.Equal(t, []string{AccountTypePC}, types)
+
+	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypeDefault, AccountTypePC}))
+	var rows []model.SysParams
+	require.NoError(t, global.GVA_DB.Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).Find(&rows).Error)
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		require.JSONEq(t, `["default","pc"]`, row.Value)
+	}
+}
+
+func TestQQCacheSalesAllowedAccountTypesSaveSameValueDoesNotCreateDuplicate(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+	clearQQCacheSalesAllowedAccountTypes(t)
+
+	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypeDefault}))
+	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypeDefault}))
+
+	var total int64
+	require.NoError(t, global.GVA_DB.Model(&model.SysParams{}).Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).Count(&total).Error)
+	require.EqualValues(t, 1, total)
+}
+
+func TestQQCacheSalesAllowedDefaultIncludesHistoricalInvalidType(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypeDefault}))
+
+	salesID := uint(6013)
+	ini := "qqnum=93001\nguid=GUID93001\n"
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "93001", INI: &ini, AccountType: AccountTypeDefault},
+		{QQNum: "93002", INI: &ini, AccountType: "mobile"},
+		{QQNum: "93003", INI: &ini, AccountType: AccountTypePC},
+	}).Error)
+
+	summary, err := (&QQCacheService{}).GetSalesSummary(salesID, "")
+	require.NoError(t, err)
+	require.EqualValues(t, 2, summary.Available)
+}
+
+func TestQQCacheSalesAllowedDefaultOnlyExtractsDefaultAndHistoricalInvalidType(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypeDefault}))
+
+	salesID := uint(6014)
+	ini := "qqnum=93101\nguid=GUID93101\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_default",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{QQNum: "93101", INI: &ini, AccountType: AccountTypeDefault},
+		{QQNum: "93102", INI: &ini, AccountType: "mobile"},
+		{QQNum: "93103", INI: &ini, AccountType: AccountTypePC},
+	}).Error)
+
+	_, count, batch, err := (&QQCacheService{}).ExportSalesPendingIniZipByCount(3, salesID)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
+	require.EqualValues(t, 2, batch.ExtractCount)
+
+	var extracted []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", salesID).Order("qq_num asc").Find(&extracted).Error)
+	require.Len(t, extracted, 2)
+	require.Equal(t, "93101", extracted[0].QQNum)
+	require.Equal(t, "93102", extracted[1].QQNum)
 }
 
 func TestQQCacheSalesSummaryAndExtractFilterRecentMinutes(t *testing.T) {

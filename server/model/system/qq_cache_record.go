@@ -18,6 +18,7 @@ type SysQQCacheRecord struct {
 	ExtractionAt     *time.Time `json:"extractionAt" gorm:"column:extraction_at;comment:提取时间"`
 	INI              *string    `json:"iNI" gorm:"column:ini;type:longtext;comment:缓存INI内容"`
 	DeviceID         *string    `json:"deviceId" gorm:"column:device_id;size:128;comment:设备ID"`
+	AccountType      string     `json:"accountType" gorm:"column:account_type;size:32;not null;default:default;index;comment:账号类型"`
 	BillingSettledAt *time.Time `json:"billingSettledAt" gorm:"column:billing_settled_at;index;comment:计费结算时间"`
 	BillingSettledBy *uint      `json:"billingSettledBy" gorm:"column:billing_settled_by;index;comment:计费结算管理员ID"`
 	SalesSettledAt   *time.Time `json:"salesSettledAt" gorm:"column:sales_settled_at;index;comment:销售结算时间"`

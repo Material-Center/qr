@@ -127,6 +127,7 @@ func Routers() *gin.Engine {
 		systemRouter.InitRegisterTaskRouter(PrivateGroup)                   // 注册任务
 		systemRouter.InitPhoneRegisterTaskRouter(PrivateGroup, PublicGroup) // 手机号注册任务
 		systemRouter.InitRegisterConfigRouter(PrivateGroup)                 // 注册配置
+		systemRouter.InitDeviceConfigRouter(PrivateGroup)                   // 设备配置
 		systemRouter.InitQQCacheRouter(PrivateGroup, PublicGroup)           // QQ缓存
 		exampleRouter.InitCustomerRouter(PrivateGroup)                      // 客户路由
 		exampleRouter.InitFileUploadAndDownloadRouter(PrivateGroup)         // 文件上传下载功能路由

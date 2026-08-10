@@ -31,4 +31,5 @@ type ServiceGroup struct {
 	RegisterConfigService
 	QQCacheService
 	DeviceService
+	DeviceConfigService
 }
