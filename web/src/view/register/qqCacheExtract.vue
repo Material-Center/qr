@@ -123,7 +123,7 @@ const summary = ref({
   todayUnsettled: 0
 })
 const extractCount = ref(1)
-const extractRecentMinutes = ref(undefined)
+const extractRecentMinutes = ref(15)
 const extractCustomHours = ref(undefined)
 const page = ref(1)
 const pageSize = ref(10)
