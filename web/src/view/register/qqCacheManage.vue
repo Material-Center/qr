@@ -98,7 +98,6 @@
             <el-button type="primary" plain @click="onExportAccountList">导出账号列表</el-button>
           </el-tooltip>
         </div>
-        <el-button type="primary" plain @click="openSalesAllowedDialog">销售导出类型</el-button>
         <el-upload
           class="qq-file-upload"
           accept=".txt,text/plain"
@@ -254,6 +253,7 @@
             <el-radio-button label="createdAt">上传时间</el-radio-button>
             <el-radio-button label="extractedAt">提取时间</el-radio-button>
           </el-radio-group>
+          <el-button type="primary" plain icon="setting" @click="openSalesAllowedDialog">导出类型配置</el-button>
           <el-button icon="refresh" @click="fetchSalesSummary">刷新</el-button>
         </div>
       </div>
@@ -358,7 +358,7 @@
       </el-table>
     </el-dialog>
 
-    <el-dialog v-model="salesAllowedDialogVisible" title="销售导出类型" width="460px">
+    <el-dialog v-model="salesAllowedDialogVisible" title="导出类型配置" width="460px">
       <el-checkbox-group v-model="salesAllowedAccountTypes">
         <el-checkbox
           v-for="item in accountTypes"
