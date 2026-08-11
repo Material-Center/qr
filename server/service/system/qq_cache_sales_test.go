@@ -353,6 +353,89 @@ func TestQQCacheSettleSalesBillingUpdatesBatchStatus(t *testing.T) {
 	require.EqualValues(t, 2, history[0].SettledCount)
 }
 
+func TestQQCacheSettleSalesBillingRefreshesOnlyAffectedBatches(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6033)
+	operatorID := uint(88)
+	oldOperatorID := uint(11)
+	oldSettledAt := time.Now().Add(-24 * time.Hour)
+	now := time.Now()
+	ini := "qqnum=40331\nguid=GUID40331\n"
+	require.NoError(t, global.GVA_DB.Create(&model.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: salesID},
+		Username:    "sales_scoped_settle",
+		AuthorityId: 600,
+		Enable:      1,
+	}).Error)
+	oldBatch := model.SysQQCacheExtractBatch{
+		ExtractorID:  salesID,
+		ExtractCount: 1,
+		SettledCount: 1,
+		Status:       model.QQCacheExtractBatchStatusSettled,
+		ExtractedAt:  oldSettledAt.Add(-time.Hour),
+		SettledAt:    &oldSettledAt,
+		SettledBy:    &oldOperatorID,
+	}
+	pendingBatch := model.SysQQCacheExtractBatch{
+		ExtractorID:  salesID,
+		ExtractCount: 2,
+		SettledCount: 1,
+		Status:       model.QQCacheExtractBatchStatusPendingSettlement,
+		ExtractedAt:  now,
+	}
+	require.NoError(t, global.GVA_DB.Create(&oldBatch).Error)
+	require.NoError(t, global.GVA_DB.Create(&pendingBatch).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{
+			QQNum:           "40331",
+			INI:             &ini,
+			Extractor:       &salesID,
+			ExtractRecordID: &oldBatch.ID,
+			ExtractionAt:    &oldBatch.ExtractedAt,
+			SalesSettledAt:  &oldSettledAt,
+			SalesSettledBy:  &oldOperatorID,
+		},
+		{
+			QQNum:           "40332",
+			INI:             &ini,
+			Extractor:       &salesID,
+			ExtractRecordID: &pendingBatch.ID,
+			ExtractionAt:    &now,
+		},
+		{
+			QQNum:           "40333",
+			INI:             &ini,
+			Extractor:       &salesID,
+			ExtractRecordID: &pendingBatch.ID,
+			ExtractionAt:    &now,
+			SalesSettledAt:  &oldSettledAt,
+			SalesSettledBy:  &oldOperatorID,
+		},
+	}).Error)
+
+	result, err := (&QQCacheService{}).SettleSalesBilling(100, operatorID, salesID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, result.SettledCount)
+
+	var storedOldBatch model.SysQQCacheExtractBatch
+	require.NoError(t, global.GVA_DB.First(&storedOldBatch, oldBatch.ID).Error)
+	require.Equal(t, model.QQCacheExtractBatchStatusSettled, storedOldBatch.Status)
+	require.EqualValues(t, 1, storedOldBatch.SettledCount)
+	require.NotNil(t, storedOldBatch.SettledAt)
+	require.True(t, oldSettledAt.Equal(*storedOldBatch.SettledAt))
+	require.NotNil(t, storedOldBatch.SettledBy)
+	require.EqualValues(t, oldOperatorID, *storedOldBatch.SettledBy)
+
+	var storedPendingBatch model.SysQQCacheExtractBatch
+	require.NoError(t, global.GVA_DB.First(&storedPendingBatch, pendingBatch.ID).Error)
+	require.Equal(t, model.QQCacheExtractBatchStatusSettled, storedPendingBatch.Status)
+	require.EqualValues(t, 2, storedPendingBatch.SettledCount)
+	require.NotNil(t, storedPendingBatch.SettledAt)
+	require.NotNil(t, storedPendingBatch.SettledBy)
+	require.EqualValues(t, operatorID, *storedPendingBatch.SettledBy)
+}
+
 func TestQQCacheSettleSalesBillingRejectsNonSalesExtractor(t *testing.T) {
 	setupQQCacheSalesTestDB(t)
 

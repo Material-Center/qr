@@ -1201,7 +1201,14 @@ func (s *QQCacheService) SettleSalesBilling(operatorRole uint, operatorID uint, 
 		if err := base.Count(&result.SettledCount).Error; err != nil {
 			return err
 		}
+		var affectedBatchIDs []uint
 		if result.SettledCount > 0 {
+			if err := tx.Model(&system.SysQQCacheRecord{}).
+				Distinct("extract_record_id").
+				Where("extractor = ? AND sales_settled_at IS NULL AND extract_record_id IS NOT NULL", extractorID).
+				Pluck("extract_record_id", &affectedBatchIDs).Error; err != nil {
+				return err
+			}
 			if err := tx.Model(&system.SysQQCacheRecord{}).
 				Where("extractor = ? AND sales_settled_at IS NULL", extractorID).
 				Updates(map[string]any{
@@ -1211,7 +1218,7 @@ func (s *QQCacheService) SettleSalesBilling(operatorRole uint, operatorID uint, 
 				return err
 			}
 		}
-		return s.refreshSalesBatchSettlementTx(tx, extractorID, settledAt, operatorID)
+		return s.refreshSalesBatchSettlementTx(tx, extractorID, settledAt, operatorID, affectedBatchIDs)
 	})
 	return result, err
 }
@@ -1247,37 +1254,57 @@ func (s *QQCacheService) ensureSalesExtractor(extractorID uint) error {
 	return nil
 }
 
-func (s *QQCacheService) refreshSalesBatchSettlementTx(tx *gorm.DB, extractorID uint, settledAt time.Time, operatorID uint) error {
-	var batches []system.SysQQCacheExtractBatch
-	if err := tx.Where("extractor_id = ?", extractorID).Find(&batches).Error; err != nil {
+func (s *QQCacheService) refreshSalesBatchSettlementTx(tx *gorm.DB, extractorID uint, settledAt time.Time, operatorID uint, batchIDs []uint) error {
+	if len(batchIDs) == 0 {
+		return nil
+	}
+	type batchSettlementStat struct {
+		BatchID uint  `gorm:"column:batch_id"`
+		Total   int64 `gorm:"column:total"`
+		Settled int64 `gorm:"column:settled"`
+	}
+	statsByBatchID := make(map[uint]batchSettlementStat, len(batchIDs))
+	if err := forEachQQCacheBatch(batchIDs, func(ids []uint) error {
+		var stats []batchSettlementStat
+		if err := tx.Model(&system.SysQQCacheRecord{}).
+			Select(`
+				extract_record_id AS batch_id,
+				COUNT(1) AS total,
+				SUM(CASE WHEN sales_settled_at IS NOT NULL THEN 1 ELSE 0 END) AS settled
+			`).
+			Where("extract_record_id IN ?", ids).
+			Group("extract_record_id").
+			Scan(&stats).Error; err != nil {
+			return err
+		}
+		for _, stat := range stats {
+			statsByBatchID[stat.BatchID] = stat
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
-	for _, batch := range batches {
-		var total int64
-		if err := tx.Model(&system.SysQQCacheRecord{}).
-			Where("extract_record_id = ?", batch.ID).
-			Count(&total).Error; err != nil {
-			return err
-		}
-		var settled int64
-		if err := tx.Model(&system.SysQQCacheRecord{}).
-			Where("extract_record_id = ? AND sales_settled_at IS NOT NULL", batch.ID).
-			Count(&settled).Error; err != nil {
-			return err
-		}
+	var ownedBatchIDs []uint
+	if err := tx.Model(&system.SysQQCacheExtractBatch{}).
+		Where("extractor_id = ? AND id IN ?", extractorID, batchIDs).
+		Pluck("id", &ownedBatchIDs).Error; err != nil {
+		return err
+	}
+	for _, batchID := range ownedBatchIDs {
+		stat := statsByBatchID[batchID]
 		status := system.QQCacheExtractBatchStatusPendingSettlement
 		updates := map[string]any{
-			"settled_count": int(settled),
+			"settled_count": int(stat.Settled),
 			"status":        status,
 			"updated_at":    time.Now(),
 		}
-		if total > 0 && settled == total {
+		if stat.Total > 0 && stat.Settled == stat.Total {
 			status = system.QQCacheExtractBatchStatusSettled
 			updates["status"] = status
 			updates["settled_at"] = settledAt
 			updates["settled_by"] = operatorID
 		}
-		if err := tx.Model(&system.SysQQCacheExtractBatch{}).Where("id = ?", batch.ID).Updates(updates).Error; err != nil {
+		if err := tx.Model(&system.SysQQCacheExtractBatch{}).Where("id = ? AND extractor_id = ?", batchID, extractorID).Updates(updates).Error; err != nil {
 			return err
 		}
 	}
