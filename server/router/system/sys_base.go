@@ -10,7 +10,7 @@ type BaseRouter struct{}
 func (s *BaseRouter) InitBaseRouter(Router *gin.RouterGroup) (R gin.IRoutes) {
 	baseRouter := Router.Group("base")
 	{
-		baseRouter.POST("login", middleware.DefaultLoginLimit(), middleware.LoginUserAgentGuard(), middleware.RequestSignatureGuard(), baseApi.Login)
+		baseRouter.POST("login", middleware.DefaultLoginLimit(), middleware.LoginFailureGuard(), middleware.LoginUserAgentGuard(), middleware.RequestSignatureGuard(), baseApi.Login)
 		baseRouter.POST("appLogin", middleware.DefaultLoginLimit(), middleware.LoginUserAgentGuard(), baseApi.AppLogin)
 		baseRouter.POST("captcha", middleware.RequestSignatureGuard(), baseApi.Captcha)
 	}
