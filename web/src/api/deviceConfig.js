@@ -23,3 +23,26 @@ export const deleteDeviceConfig = (data) => {
     data
   })
 }
+
+export const getDeviceGroups = () => {
+  return service({
+    url: '/deviceConfig/group/list',
+    method: 'get'
+  })
+}
+
+export const saveDeviceGroup = (data) => {
+  return service({
+    url: '/deviceConfig/group/save',
+    method: 'post',
+    data
+  })
+}
+
+export const deleteDeviceGroup = (data) => {
+  return service({
+    url: '/deviceConfig/group/delete',
+    method: 'post',
+    data
+  })
+}

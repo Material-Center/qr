@@ -73,6 +73,7 @@ func RegisterTables() {
 		system.SysRegisterConfig{},
 		system.SysQQCacheRecord{},
 		system.SysQQCacheExtractBatch{},
+		system.SysDeviceGroup{},
 		system.SysDeviceConfig{},
 
 		example.ExaFile{},

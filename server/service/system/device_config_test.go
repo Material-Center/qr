@@ -18,7 +18,7 @@ func setupDeviceConfigTestDB(t *testing.T) {
 		DisableForeignKeyConstraintWhenMigrating: true,
 	})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.SysDeviceConfig{}))
+	require.NoError(t, db.AutoMigrate(&model.SysDeviceGroup{}, &model.SysDeviceConfig{}))
 	global.GVA_DB = db
 }
 
@@ -104,4 +104,115 @@ func TestDeviceConfigListFilters(t *testing.T) {
 	require.EqualValues(t, 1, total)
 	require.Len(t, list, 1)
 	require.Equal(t, "pc-001", list[0].DeviceID)
+}
+
+func TestDeviceGroupSaveListAndAssignDevice(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	service := &DeviceConfigService{}
+	group, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{
+		Name:   " PC设备 ",
+		Remark: "pc group",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "PC设备", group.Name)
+	require.Equal(t, "pc group", group.Remark)
+
+	device, err := service.SaveDeviceConfig(systemReq.DeviceConfigSave{
+		DeviceID:    "pc-group-001",
+		AccountType: AccountTypePC,
+		GroupID:     &group.ID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, device.GroupID)
+	require.Equal(t, group.ID, *device.GroupID)
+	require.Equal(t, "PC设备", device.Group.Name)
+
+	groups, err := service.ListDeviceGroups()
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.Equal(t, "PC设备", groups[0].Name)
+}
+
+func TestDeviceConfigListFiltersByGroupAndUngrouped(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	service := &DeviceConfigService{}
+	group, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{Name: "A组"})
+	require.NoError(t, err)
+	_, err = service.SaveDeviceConfig(systemReq.DeviceConfigSave{DeviceID: "grouped-001", AccountType: AccountTypePC, GroupID: &group.ID})
+	require.NoError(t, err)
+	_, err = service.SaveDeviceConfig(systemReq.DeviceConfigSave{DeviceID: "ungrouped-001", AccountType: AccountTypeDefault})
+	require.NoError(t, err)
+
+	grouped, total, err := service.ListDeviceConfig(systemReq.DeviceConfigList{
+		PageInfo: commonReq.PageInfo{Page: 1, PageSize: 10},
+		GroupID:  &group.ID,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Equal(t, "grouped-001", grouped[0].DeviceID)
+	require.Equal(t, "A组", grouped[0].Group.Name)
+
+	ungrouped, total, err := service.ListDeviceConfig(systemReq.DeviceConfigList{
+		PageInfo:  commonReq.PageInfo{Page: 1, PageSize: 10},
+		Ungrouped: true,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Equal(t, "ungrouped-001", ungrouped[0].DeviceID)
+	require.Nil(t, ungrouped[0].GroupID)
+}
+
+func TestDeviceGroupDeleteRejectsReferencedGroup(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	service := &DeviceConfigService{}
+	group, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{Name: "不可删除"})
+	require.NoError(t, err)
+	_, err = service.SaveDeviceConfig(systemReq.DeviceConfigSave{DeviceID: "device-ref", AccountType: AccountTypeDefault, GroupID: &group.ID})
+	require.NoError(t, err)
+
+	err = service.DeleteDeviceGroup(systemReq.DeviceGroupDelete{ID: group.ID})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "存在关联设备")
+}
+
+func TestDeviceGroupDeleteRejectsMissingGroup(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	err := (&DeviceConfigService{}).DeleteDeviceGroup(systemReq.DeviceGroupDelete{ID: 999})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "设备分组不存在")
+}
+
+func TestDeviceGroupRenameRejectsSoftDeletedName(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	service := &DeviceConfigService{}
+	active, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{Name: "当前分组"})
+	require.NoError(t, err)
+	deleted, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{Name: "已删分组"})
+	require.NoError(t, err)
+	require.NoError(t, service.DeleteDeviceGroup(systemReq.DeviceGroupDelete{ID: deleted.ID}))
+
+	_, err = service.SaveDeviceGroup(systemReq.DeviceGroupSave{
+		ID:   active.ID,
+		Name: "已删分组",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "设备分组已存在")
+}
+
+func TestDeviceConfigSaveRejectsMissingGroup(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	missingGroupID := uint(999)
+	_, err := (&DeviceConfigService{}).SaveDeviceConfig(systemReq.DeviceConfigSave{
+		DeviceID:    "device-missing-group",
+		AccountType: AccountTypeDefault,
+		GroupID:     &missingGroupID,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "设备分组不存在")
 }

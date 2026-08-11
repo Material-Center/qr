@@ -74,3 +74,51 @@ func (a *DeviceConfigApi) Delete(c *gin.Context) {
 	}
 	response.OkWithMessage("删除成功", c)
 }
+
+func (a *DeviceConfigApi) GroupList(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		response.FailWithMessage("仅管理员可管理设备分组", c)
+		return
+	}
+	list, err := deviceConfigService.ListDeviceGroups()
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(list, "获取成功", c)
+}
+
+func (a *DeviceConfigApi) GroupSave(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		response.FailWithMessage("仅管理员可管理设备分组", c)
+		return
+	}
+	var req systemReq.DeviceGroupSave
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	group, err := deviceConfigService.SaveDeviceGroup(req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(group, "保存成功", c)
+}
+
+func (a *DeviceConfigApi) GroupDelete(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		response.FailWithMessage("仅管理员可管理设备分组", c)
+		return
+	}
+	var req systemReq.DeviceGroupDelete
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	if err := deviceConfigService.DeleteDeviceGroup(req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithMessage("删除成功", c)
+}

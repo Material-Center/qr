@@ -295,6 +295,9 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/deviceConfig/list", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/deviceConfig/save", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/deviceConfig/delete", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/deviceConfig/group/list", V2: "GET"},
+		{Ptype: "p", V0: "888", V1: "/deviceConfig/group/save", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/deviceConfig/group/delete", V2: "POST"},
 
 		// 100 管理员（业务角色）
 		{Ptype: "p", V0: "100", V1: "/menu/getMenu", V2: "POST"},
@@ -350,6 +353,9 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/deviceConfig/list", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/deviceConfig/save", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/deviceConfig/delete", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/deviceConfig/group/list", V2: "GET"},
+		{Ptype: "p", V0: "100", V1: "/deviceConfig/group/save", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/deviceConfig/group/delete", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 
 		// 200 团长（业务角色）

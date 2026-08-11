@@ -39,6 +39,25 @@ func TestEnsureDeviceAccountTypePermissionsIsIdempotent(t *testing.T) {
 			require.EqualValues(t, 1, ruleCount)
 		}
 	}
+	for _, expected := range []struct {
+		path   string
+		method string
+	}{
+		{path: "/deviceConfig/group/list", method: "GET"},
+		{path: "/deviceConfig/group/save", method: "POST"},
+		{path: "/deviceConfig/group/delete", method: "POST"},
+	} {
+		var apiCount int64
+		require.NoError(t, db.Model(&system.SysApi{}).Where("path = ? AND method = ?", expected.path, expected.method).Count(&apiCount).Error)
+		require.EqualValues(t, 1, apiCount)
+		for _, role := range []string{"100", "888"} {
+			var ruleCount int64
+			require.NoError(t, db.Model(&adapter.CasbinRule{}).
+				Where("ptype = ? AND v0 = ? AND v1 = ? AND v2 = ?", "p", role, expected.path, expected.method).
+				Count(&ruleCount).Error)
+			require.EqualValues(t, 1, ruleCount)
+		}
+	}
 
 	var salesMenuCount int64
 	require.NoError(t, db.Model(&system.SysAuthorityMenu{}).Where("sys_authority_authority_id = ?", "600").Count(&salesMenuCount).Error)

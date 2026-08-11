@@ -13,5 +13,8 @@ func (r *DeviceConfigRouter) InitDeviceConfigRouter(Router *gin.RouterGroup) {
 		deviceConfigRouter.POST("list", deviceConfigApi.List)
 		deviceConfigRouter.POST("save", deviceConfigApi.Save)
 		deviceConfigRouter.POST("delete", deviceConfigApi.Delete)
+		deviceConfigRouter.GET("group/list", deviceConfigApi.GroupList)
+		deviceConfigRouter.POST("group/save", deviceConfigApi.GroupSave)
+		deviceConfigRouter.POST("group/delete", deviceConfigApi.GroupDelete)
 	}
 }
