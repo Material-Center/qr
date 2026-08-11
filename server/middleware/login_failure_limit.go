@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	loginFailureLimit     = 5
+	loginFailureLimit     = 10
 	loginFailureKeyPrefix = "GVA_Login_Fail_Limit"
 )
 

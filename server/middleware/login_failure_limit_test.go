@@ -16,28 +16,36 @@ import (
 func TestLoginFailureGuardBlocksWhenClientIPReachedLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	count := 0
 	oldCount := loginFailureCount
 	loginFailureCount = func(key string) (int, error) {
 		require.Equal(t, "GVA_Login_Fail_Limit192.0.2.30", key)
-		return loginFailureLimit, nil
+		return count, nil
 	}
 	t.Cleanup(func() { loginFailureCount = oldCount })
 
-	called := false
 	router := gin.New()
 	router.Use(LoginFailureGuard())
 	router.POST("/base/login", func(c *gin.Context) {
-		called = true
 		c.String(http.StatusOK, "ok")
 	})
 
+	count = 9
+	recAllowed := httptest.NewRecorder()
+	reqAllowed := httptest.NewRequest(http.MethodPost, "/base/login", nil)
+	reqAllowed.RemoteAddr = "192.0.2.30:12345"
+	router.ServeHTTP(recAllowed, reqAllowed)
+
+	require.Equal(t, http.StatusOK, recAllowed.Code)
+	require.Equal(t, "ok", recAllowed.Body.String())
+
+	count = 10
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/base/login", nil)
 	req.RemoteAddr = "192.0.2.30:12345"
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.False(t, called)
 
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
