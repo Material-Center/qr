@@ -24,6 +24,14 @@ export const deleteDeviceConfig = (data) => {
   })
 }
 
+export const batchUpdateDeviceConfig = (data) => {
+  return service({
+    url: '/deviceConfig/batchUpdate',
+    method: 'post',
+    data
+  })
+}
+
 export const getDeviceGroups = () => {
   return service({
     url: '/deviceConfig/group/list',

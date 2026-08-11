@@ -22,6 +22,16 @@ type DeviceConfigDelete struct {
 	ID uint `json:"id" form:"id"`
 }
 
+type DeviceConfigBatchUpdate struct {
+	IDs               []uint `json:"ids" form:"ids"`
+	UpdateAccountType bool   `json:"updateAccountType" form:"updateAccountType"`
+	AccountType       string `json:"accountType" form:"accountType"`
+	UpdateGroup       bool   `json:"updateGroup" form:"updateGroup"`
+	GroupID           *uint  `json:"groupId" form:"groupId"`
+	UpdateRemark      bool   `json:"updateRemark" form:"updateRemark"`
+	Remark            string `json:"remark" form:"remark"`
+}
+
 type DeviceGroupSave struct {
 	ID     uint   `json:"id" form:"id"`
 	Name   string `json:"name" form:"name"`

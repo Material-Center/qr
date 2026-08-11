@@ -281,6 +281,7 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "设备管理", Method: "POST", Path: "/deviceConfig/list", Description: "分页查询设备配置"},
 		{ApiGroup: "设备管理", Method: "POST", Path: "/deviceConfig/save", Description: "保存设备配置"},
 		{ApiGroup: "设备管理", Method: "POST", Path: "/deviceConfig/delete", Description: "删除设备配置"},
+		{ApiGroup: "设备管理", Method: "POST", Path: "/deviceConfig/batchUpdate", Description: "批量设置设备配置"},
 		{ApiGroup: "设备管理", Method: "GET", Path: "/deviceConfig/group/list", Description: "查询设备分组"},
 		{ApiGroup: "设备管理", Method: "POST", Path: "/deviceConfig/group/save", Description: "保存设备分组"},
 		{ApiGroup: "设备管理", Method: "POST", Path: "/deviceConfig/group/delete", Description: "删除设备分组"},

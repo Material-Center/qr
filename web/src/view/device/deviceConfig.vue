@@ -36,11 +36,13 @@
     <div class="app-table-box">
       <div class="app-btn-list">
         <el-button type="primary" icon="plus" @click="openDialog()">新增设备</el-button>
+        <el-button type="primary" plain icon="edit" :disabled="!selectedRows.length" @click="openBatchDialog">批量设置</el-button>
         <el-button type="primary" plain icon="folder" @click="openGroupManage">分组管理</el-button>
         <el-button icon="refresh" @click="fetchAll">刷新</el-button>
       </div>
 
-      <el-table :data="tableData" row-key="ID">
+      <el-table ref="tableRef" :data="tableData" row-key="ID" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="48" />
         <el-table-column align="left" label="ID" prop="ID" width="90" />
         <el-table-column align="left" label="设备ID" prop="deviceId" min-width="180" show-overflow-tooltip />
         <el-table-column align="left" label="账号类型" width="140">
@@ -54,9 +56,14 @@
           </template>
         </el-table-column>
         <el-table-column align="left" label="备注" prop="remark" min-width="180" show-overflow-tooltip />
+        <el-table-column align="left" label="创建时间" min-width="170">
+          <template #default="{ row }">
+            {{ formatRecordDate(row, 'createdAt') }}
+          </template>
+        </el-table-column>
         <el-table-column align="left" label="更新时间" min-width="170">
           <template #default="{ row }">
-            {{ row.updatedAt ? formatDate(row.updatedAt) : '-' }}
+            {{ formatRecordDate(row, 'updatedAt') }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
@@ -115,6 +122,59 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="batchDialogVisible" title="批量设置设备" width="520px">
+      <el-form :model="batchForm" label-width="90px">
+        <el-form-item label="已选设备">
+          <span>{{ selectedRows.length }} 个</span>
+        </el-form-item>
+        <el-form-item label="账号类型">
+          <div class="batch-field">
+            <el-checkbox v-model="batchForm.updateAccountType">更新</el-checkbox>
+            <el-select v-model="batchForm.accountType" :disabled="!batchForm.updateAccountType" style="width: 220px">
+              <el-option
+                v-for="item in accountTypes"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </div>
+        </el-form-item>
+        <el-form-item label="设备分组">
+          <div class="batch-field">
+            <el-checkbox v-model="batchForm.updateGroup">更新</el-checkbox>
+            <el-select v-model="batchForm.groupValue" :disabled="!batchForm.updateGroup" style="width: 220px">
+              <el-option label="未分组" :value="CLEAR_GROUP_VALUE" />
+              <el-option
+                v-for="item in deviceGroups"
+                :key="item.ID"
+                :label="item.name"
+                :value="item.ID"
+              />
+            </el-select>
+          </div>
+        </el-form-item>
+        <el-form-item label="备注">
+          <div class="batch-field batch-field-vertical">
+            <el-checkbox v-model="batchForm.updateRemark">更新</el-checkbox>
+            <el-input
+              v-model="batchForm.remark"
+              :disabled="!batchForm.updateRemark"
+              type="textarea"
+              :rows="3"
+              maxlength="255"
+              show-word-limit
+              placeholder="留空将清空备注"
+            />
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="batchDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="onBatchSave">保存</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="groupDialogVisible" title="分组管理" width="680px">
       <div class="app-btn-list group-actions">
         <el-button type="primary" icon="plus" @click="openGroupForm()">新增分组</el-button>
@@ -124,9 +184,14 @@
         <el-table-column label="ID" prop="ID" width="90" />
         <el-table-column label="分组名称" prop="name" min-width="160" show-overflow-tooltip />
         <el-table-column label="备注" prop="remark" min-width="180" show-overflow-tooltip />
+        <el-table-column label="创建时间" min-width="170">
+          <template #default="{ row }">
+            {{ formatRecordDate(row, 'createdAt') }}
+          </template>
+        </el-table-column>
         <el-table-column label="更新时间" min-width="170">
           <template #default="{ row }">
-            {{ row.updatedAt ? formatDate(row.updatedAt) : '-' }}
+            {{ formatRecordDate(row, 'updatedAt') }}
           </template>
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
@@ -161,6 +226,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { formatDate } from '@/utils/format'
 import { getQQCacheAccountTypes } from '@/api/qqCache'
 import {
+  batchUpdateDeviceConfig,
   deleteDeviceConfig,
   deleteDeviceGroup,
   getDeviceConfigList,
@@ -174,14 +240,18 @@ defineOptions({
 })
 
 const UNGROUPED_VALUE = '__ungrouped__'
+const CLEAR_GROUP_VALUE = '__clear_group__'
 
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const tableData = ref([])
+const tableRef = ref()
+const selectedRows = ref([])
 const accountTypes = ref([])
 const deviceGroups = ref([])
 const dialogVisible = ref(false)
+const batchDialogVisible = ref(false)
 const groupDialogVisible = ref(false)
 const groupFormDialogVisible = ref(false)
 const form = ref({
@@ -189,6 +259,14 @@ const form = ref({
   deviceId: '',
   accountType: 'default',
   groupId: undefined,
+  remark: ''
+})
+const batchForm = ref({
+  updateAccountType: false,
+  accountType: 'default',
+  updateGroup: false,
+  groupValue: CLEAR_GROUP_VALUE,
+  updateRemark: false,
   remark: ''
 })
 const groupForm = ref({
@@ -209,6 +287,12 @@ const accountTypeLabel = (value) => {
 const groupLabel = (row) => {
   if (!row?.groupId) return '未分组'
   return row.group?.name || deviceGroups.value.find((item) => Number(item.ID) === Number(row.groupId))?.name || `ID ${row.groupId}`
+}
+
+const formatRecordDate = (row, key) => {
+  const pascalKey = key === 'createdAt' ? 'CreatedAt' : 'UpdatedAt'
+  const value = row?.[key] || row?.[pascalKey]
+  return value ? formatDate(value) : '-'
 }
 
 const buildGroupFilter = () => {
@@ -245,6 +329,8 @@ const fetchList = async () => {
     })
     tableData.value = data?.list || []
     total.value = data?.total || 0
+    selectedRows.value = []
+    tableRef.value?.clearSelection?.()
   } catch (e) {
     ElMessage.error(e?.message || '加载失败')
   }
@@ -267,6 +353,54 @@ const openDialog = (row) => {
     remark: row?.remark || ''
   }
   dialogVisible.value = true
+}
+
+const onSelectionChange = (rows) => {
+  selectedRows.value = rows || []
+}
+
+const openBatchDialog = () => {
+  if (!selectedRows.value.length) {
+    ElMessage.warning('请选择设备')
+    return
+  }
+  batchForm.value = {
+    updateAccountType: false,
+    accountType: accountTypes.value[0]?.value || 'default',
+    updateGroup: false,
+    groupValue: CLEAR_GROUP_VALUE,
+    updateRemark: false,
+    remark: ''
+  }
+  batchDialogVisible.value = true
+}
+
+const onBatchSave = async () => {
+  if (!selectedRows.value.length) {
+    ElMessage.warning('请选择设备')
+    return
+  }
+  if (!batchForm.value.updateAccountType && !batchForm.value.updateGroup && !batchForm.value.updateRemark) {
+    ElMessage.warning('请选择要更新的字段')
+    return
+  }
+  if (batchForm.value.updateAccountType && !batchForm.value.accountType) {
+    ElMessage.warning('请选择账号类型')
+    return
+  }
+  const payload = {
+    ids: selectedRows.value.map((row) => row.ID),
+    updateAccountType: batchForm.value.updateAccountType,
+    accountType: batchForm.value.updateAccountType ? batchForm.value.accountType : undefined,
+    updateGroup: batchForm.value.updateGroup,
+    groupId: batchForm.value.updateGroup && batchForm.value.groupValue !== CLEAR_GROUP_VALUE ? Number(batchForm.value.groupValue) : null,
+    updateRemark: batchForm.value.updateRemark,
+    remark: batchForm.value.updateRemark ? batchForm.value.remark : undefined
+  }
+  await batchUpdateDeviceConfig(payload)
+  ElMessage.success('批量设置成功')
+  batchDialogVisible.value = false
+  await fetchList()
 }
 
 const onSave = async () => {
@@ -382,6 +516,21 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 
+.batch-field {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.batch-field-vertical {
+  align-items: flex-start;
+}
+
+.batch-field-vertical :deep(.el-textarea) {
+  flex: 1;
+}
+
 @media (max-width: 900px) {
   .device-config-page :deep(.app-search-box .el-form) {
     display: flex;
@@ -420,6 +569,12 @@ onMounted(async () => {
 
   .device-config-page :deep(.app-pagination) {
     overflow-x: auto;
+  }
+
+  .batch-field {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
   }
 }
 </style>

@@ -216,3 +216,89 @@ func TestDeviceConfigSaveRejectsMissingGroup(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "设备分组不存在")
 }
+
+func TestDeviceConfigBatchUpdateOnlySelectedFields(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	service := &DeviceConfigService{}
+	groupA, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{Name: "A组"})
+	require.NoError(t, err)
+	groupB, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{Name: "B组"})
+	require.NoError(t, err)
+	deviceA, err := service.SaveDeviceConfig(systemReq.DeviceConfigSave{
+		DeviceID:    "batch-001",
+		AccountType: AccountTypeDefault,
+		GroupID:     &groupA.ID,
+		Remark:      "旧备注A",
+	})
+	require.NoError(t, err)
+	deviceB, err := service.SaveDeviceConfig(systemReq.DeviceConfigSave{
+		DeviceID:    "batch-002",
+		AccountType: AccountTypeDefault,
+		Remark:      "旧备注B",
+	})
+	require.NoError(t, err)
+
+	updated, err := service.BatchUpdateDeviceConfig(systemReq.DeviceConfigBatchUpdate{
+		IDs:               []uint{deviceA.ID, deviceB.ID},
+		UpdateAccountType: true,
+		AccountType:       AccountTypePC,
+		UpdateGroup:       true,
+		GroupID:           &groupB.ID,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, updated)
+
+	var devices []model.SysDeviceConfig
+	require.NoError(t, global.GVA_DB.Order("device_id asc").Find(&devices).Error)
+	require.Len(t, devices, 2)
+	for _, device := range devices {
+		require.Equal(t, AccountTypePC, device.AccountType)
+		require.NotNil(t, device.GroupID)
+		require.Equal(t, groupB.ID, *device.GroupID)
+	}
+	require.Equal(t, "旧备注A", devices[0].Remark)
+	require.Equal(t, "旧备注B", devices[1].Remark)
+}
+
+func TestDeviceConfigBatchUpdateCanClearGroupAndRemark(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	service := &DeviceConfigService{}
+	group, err := service.SaveDeviceGroup(systemReq.DeviceGroupSave{Name: "待清空"})
+	require.NoError(t, err)
+	device, err := service.SaveDeviceConfig(systemReq.DeviceConfigSave{
+		DeviceID:    "batch-clear",
+		AccountType: AccountTypePC,
+		GroupID:     &group.ID,
+		Remark:      "待清空备注",
+	})
+	require.NoError(t, err)
+
+	updated, err := service.BatchUpdateDeviceConfig(systemReq.DeviceConfigBatchUpdate{
+		IDs:          []uint{device.ID},
+		UpdateGroup:  true,
+		GroupID:      nil,
+		UpdateRemark: true,
+		Remark:       " ",
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, updated)
+
+	var stored model.SysDeviceConfig
+	require.NoError(t, global.GVA_DB.First(&stored, device.ID).Error)
+	require.Equal(t, AccountTypePC, stored.AccountType)
+	require.Nil(t, stored.GroupID)
+	require.Empty(t, stored.Remark)
+}
+
+func TestDeviceConfigBatchUpdateRejectsEmptyFields(t *testing.T) {
+	setupDeviceConfigTestDB(t)
+
+	updated, err := (&DeviceConfigService{}).BatchUpdateDeviceConfig(systemReq.DeviceConfigBatchUpdate{
+		IDs: []uint{1},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "请选择要更新的字段")
+	require.Zero(t, updated)
+}

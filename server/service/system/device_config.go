@@ -153,6 +153,55 @@ func (s *DeviceConfigService) DeleteDeviceConfig(req systemReq.DeviceConfigDelet
 	return global.GVA_DB.Delete(&system.SysDeviceConfig{}, "id = ?", req.ID).Error
 }
 
+func (s *DeviceConfigService) BatchUpdateDeviceConfig(req systemReq.DeviceConfigBatchUpdate) (int64, error) {
+	ids := normalizeDeviceConfigIDs(req.IDs)
+	if len(ids) == 0 {
+		return 0, errors.New("请选择设备配置")
+	}
+	updates := map[string]any{}
+	if req.UpdateAccountType {
+		accountType := strings.TrimSpace(req.AccountType)
+		if accountType == "" {
+			accountType = AccountTypeDefault
+		}
+		if err := ValidateQQCacheAccountType(accountType); err != nil {
+			return 0, err
+		}
+		updates["account_type"] = accountType
+	}
+	if req.UpdateGroup {
+		updates["group_id"] = normalizeDeviceGroupID(req.GroupID)
+	}
+	if req.UpdateRemark {
+		updates["remark"] = strings.TrimSpace(req.Remark)
+	}
+	if len(updates) == 0 {
+		return 0, errors.New("请选择要更新的字段")
+	}
+	updates["updated_at"] = time.Now()
+
+	var matchedCount int64
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		if req.UpdateGroup {
+			if err := s.ensureDeviceGroupExists(tx, normalizeDeviceGroupID(req.GroupID)); err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&system.SysDeviceConfig{}).Where("id IN ?", ids).Count(&matchedCount).Error; err != nil {
+			return err
+		}
+		if matchedCount != int64(len(ids)) {
+			return errors.New("部分设备配置不存在")
+		}
+		result := tx.Model(&system.SysDeviceConfig{}).Where("id IN ?", ids).Updates(updates)
+		if result.Error != nil {
+			return result.Error
+		}
+		return nil
+	})
+	return matchedCount, err
+}
+
 func (s *DeviceConfigService) ListDeviceGroups() ([]system.SysDeviceGroup, error) {
 	var list []system.SysDeviceGroup
 	err := global.GVA_DB.Order("updated_at desc").Order("id desc").Find(&list).Error
@@ -241,6 +290,22 @@ func normalizeDeviceGroupID(groupID *uint) *uint {
 		return nil
 	}
 	return groupID
+}
+
+func normalizeDeviceConfigIDs(ids []uint) []uint {
+	seen := make(map[uint]struct{}, len(ids))
+	normalized := make([]uint, 0, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		normalized = append(normalized, id)
+	}
+	return normalized
 }
 
 func (s *DeviceConfigService) ensureDeviceGroupExists(tx *gorm.DB, groupID *uint) error {

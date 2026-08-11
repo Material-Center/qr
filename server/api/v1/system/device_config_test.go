@@ -69,3 +69,27 @@ func TestDeviceConfigGroupApisRejectNonAdmin(t *testing.T) {
 		})
 	}
 }
+
+func TestDeviceConfigBatchUpdateRejectsNonAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	api := &DeviceConfigApi{}
+	router.POST("/deviceConfig/batchUpdate", func(c *gin.Context) {
+		c.Set("claims", &systemReq.CustomClaims{
+			BaseClaims: systemReq.BaseClaims{AuthorityId: 600},
+		})
+		api.BatchUpdate(c)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/deviceConfig/batchUpdate", bytes.NewBufferString(`{"ids":[1],"updateAccountType":true,"accountType":"pc"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got response.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, response.ERROR, got.Code)
+	require.Equal(t, "仅管理员可管理设备配置", got.Msg)
+}

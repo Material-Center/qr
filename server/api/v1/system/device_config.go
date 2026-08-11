@@ -75,6 +75,24 @@ func (a *DeviceConfigApi) Delete(c *gin.Context) {
 	response.OkWithMessage("删除成功", c)
 }
 
+func (a *DeviceConfigApi) BatchUpdate(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		response.FailWithMessage("仅管理员可管理设备配置", c)
+		return
+	}
+	var req systemReq.DeviceConfigBatchUpdate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	updated, err := deviceConfigService.BatchUpdateDeviceConfig(req)
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{"updated": updated}, "批量设置成功", c)
+}
+
 func (a *DeviceConfigApi) GroupList(c *gin.Context) {
 	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
 		response.FailWithMessage("仅管理员可管理设备分组", c)
