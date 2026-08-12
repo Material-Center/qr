@@ -11,6 +11,8 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestLimitWithTimeSkipsWhenLimitDisabled(t *testing.T) {
@@ -38,6 +40,128 @@ func TestLimitWithTimeSkipsWhenLimitDisabled(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "ok", rec.Body.String())
 	require.False(t, called)
+}
+
+func TestLimitWithTimeLogsClientIPWhenLimited(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	core, logs := observer.New(zap.ErrorLevel)
+	previousLogger := global.GVA_LOG
+	global.GVA_LOG = zap.New(core)
+	t.Cleanup(func() {
+		global.GVA_LOG = previousLogger
+	})
+
+	router := gin.New()
+	router.Use(LimitConfig{
+		GenerationKey: func(c *gin.Context) string { return c.ClientIP() },
+		CheckOrMark:   func(string, int, int) error { return errors.New("limited") },
+		Expire:        60,
+		Limit:         1,
+	}.LimitWithTime())
+	router.GET("/ping", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.RemoteAddr = "203.0.113.8:12345"
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Len(t, logs.All(), 1)
+	entry := logs.All()[0]
+	require.Equal(t, "limit", entry.Message)
+	require.Equal(t, "203.0.113.8", entry.ContextMap()["ip"])
+}
+
+func TestLimitWithTimeSkipsDeviceTaskOpenAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousLogger := global.GVA_LOG
+	global.GVA_LOG = zap.NewNop()
+	t.Cleanup(func() {
+		global.GVA_LOG = previousLogger
+	})
+
+	called := false
+	router := gin.New()
+	router.Use(LimitConfig{
+		GenerationKey: func(c *gin.Context) string { return c.ClientIP() },
+		CheckOrMark: func(string, int, int) error {
+			called = true
+			return errors.New("limited")
+		},
+		Expire: 60,
+		Limit:  1,
+	}.LimitWithTime())
+	router.POST("/phoneRegisterTask/open-api/task", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/task", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "ok", rec.Body.String())
+	require.False(t, called)
+}
+
+func TestLimitWithTimeStillLimitsPromoterOpenAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousLogger := global.GVA_LOG
+	global.GVA_LOG = zap.NewNop()
+	t.Cleanup(func() {
+		global.GVA_LOG = previousLogger
+	})
+
+	router := gin.New()
+	router.Use(LimitConfig{
+		GenerationKey: func(c *gin.Context) string { return c.ClientIP() },
+		CheckOrMark:   func(string, int, int) error { return errors.New("limited") },
+		Expire:        60,
+		Limit:         1,
+	}.LimitWithTime())
+	router.POST("/phoneRegisterTask/open-api/promoter/task", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/promoter/task", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "limited", body["msg"])
+}
+
+func TestLimitWithTimeStillLimitsOtherOpenAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousLogger := global.GVA_LOG
+	global.GVA_LOG = zap.NewNop()
+	t.Cleanup(func() {
+		global.GVA_LOG = previousLogger
+	})
+
+	router := gin.New()
+	router.Use(LimitConfig{
+		GenerationKey: func(c *gin.Context) string { return c.ClientIP() },
+		CheckOrMark:   func(string, int, int) error { return errors.New("limited") },
+		Expire:        60,
+		Limit:         1,
+	}.LimitWithTime())
+	router.POST("/phoneRegisterTask/open-api/other", func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/other", nil)
+	router.ServeHTTP(rec, req)
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "limited", body["msg"])
 }
 
 func TestDefaultLoginLimitUsesDedicatedConfigAndKey(t *testing.T) {

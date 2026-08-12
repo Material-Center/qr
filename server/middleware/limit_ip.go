@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -26,17 +27,35 @@ type LimitConfig struct {
 
 func (l LimitConfig) LimitWithTime() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if isDeviceTaskOpenAPI(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
 		if l.Expire <= 0 || l.Limit <= 0 {
 			c.Next()
 			return
 		}
 		if err := l.CheckOrMark(l.GenerationKey(c), l.Expire, l.Limit); err != nil {
+			global.GVA_LOG.Error("limit", zap.Error(err), zap.String("ip", c.ClientIP()))
 			c.JSON(http.StatusOK, gin.H{"code": response.ERROR, "msg": err.Error()})
 			c.Abort()
 			return
 		} else {
 			c.Next()
 		}
+	}
+}
+
+func isDeviceTaskOpenAPI(path string) bool {
+	path = strings.TrimPrefix(path, global.GVA_CONFIG.System.RouterPrefix)
+	switch path {
+	case "/phoneRegisterTask/open-api/task",
+		"/phoneRegisterTask/open-api/verify-code",
+		"/phoneRegisterTask/open-api/report",
+		"/phoneRegisterTask/open-api/cache":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -55,7 +74,6 @@ func DefaultCheckOrMark(key string, expire int, limit int) (err error) {
 		return err
 	}
 	if err = SetLimitWithTime(key, limit, time.Duration(expire)*time.Second); err != nil {
-		global.GVA_LOG.Error("limit", zap.Error(err))
 	}
 	return err
 }
