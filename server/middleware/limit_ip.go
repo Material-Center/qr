@@ -50,12 +50,13 @@ func isDeviceTaskOpenAPI(path string) bool {
 	path = strings.TrimPrefix(path, global.GVA_CONFIG.System.RouterPrefix)
 	switch path {
 	case "/phoneRegisterTask/open-api/task",
+		"/phoneRegisterTask/open-api/promoter/device-stats",
 		"/phoneRegisterTask/open-api/verify-code",
 		"/phoneRegisterTask/open-api/report",
 		"/phoneRegisterTask/open-api/cache":
 		return true
 	default:
-		return false
+		return strings.HasPrefix(path, "/phoneRegisterTask/open-api/promoter/task/")
 	}
 }
 

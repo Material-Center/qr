@@ -85,35 +85,12 @@ func TestLimitWithTimeLogsClientIPWhenLimited(t *testing.T) {
 }
 
 func TestLimitWithTimeSkipsDeviceTaskOpenAPI(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	previousLogger := global.GVA_LOG
-	global.GVA_LOG = zap.NewNop()
-	t.Cleanup(func() {
-		global.GVA_LOG = previousLogger
-	})
+	assertLimitSkipped(t, http.MethodPost, "/phoneRegisterTask/open-api/task")
+}
 
-	called := false
-	router := gin.New()
-	router.Use(LimitConfig{
-		GenerationKey: func(c *gin.Context) string { return c.ClientIP() },
-		CheckOrMark: func(string, int, int) error {
-			called = true
-			return errors.New("limited")
-		},
-		Expire: 60,
-		Limit:  1,
-	}.LimitWithTime())
-	router.POST("/phoneRegisterTask/open-api/task", func(c *gin.Context) {
-		c.String(http.StatusOK, "ok")
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/phoneRegisterTask/open-api/task", nil)
-	router.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "ok", rec.Body.String())
-	require.False(t, called)
+func TestLimitWithTimeSkipsReadOnlyPromoterOpenAPI(t *testing.T) {
+	assertLimitSkipped(t, http.MethodGet, "/phoneRegisterTask/open-api/promoter/device-stats")
+	assertLimitSkipped(t, http.MethodGet, "/phoneRegisterTask/open-api/promoter/task/123")
 }
 
 func TestLimitWithTimeStillLimitsPromoterOpenAPI(t *testing.T) {
@@ -143,6 +120,40 @@ func TestLimitWithTimeStillLimitsPromoterOpenAPI(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "limited", body["msg"])
+}
+
+func assertLimitSkipped(t *testing.T, method string, path string) {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+	previousLogger := global.GVA_LOG
+	global.GVA_LOG = zap.NewNop()
+	t.Cleanup(func() {
+		global.GVA_LOG = previousLogger
+	})
+
+	called := false
+	router := gin.New()
+	router.Use(LimitConfig{
+		GenerationKey: func(c *gin.Context) string { return c.ClientIP() },
+		CheckOrMark: func(string, int, int) error {
+			called = true
+			return errors.New("limited")
+		},
+		Expire: 60,
+		Limit:  1,
+	}.LimitWithTime())
+	router.Handle(method, path, func(c *gin.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(method, path, nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "ok", rec.Body.String())
+	require.False(t, called)
 }
 
 func TestLimitWithTimeStillLimitsOtherOpenAPI(t *testing.T) {
