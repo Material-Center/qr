@@ -113,6 +113,9 @@ func SetLimitWithTime(key string, limit int, expiration time.Duration) error {
 		_, err = pipe.Exec(context.Background())
 		return err
 	} else {
+		if ttl, err := global.GVA_REDIS.PTTL(context.Background(), key).Result(); err == nil && ttl < 0 {
+			_ = global.GVA_REDIS.Expire(context.Background(), key, expiration).Err()
+		}
 		// 次数
 		if times, err := global.GVA_REDIS.Get(context.Background(), key).Int(); err != nil {
 			return err
