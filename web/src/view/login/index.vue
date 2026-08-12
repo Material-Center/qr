@@ -19,9 +19,6 @@
               <p class="text-center text-4xl font-bold">
                 {{ $APP_CONFIG.appName }}
               </p>
-              <p class="text-center text-sm font-normal text-gray-500 mt-2.5">
-                A management platform using Golang and Vue
-              </p>
             </div>
             <el-form
               ref="loginForm"
