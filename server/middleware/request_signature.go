@@ -68,6 +68,7 @@ func RequestSignatureGuard() gin.HandlerFunc {
 }
 
 func failRequestSignature(c *gin.Context) {
+	RecordSecurityFailure(c)
 	c.JSON(http.StatusOK, gin.H{"code": response.ERROR, "msg": "用户名不存在或者密码错误"})
 	c.Abort()
 }

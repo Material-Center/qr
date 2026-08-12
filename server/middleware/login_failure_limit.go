@@ -33,7 +33,7 @@ func LoginFailureGuard() gin.HandlerFunc {
 }
 
 func RecordLoginFailure(c *gin.Context) {
-	_ = markLoginFailure(loginFailureKey(c), loginFailureWindow())
+	_, _ = markLoginFailure(loginFailureKey(c), loginFailureWindow())
 }
 
 func ClearLoginFailure(c *gin.Context) {
@@ -58,18 +58,21 @@ func loginFailureCountFromRedis(key string) (int, error) {
 	return global.GVA_REDIS.Get(context.Background(), key).Int()
 }
 
-func markLoginFailureInRedis(key string, ttl time.Duration) error {
+func markLoginFailureInRedis(key string, ttl time.Duration) (int, error) {
 	if global.GVA_REDIS == nil {
-		return nil
+		return 0, nil
 	}
 	ctx := context.Background()
 	pipe := global.GVA_REDIS.TxPipeline()
 	count := pipe.Incr(ctx, key)
 	pipe.Expire(ctx, key, ttl)
 	if _, err := pipe.Exec(ctx); err != nil {
-		return err
+		return 0, err
 	}
-	return count.Err()
+	if err := count.Err(); err != nil {
+		return 0, err
+	}
+	return int(count.Val()), nil
 }
 
 func clearLoginFailureInRedis(key string) error {

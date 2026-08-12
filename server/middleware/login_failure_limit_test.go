@@ -61,10 +61,10 @@ func TestRecordAndClearLoginFailureUseClientIPKey(t *testing.T) {
 	var markedKey string
 	var markedTTL time.Duration
 	oldMark := markLoginFailure
-	markLoginFailure = func(key string, ttl time.Duration) error {
+	markLoginFailure = func(key string, ttl time.Duration) (int, error) {
 		markedKey = key
 		markedTTL = ttl
-		return nil
+		return 1, nil
 	}
 	var clearedKey string
 	oldClear := clearLoginFailure

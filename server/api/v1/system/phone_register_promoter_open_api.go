@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	"github.com/flipped-aurora/gin-vue-admin/server/middleware"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
@@ -199,11 +200,13 @@ var phoneRegisterPromoterOpenAPITokenCache struct {
 func requirePhoneRegisterPromoterOpenAPIToken(c *gin.Context) (phoneRegisterPromoterOpenAPIAuth, bool) {
 	token := getPhoneRegisterPromoterOpenAPIToken(c.Request)
 	if token == "" {
+		middleware.RecordSecurityFailure(c)
 		response.NoAuth("缺少OpenAPI token", c)
 		return phoneRegisterPromoterOpenAPIAuth{}, false
 	}
 	auth, err := validatePhoneRegisterPromoterOpenAPIToken(token)
 	if err != nil {
+		middleware.RecordSecurityFailure(c)
 		response.NoAuth(err.Error(), c)
 		return phoneRegisterPromoterOpenAPIAuth{}, false
 	}

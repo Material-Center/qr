@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	"github.com/flipped-aurora/gin-vue-admin/server/middleware"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
@@ -281,11 +282,13 @@ type phoneRegisterExtractorResponse struct {
 func requirePhoneRegisterOpenAPIKey(c *gin.Context) bool {
 	apiKey := strings.TrimSpace(c.GetHeader("X-Open-Api-Key"))
 	if apiKey == "" {
+		middleware.RecordSecurityFailure(c)
 		response.NoAuth("缺少X-Open-Api-Key", c)
 		c.Abort()
 		return false
 	}
 	if !isValidPhoneRegisterOpenAPIKey(apiKey) {
+		middleware.RecordSecurityFailure(c)
 		response.NoAuth("X-Open-Api-Key无效", c)
 		c.Abort()
 		return false

@@ -96,6 +96,7 @@ func (b *BaseApi) Login(c *gin.Context) {
 		// 验证码次数+1
 		global.BlackCache.Increment(key, 1)
 		middleware.RecordLoginFailure(c)
+		middleware.RecordSecurityFailure(c)
 		response.FailWithMessage("验证码错误", c)
 		// 记录登录失败日志
 		loginLogService.CreateLoginLog(system.SysLoginLog{
@@ -115,6 +116,7 @@ func (b *BaseApi) Login(c *gin.Context) {
 		// 验证码次数+1
 		global.BlackCache.Increment(key, 1)
 		middleware.RecordLoginFailure(c)
+		middleware.RecordSecurityFailure(c)
 		response.FailWithMessage("用户名不存在或者密码错误", c)
 		// 记录登录失败日志
 		loginLogService.CreateLoginLog(system.SysLoginLog{
@@ -131,6 +133,7 @@ func (b *BaseApi) Login(c *gin.Context) {
 		// 验证码次数+1
 		global.BlackCache.Increment(key, 1)
 		middleware.RecordLoginFailure(c)
+		middleware.RecordSecurityFailure(c)
 		response.FailWithMessage("用户被禁止登录", c)
 		// 记录登录失败日志
 		loginLogService.CreateLoginLog(system.SysLoginLog{

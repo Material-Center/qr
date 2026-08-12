@@ -32,6 +32,7 @@ var blockedLoginUserAgentFragments = []string{
 func LoginUserAgentGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if isBlockedLoginUserAgent(c.Request.UserAgent()) {
+			RecordSecurityFailure(c)
 			response.FailWithMessage("用户名不存在或者密码错误", c)
 			c.Abort()
 			return
