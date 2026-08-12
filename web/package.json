@@ -77,13 +77,14 @@
     "eslint": "^8.57.0",
     "eslint-plugin-vue": "^9.19.2",
     "globals": "^16.3.0",
+    "rimraf": "^6.0.1",
     "sass": "^1.78.0",
     "terser": "^5.31.6",
     "vite": "^6.2.3",
     "vite-check-multiple-dom": "0.2.1",
     "vite-plugin-banner": "^0.8.0",
     "vite-plugin-importer": "^0.2.5",
-    "vite-plugin-vue-devtools": "^7.0.16",
-    "rimraf": "^6.0.1"
+    "vite-plugin-javascript-obfuscator": "^3.1.0",
+    "vite-plugin-vue-devtools": "^7.0.16"
   }
 }

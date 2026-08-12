@@ -10,6 +10,7 @@ import { svgBuilder } from 'vite-auto-import-svg'
 import vueRootValidator from 'vite-check-multiple-dom'
 import { AddSecret } from './vitePlugin/secret'
 import UnoCSS from '@unocss/vite'
+import obfuscatorPlugin from 'vite-plugin-javascript-obfuscator'
 
 function generateSecRandom(secretCode = '04788f1ea15d305f') {
   const chars = '0123456789abcdefghijklmnopqrstuvwxyz';
@@ -28,6 +29,7 @@ export default ({ mode }) => {
   AddSecret(generateSecRandom())
   const env = loadEnv(mode, process.cwd())
   viteLogo(env)
+  const isProduction = mode === 'production'
 
   const timestamp = Date.parse(new Date())
 
@@ -122,7 +124,30 @@ export default ({ mode }) => {
       [Banner(`\n Build Time : ${timestamp}`)],
       VueFilePathPlugin('./src/pathInfo.json'),
       UnoCSS(),
-      vueRootValidator()
+      vueRootValidator(),
+      isProduction && obfuscatorPlugin({
+        include: [/src\/utils\/request\.js$/],
+        exclude: [/node_modules/],
+        apply: 'build',
+        options: {
+          compact: true,
+          controlFlowFlattening: true,
+          controlFlowFlatteningThreshold: 0.3,
+          deadCodeInjection: false,
+          debugProtection: false,
+          disableConsoleOutput: false,
+          identifierNamesGenerator: 'hexadecimal',
+          renameGlobals: false,
+          rotateStringArray: true,
+          selfDefending: false,
+          splitStrings: true,
+          splitStringsChunkLength: 8,
+          stringArray: true,
+          stringArrayEncoding: ['base64'],
+          stringArrayThreshold: 0.75,
+          transformObjectKeys: true
+        }
+      })
     ]
   }
   return config
