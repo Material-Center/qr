@@ -7,7 +7,7 @@ const props = defineProps({
   }
 })
 
-const logoSrc = '/brand-icon.svg';
+const logoSrc = '/brand-mark.svg';
 
 // 直接用 16px 作为默认的基准大小
 const SPACING = 16
