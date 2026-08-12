@@ -12,7 +12,7 @@ func (r *PhoneRegisterTaskRouter) InitPhoneRegisterTaskRouter(PrivateGroup *gin.
 	phoneRegisterTaskRouterWithoutRecord := PrivateGroup.Group("phoneRegisterTask")
 	publicPhoneRegisterTaskRouter := PublicGroup.Group("phoneRegisterTask")
 	{
-		phoneRegisterTaskRouter.POST("create", phoneRegisterTaskApi.CreatePhoneRegisterTask)
+		phoneRegisterTaskRouter.POST("create", middleware.RequestSignatureGuard(), phoneRegisterTaskApi.CreatePhoneRegisterTask)
 		phoneRegisterTaskRouter.POST("submitCode", phoneRegisterTaskApi.SubmitPhoneRegisterTaskCode)
 		phoneRegisterTaskRouter.POST("settle", phoneRegisterTaskApi.SettlePhoneRegisterTaskLeader)
 	}
