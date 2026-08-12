@@ -22,7 +22,7 @@ func failInitAPIDisabled(c *gin.Context) {
 	c.JSON(http.StatusForbidden, response.Response{
 		Code: response.ERROR,
 		Data: map[string]interface{}{},
-		Msg:  "初始化接口已禁用",
+		Msg:  "请求处理失败",
 	})
 }
 

@@ -28,7 +28,7 @@ func TestInitDBIsDisabledByDefault(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, float64(7), body["code"])
-	require.Equal(t, "初始化接口已禁用", body["msg"])
+	require.Equal(t, "请求处理失败", body["msg"])
 }
 
 func TestCheckDBIsDisabledByDefault(t *testing.T) {
@@ -47,5 +47,5 @@ func TestCheckDBIsDisabledByDefault(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.Equal(t, float64(7), body["code"])
-	require.Equal(t, "初始化接口已禁用", body["msg"])
+	require.Equal(t, "请求处理失败", body["msg"])
 }

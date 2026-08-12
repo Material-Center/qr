@@ -113,7 +113,7 @@
     </div>
 
     <div class="hidden md:block w-1/2 h-full float-right bg-[#194bfb]">
-      <img class="h-full" src="@/assets/login_right_banner.jpg" alt="banner" />
+      <img class="h-full" src="@/assets/login_background.svg" alt="banner" />
     </div>
   </div>
 </template>
