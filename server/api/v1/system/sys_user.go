@@ -431,8 +431,9 @@ func (b *BaseApi) GetUserList(c *gin.Context) {
 		return
 	}
 	operatorAuthorityID := utils.GetUserAuthorityId(c)
+	operatorID := utils.GetUserID(c)
 	includeCacheSampleRatio := operatorAuthorityID == roleSuperAdmin || operatorAuthorityID == roleAdmin
-	list, total, err := userService.GetUserInfoList(pageInfo, includeCacheSampleRatio)
+	list, total, err := userService.GetUserInfoList(operatorID, operatorAuthorityID, pageInfo, includeCacheSampleRatio)
 	if err != nil {
 		global.GVA_LOG.Error("获取失败!", zap.Error(err))
 		response.FailWithMessage("获取失败", c)
@@ -503,8 +504,9 @@ func (b *BaseApi) SetUserAuthorities(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	operatorID := utils.GetUserID(c)
 	authorityID := utils.GetUserAuthorityId(c)
-	err = userService.SetUserAuthorities(authorityID, sua.ID, sua.AuthorityIds)
+	err = userService.SetUserAuthorities(operatorID, authorityID, sua.ID, sua.AuthorityIds)
 	if err != nil {
 		global.GVA_LOG.Error("修改失败!", zap.Error(err))
 		response.FailWithMessage("修改失败", c)
@@ -539,7 +541,7 @@ func (b *BaseApi) DeleteUser(c *gin.Context) {
 		response.FailWithMessage("删除失败, 无法删除自己。", c)
 		return
 	}
-	err = userService.DeleteUser(reqId.ID)
+	err = userService.DeleteUser(utils.GetUserID(c), utils.GetUserAuthorityId(c), reqId.ID)
 	if err != nil {
 		global.GVA_LOG.Error("删除失败!", zap.Error(err))
 		response.FailWithMessage("删除失败", c)
@@ -585,6 +587,10 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
 	}
+	if operatorAuthorityID == roleLeader && (targetUser.LeaderID == nil || *targetUser.LeaderID != operatorID) {
+		response.FailWithMessage("无权操作该账号", c)
+		return
+	}
 	if user.CacheSampleRatioConfigured != nil {
 		if targetUser.AuthorityId != roleLeader && targetUser.AuthorityId != rolePromoter {
 			response.FailWithMessage("仅团长和地推账号支持配置缓存抽检比例", c)
@@ -602,7 +608,7 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 		}
 	}
 	if len(user.AuthorityIds) != 0 {
-		err = userService.SetUserAuthorities(operatorAuthorityID, user.ID, user.AuthorityIds)
+		err = userService.SetUserAuthorities(operatorID, operatorAuthorityID, user.ID, user.AuthorityIds)
 		if err != nil {
 			global.GVA_LOG.Error("设置失败!", zap.Error(err))
 			response.FailWithMessage("设置失败", c)
@@ -764,6 +770,10 @@ func (b *BaseApi) ResetPassword(c *gin.Context) {
 		return
 	}
 	if !canManageTarget(operatorAuthorityID, targetUser.AuthorityId) {
+		response.FailWithMessage("无权操作该账号", c)
+		return
+	}
+	if operatorAuthorityID == roleLeader && (targetUser.LeaderID == nil || *targetUser.LeaderID != operatorID) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
 	}

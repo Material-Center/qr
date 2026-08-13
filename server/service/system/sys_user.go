@@ -80,6 +80,16 @@ func canManageUserAuthority(operatorAuthorityID, targetAuthorityID uint) bool {
 	}
 }
 
+func canManageTargetUser(operatorID, operatorAuthorityID uint, target system.SysUser) bool {
+	if !canManageUserAuthority(operatorAuthorityID, target.AuthorityId) {
+		return false
+	}
+	if operatorAuthorityID == userRoleLeader {
+		return target.LeaderID != nil && *target.LeaderID == operatorID
+	}
+	return true
+}
+
 func (userService *UserService) Register(u system.SysUser) (userInter system.SysUser, err error) {
 	var user system.SysUser
 	if !errors.Is(global.GVA_DB.Where("username = ?", u.Username).First(&user).Error, gorm.ErrRecordNotFound) { // 判断用户名是否注册
@@ -155,11 +165,15 @@ func (userService *UserService) ChangePassword(u *system.SysUser, newPassword st
 //@param: info request.PageInfo
 //@return: err error, list interface{}, total int64
 
-func (userService *UserService) GetUserInfoList(info systemReq.GetUserList, includeCacheSampleRatio bool) (list interface{}, total int64, err error) {
+func (userService *UserService) GetUserInfoList(operatorID, operatorAuthorityID uint, info systemReq.GetUserList, includeCacheSampleRatio bool) (list interface{}, total int64, err error) {
 	limit := info.PageSize
 	offset := info.PageSize * (info.Page - 1)
 	db := global.GVA_DB.Model(&system.SysUser{})
 	var userList []system.SysUser
+
+	if operatorAuthorityID == userRoleLeader {
+		db = db.Where("id = ? OR leader_id = ?", operatorID, operatorID)
+	}
 
 	if info.NickName != "" {
 		db = db.Where("nick_name LIKE ?", "%"+info.NickName+"%")
@@ -430,7 +444,7 @@ func (userService *UserService) SetUserAuthority(id uint, authorityId uint) (err
 //@param: id uint, authorityIds []string
 //@return: err error
 
-func (userService *UserService) SetUserAuthorities(adminAuthorityID, id uint, authorityIds []uint) (err error) {
+func (userService *UserService) SetUserAuthorities(operatorID, operatorAuthorityID, id uint, authorityIds []uint) (err error) {
 	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		var user system.SysUser
 		TxErr := tx.Where("id = ?", id).First(&user).Error
@@ -438,11 +452,14 @@ func (userService *UserService) SetUserAuthorities(adminAuthorityID, id uint, au
 			global.GVA_LOG.Debug(TxErr.Error())
 			return errors.New("查询用户数据失败")
 		}
-		if err := ValidateAssignableAuthorities(adminAuthorityID, user.AuthorityId, authorityIds); err != nil {
+		if operatorID != id && !canManageTargetUser(operatorID, operatorAuthorityID, user) {
+			return errors.New("无权操作该账号")
+		}
+		if err := ValidateAssignableAuthorities(operatorAuthorityID, user.AuthorityId, authorityIds); err != nil {
 			return err
 		}
 		for _, v := range authorityIds {
-			if err := AuthorityServiceApp.CheckAuthorityIDAuth(adminAuthorityID, v); err != nil {
+			if err := AuthorityServiceApp.CheckAuthorityIDAuth(operatorAuthorityID, v); err != nil {
 				return err
 			}
 		}
@@ -472,10 +489,17 @@ func (userService *UserService) SetUserAuthorities(adminAuthorityID, id uint, au
 //@author: [piexlmax](https://github.com/piexlmax)
 //@function: DeleteUser
 //@description: 删除用户
-//@param: id float64
+//@param: operatorID uint, operatorAuthorityID uint, id int
 //@return: err error
 
-func (userService *UserService) DeleteUser(id int) (err error) {
+func (userService *UserService) DeleteUser(operatorID, operatorAuthorityID uint, id int) (err error) {
+	var target system.SysUser
+	if err = global.GVA_DB.Select("id, authority_id, leader_id").Where("id = ?", id).First(&target).Error; err != nil {
+		return err
+	}
+	if !canManageTargetUser(operatorID, operatorAuthorityID, target) {
+		return errors.New("无权操作该账号")
+	}
 	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("id = ?", id).Delete(&system.SysUser{}).Error; err != nil {
 			return err

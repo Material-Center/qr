@@ -47,10 +47,19 @@ const guardedRoutes = [
   'c3lzdGVtL3NldFN5c3RlbUNvbmZpZw==', // /system/setSystemConfig
   'c3lzdGVtL3JlbG9hZFN5c3RlbQ==', // /system/reloadSystem
   'dXNlci9hZG1pbl9yZWdpc3Rlcg==', // /user/admin_register
+  'dXNlci9nZXRVc2VyTGlzdA==', // /user/getUserList
   'dXNlci9zZXRVc2VyQXV0aG9yaXR5', // /user/setUserAuthority
+  'dXNlci9zZXRVc2VySW5mbw==', // /user/setUserInfo
   'dXNlci9zZXRVc2VyQXV0aG9yaXRpZXM=', // /user/setUserAuthorities
   'dXNlci9yZXNldFBhc3N3b3Jk', // /user/resetPassword
   'dXNlci9kZWxldGVVc2Vy', // /user/deleteUser
+  'YXV0aG9yaXR5L2NyZWF0ZUF1dGhvcml0eQ==', // /authority/createAuthority
+  'YXV0aG9yaXR5L2RlbGV0ZUF1dGhvcml0eQ==', // /authority/deleteAuthority
+  'YXV0aG9yaXR5L3VwZGF0ZUF1dGhvcml0eQ==', // /authority/updateAuthority
+  'YXV0aG9yaXR5L2NvcHlBdXRob3JpdHk=', // /authority/copyAuthority
+  'YXV0aG9yaXR5L3NldERhdGFBdXRob3JpdHk=', // /authority/setDataAuthority
+  'YXV0aG9yaXR5L2dldFVzZXJzQnlBdXRob3JpdHk=', // /authority/getUsersByAuthority
+  'YXV0aG9yaXR5L3NldFJvbGVVc2Vycw==', // /authority/setRoleUsers
   'cXFDYWNoZS9zYWxlcy9leHRyYWN0', // /qqCache/sales/extract
   'cGhvbmVSZWdpc3RlclRhc2svY3JlYXRl' // /phoneRegisterTask/create
 ].reduce((routes, item) => routes.add(`/${fromB64(item)}`), new Set())
