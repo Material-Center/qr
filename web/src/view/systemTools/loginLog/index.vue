@@ -6,10 +6,10 @@
           <el-input v-model="searchInfo.username" placeholder="搜索用户名" />
         </el-form-item>
         <el-form-item label="IP">
-          <el-input v-model="searchInfo.ip" placeholder="搜索登录IP" clearable />
+          <el-input v-model="searchInfo.ip" class="login-log-ip-input" placeholder="搜索登录IP" clearable />
         </el-form-item>
         <el-form-item label="UA">
-          <el-input v-model="searchInfo.agent" placeholder="搜索浏览器/设备" clearable />
+          <el-input v-model="searchInfo.agent" class="login-log-agent-input" placeholder="搜索浏览器/设备" clearable />
         </el-form-item>
         <el-form-item label="状态">
              <el-select v-model="searchInfo.status" placeholder="请选择" clearable>
@@ -183,4 +183,18 @@ getTableData()
 </script>
 
 <style scoped>
+.login-log-ip-input {
+  width: 180px;
+}
+
+.login-log-agent-input {
+  width: 260px;
+}
+
+@media (max-width: 768px) {
+  .login-log-ip-input,
+  .login-log-agent-input {
+    width: 100%;
+  }
+}
 </style>
