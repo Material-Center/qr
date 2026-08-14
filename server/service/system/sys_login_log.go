@@ -41,6 +41,12 @@ func (loginLogService *LoginLogService) GetLoginLogInfoList(info systemReq.SysLo
 	if info.Username != "" {
 		db = db.Where("username LIKE ?", "%"+info.Username+"%")
 	}
+	if info.Ip != "" {
+		db = db.Where("ip LIKE ?", "%"+info.Ip+"%")
+	}
+	if info.Agent != "" {
+		db = db.Where("agent LIKE ?", "%"+info.Agent+"%")
+	}
 	if info.Status != false {
 		db = db.Where("status = ?", info.Status)
 	}

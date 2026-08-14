@@ -5,6 +5,12 @@
         <el-form-item label="用户名">
           <el-input v-model="searchInfo.username" placeholder="搜索用户名" />
         </el-form-item>
+        <el-form-item label="IP">
+          <el-input v-model="searchInfo.ip" placeholder="搜索登录IP" clearable />
+        </el-form-item>
+        <el-form-item label="UA">
+          <el-input v-model="searchInfo.agent" placeholder="搜索浏览器/设备" clearable />
+        </el-form-item>
         <el-form-item label="状态">
              <el-select v-model="searchInfo.status" placeholder="请选择" clearable>
                  <el-option label="成功" :value="true" />
