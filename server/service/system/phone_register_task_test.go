@@ -757,7 +757,7 @@ func TestGetTaskListFiltersByTaskSource(t *testing.T) {
 	}
 }
 
-func TestOpenAPIReportFailureKeepsHolderForCacheUpload(t *testing.T) {
+func TestOpenAPIReportFailureStoresRegionAndKeepsHolderForCacheUpload(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 
 	now := time.Now()
@@ -773,9 +773,10 @@ func TestOpenAPIReportFailureKeepsHolderForCacheUpload(t *testing.T) {
 	}
 	require.NoError(t, global.GVA_DB.Create(&task).Error)
 
-	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportFailure(holderDeviceID, task.ID, "注册失败")
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportFailure(holderDeviceID, task.ID, "注册失败", " 广东深圳 ")
 	require.NoError(t, err)
 	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, got.Status)
+	require.Equal(t, "广东深圳", got.Region)
 	require.Equal(t, "注册失败", got.LastError)
 	require.NotNil(t, got.HolderDeviceID)
 	require.Equal(t, holderDeviceID, *got.HolderDeviceID)
@@ -783,6 +784,7 @@ func TestOpenAPIReportFailureKeepsHolderForCacheUpload(t *testing.T) {
 	var stored modelSystem.SysPhoneRegisterTask
 	require.NoError(t, global.GVA_DB.First(&stored, task.ID).Error)
 	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, stored.Status)
+	require.Equal(t, "广东深圳", stored.Region)
 	require.NotNil(t, stored.HolderDeviceID)
 	require.Equal(t, holderDeviceID, *stored.HolderDeviceID)
 }
@@ -1484,6 +1486,32 @@ func TestOpenAPIReportSuccessDoesNotRiskBeforeWarmup(t *testing.T) {
 	require.Equal(t, modelSystem.PhoneRegisterStatusCodeSucceeded, *got.StatusCode)
 }
 
+func TestOpenAPIReportSuccessStoresRegion(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	holderDeviceID := "openapi-region-device"
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000100",
+		PromoterID:     1,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(holderDeviceID, task.ID, " 上海浦东 ")
+	require.NoError(t, err)
+	require.Equal(t, modelSystem.PhoneRegisterStatusSucceeded, got.Status)
+	require.Equal(t, "上海浦东", got.Region)
+
+	var stored modelSystem.SysPhoneRegisterTask
+	require.NoError(t, global.GVA_DB.First(&stored, task.ID).Error)
+	require.Equal(t, "上海浦东", stored.Region)
+}
+
 func TestGetSummaryIncludesRiskFailCountForPromoters(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 
@@ -1547,6 +1575,100 @@ func TestPhoneRegisterTaskSummaryOrderIsStable(t *testing.T) {
 		require.Equal(t, []uint{10, 20, 30}, phoneSummaryLeaderIDs(got.Leaders))
 		require.Equal(t, []uint{11, 12, 21, 22, 31, 32}, phoneSummaryPromoterIDs(got.Promoters))
 	}
+}
+
+func TestPhoneRegisterTaskSummaryFallsBackToPromoterLeader(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	leaderID := uint(2)
+	promoterID := uint(3)
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: leaderID},
+		Username:    "leader",
+		NickName:    "团长",
+		AuthorityId: 200,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: promoterID},
+		Username:    "promoter",
+		NickName:    "地推",
+		AuthorityId: 300,
+		LeaderID:    &leaderID,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     promoterID,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		Status:         modelSystem.PhoneRegisterStatusSucceeded,
+		StatusCode:     &successCode,
+		FinishedAt:     &now,
+		ExpiresAt:      now.Add(time.Hour),
+	}).Error)
+
+	adminGot, err := (&PhoneRegisterTaskService{}).GetSummary(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskSummaryFilter{})
+	require.NoError(t, err)
+	require.Len(t, adminGot.Leaders, 1)
+	require.Equal(t, leaderID, adminGot.Leaders[0].LeaderID)
+	require.Equal(t, "团长", adminGot.Leaders[0].LeaderName)
+	require.EqualValues(t, 1, adminGot.Leaders[0].SuccessCount)
+	require.Len(t, adminGot.Promoters, 1)
+	require.Equal(t, leaderID, adminGot.Promoters[0].LeaderID)
+	require.Equal(t, promoterID, adminGot.Promoters[0].PromoterID)
+
+	leaderGot, err := (&PhoneRegisterTaskService{}).GetSummary(phoneRoleLeader, leaderID, modelSystemReq.PhoneRegisterTaskSummaryFilter{})
+	require.NoError(t, err)
+	require.Len(t, leaderGot.Leaders, 1)
+	require.Len(t, leaderGot.Promoters, 1)
+}
+
+func TestPhoneRegisterTaskListFallsBackToPromoterLeader(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	leaderID := uint(2)
+	promoterID := uint(3)
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: leaderID},
+		Username:    "leader",
+		NickName:    "团长",
+		AuthorityId: 200,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: promoterID},
+		Username:    "promoter",
+		NickName:    "地推",
+		AuthorityId: 300,
+		LeaderID:    &leaderID,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000001",
+		PromoterID:     promoterID,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		Status:         modelSystem.PhoneRegisterStatusSucceeded,
+		StatusCode:     &successCode,
+		FinishedAt:     &now,
+		ExpiresAt:      now.Add(time.Hour),
+	}).Error)
+
+	adminGot, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleAdmin, 100, modelSystemReq.PhoneRegisterTaskList{})
+	require.NoError(t, err)
+	require.Len(t, adminGot.List, 1)
+	require.NotNil(t, adminGot.List[0].Leader)
+	require.Equal(t, leaderID, adminGot.List[0].Leader.ID)
+	require.Equal(t, "团长", adminGot.List[0].Leader.NickName)
+
+	leaderGot, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleLeader, leaderID, modelSystemReq.PhoneRegisterTaskList{})
+	require.NoError(t, err)
+	require.Len(t, leaderGot.List, 1)
+	require.NotNil(t, leaderGot.List[0].Leader)
+	require.Equal(t, leaderID, leaderGot.List[0].Leader.ID)
 }
 
 func TestGetSummaryHidesRiskFailCountForLeaderRole(t *testing.T) {

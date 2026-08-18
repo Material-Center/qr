@@ -55,6 +55,7 @@ type SysPhoneRegisterTask struct {
 	SMSReceiveMode  string     `json:"smsReceiveMode" gorm:"index;size:32;comment:收码方式"`
 	CreateSource    string     `json:"createSource" gorm:"index;size:32;comment:任务创建来源"`
 	TaskSource      string     `json:"taskSource" gorm:"index;size:32;comment:任务执行来源"`
+	Region          string     `json:"region" gorm:"size:128;comment:执行地区"`
 	CacheStatus     string     `json:"cacheStatus" gorm:"index;size:32;comment:缓存处理状态"`
 	QQNum           string     `json:"qqNum" gorm:"index;size:32;comment:注册成功QQ号"`
 	QQCacheRecordID *uint      `json:"qqCacheRecordId" gorm:"index;comment:QQ缓存记录ID"`

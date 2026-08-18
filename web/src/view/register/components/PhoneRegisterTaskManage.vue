@@ -172,6 +172,11 @@
               {{ scope.row.holderDeviceId || '-' }}
             </template>
           </el-table-column>
+          <el-table-column label="地区" min-width="120">
+            <template #default="scope">
+              {{ scope.row.region || '-' }}
+            </template>
+          </el-table-column>
           <el-table-column label="QQ号" min-width="120" prop="qqNum" />
           <el-table-column label="地推" min-width="120">
             <template #default="scope">

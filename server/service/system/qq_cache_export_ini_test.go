@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,25 @@ func setupQQCacheTestDB(t *testing.T) {
 		&model.SysDeviceConfig{},
 	))
 	global.GVA_DB = db
+}
+
+func readQQCacheZipEntry(t *testing.T, zipBytes []byte, name string) string {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
+	require.NoError(t, err)
+	for _, file := range zr.File {
+		if file.Name != name {
+			continue
+		}
+		rc, err := file.Open()
+		require.NoError(t, err)
+		defer rc.Close()
+		raw, err := io.ReadAll(rc)
+		require.NoError(t, err)
+		return string(raw)
+	}
+	require.Failf(t, "zip entry not found", "entry %s not found", name)
+	return ""
 }
 
 func TestNormalizeQQCacheExportINI(t *testing.T) {
@@ -473,11 +493,21 @@ func TestBuildQQCacheAccountLine(t *testing.T) {
 	}
 	rec.CreatedAt = createdAt
 
-	got := buildQQCacheAccountLine(rec, "guid=2D2F4073897A69E82FA8124BB4293162")
-	want := "3896349451----abc123----2D2F4073897A69E82FA8124BB4293162----2026-05-10 01:39:49"
+	got := buildQQCacheAccountLine(rec, "guid=2D2F4073897A69E82FA8124BB4293162", "广东深圳")
+	want := "3896349451----abc123----2D2F4073897A69E82FA8124BB4293162----2026-05-10 01:39:49----广东深圳"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
+}
+
+func TestBuildQQCacheAccountLineUsesPlaceholderWithoutRegion(t *testing.T) {
+	createdAt := time.Date(2026, 5, 10, 1, 39, 49, 0, time.Local)
+	rec := model.SysQQCacheRecord{QQNum: "3896349451", QQPwd: "abc123"}
+	rec.CreatedAt = createdAt
+
+	got := buildQQCacheAccountLine(rec, "guid=2D2F4073897A69E82FA8124BB4293162")
+	want := "3896349451----abc123----2D2F4073897A69E82FA8124BB4293162----2026-05-10 01:39:49-----"
+	require.Equal(t, want, got)
 }
 
 func TestExportIniZipByQQText(t *testing.T) {
@@ -509,6 +539,27 @@ func TestExportIniZipByQQText(t *testing.T) {
 	require.True(t, names["930634982.ini"])
 	require.True(t, names["626384712.ini"])
 	require.True(t, names["账号.txt"])
+}
+
+func TestExportIniZipAccountTextIncludesRegion(t *testing.T) {
+	setupQQCacheTestDB(t)
+
+	ini := "qqnum=3995613452\nguid=GUID001\n"
+	record := model.SysQQCacheRecord{QQNum: "3995613452", QQPwd: "pwd1", INI: &ini}
+	require.NoError(t, global.GVA_DB.Create(&record).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysPhoneRegisterTask{
+		QQCacheRecordID: &record.ID,
+		Region:          "广东深圳",
+		QQNum:           record.QQNum,
+	}).Error)
+
+	zipBytes, count, err := (&QQCacheService{}).ExportIniZipByQQText("3995613452")
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+
+	accountText := readQQCacheZipEntry(t, zipBytes, "账号.txt")
+	require.Contains(t, accountText, "3995613452----pwd1----GUID001----")
+	require.Contains(t, accountText, "----广东深圳\r\n")
 }
 
 func TestExportIniZipByQQTextAndMarkExtracted(t *testing.T) {
@@ -726,7 +777,7 @@ func TestExportAccountListTextBySelectedIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "40001----9.2.70---------------\r\n", text)
+	require.Equal(t, "40001----9.2.70--------------------\r\n", text)
 }
 
 func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
@@ -740,7 +791,7 @@ func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "50001----9.2.70---------------\r\n", text)
+	require.Equal(t, "50001----9.2.70--------------------\r\n", text)
 
 	var stored model.SysQQCacheRecord
 	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "50001").First(&stored).Error)
@@ -779,6 +830,7 @@ func TestQQCacheExportAccountTaskMapBatchesRecordIDs(t *testing.T) {
 		tasks[i] = model.SysPhoneRegisterTask{
 			QQCacheRecordID: &records[i].ID,
 			SMSReceiveMode:  model.PhoneRegisterSMSModePlatformSend,
+			Region:          "广东深圳",
 		}
 	}
 	require.NoError(t, global.GVA_DB.Create(&tasks).Error)
@@ -786,6 +838,7 @@ func TestQQCacheExportAccountTaskMapBatchesRecordIDs(t *testing.T) {
 	taskMap, err := (&QQCacheService{}).qqCacheExportAccountTaskMap(records)
 	require.NoError(t, err)
 	require.Len(t, taskMap, len(records))
+	require.Equal(t, "广东深圳", taskMap[records[0].ID].Region)
 }
 
 func TestQQCacheRecordsByQQTextBatchesQQNums(t *testing.T) {
@@ -823,6 +876,7 @@ func TestExportAccountListTextIncludesDeviceLeaderAndReceiveMode(t *testing.T) {
 		QQCacheRecordID: &record.ID,
 		LeaderID:        &leader.ID,
 		SMSReceiveMode:  model.PhoneRegisterSMSModePlatformSend,
+		Region:          "广东深圳",
 		QQNum:           record.QQNum,
 	}).Error)
 
@@ -832,7 +886,7 @@ func TestExportAccountListTextIncludesDeviceLeaderAndReceiveMode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "60001----9.2.70----device-a----团长A----收码\r\n", text)
+	require.Equal(t, "60001----9.2.70----device-a----团长A----收码----广东深圳\r\n", text)
 }
 
 func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
@@ -852,6 +906,7 @@ func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
 		QQCacheRecordID: &record.ID,
 		LeaderID:        &leader.ID,
 		SMSReceiveMode:  model.PhoneRegisterSMSModeUserSentToTX,
+		Region:          "上海浦东",
 		QQNum:           record.QQNum,
 	}).Error)
 
@@ -861,7 +916,7 @@ func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "60002----9.2.75----device-b----团长B----发码\r\n", text)
+	require.Equal(t, "60002----9.2.75----device-b----团长B----发码----上海浦东\r\n", text)
 }
 
 func TestExportAccountListTextByQQTextKeepsInputOrder(t *testing.T) {
@@ -882,8 +937,8 @@ func TestExportAccountListTextByQQTextKeepsInputOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 2, count)
 	require.Equal(t, strings.Join([]string{
-		"70002----9.2.75----device-b----------",
-		"70001----9.2.70----device-a----------",
+		"70002----9.2.75----device-b---------------",
+		"70001----9.2.70----device-a---------------",
 		"",
 	}, "\r\n"), text)
 }

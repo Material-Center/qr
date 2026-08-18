@@ -84,6 +84,7 @@ type PhoneRegisterOpenAPIReport struct {
 	DeviceID   string `json:"deviceId" form:"deviceId"`
 	TaskID     uint   `json:"taskId" form:"taskId"`
 	Status     string `json:"status" form:"status"`
+	Region     string `json:"region" form:"region"`
 	Reason     string `json:"reason" form:"reason"`
 	QQPwd      string `json:"qqPwd" form:"qqPwd"`
 	ClientID   string `json:"clientId" form:"clientId"`

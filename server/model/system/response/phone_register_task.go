@@ -53,6 +53,7 @@ type PhoneRegisterTaskListItem struct {
 	SMSReceiveMode  string                      `json:"smsReceiveMode"`
 	CreateSource    string                      `json:"createSource,omitempty"`
 	TaskSource      string                      `json:"taskSource,omitempty"`
+	Region          string                      `json:"region,omitempty"`
 	CacheStatus     string                      `json:"cacheStatus,omitempty"`
 	QQNum           string                      `json:"qqNum,omitempty"`
 	Status          string                      `json:"status"`

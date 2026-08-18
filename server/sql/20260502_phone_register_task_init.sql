@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS `sys_phone_register_tasks` (
   `leader_id` bigint unsigned DEFAULT NULL,
   `sms_receive_mode` varchar(32) NOT NULL DEFAULT '',
   `create_source` varchar(32) NOT NULL DEFAULT '',
+  `region` varchar(128) NOT NULL DEFAULT '',
   `qq_num` varchar(32) NOT NULL DEFAULT '',
   `qq_cache_record_id` bigint unsigned DEFAULT NULL,
   `pending_code` varchar(32) NOT NULL DEFAULT '',

@@ -170,6 +170,7 @@ func (a *PhoneRegisterTaskApi) OpenAPIGetVerifyCode(c *gin.Context) {
 // @Param     deviceId  formData  string  true   "设备ID"
 // @Param     taskId    formData  int     true   "任务ID"
 // @Param     status    formData  string  true   "success/failed"
+// @Param     region    formData  string  false  "执行地区"
 // @Param     reason    formData  string  false  "失败原因"
 // @Success   200       {object}  response.Response{data=systemRes.PhoneRegisterOpenAPIReportResponse,msg=string}
 // @Router    /phoneRegisterTask/open-api/report [post]
@@ -186,19 +187,20 @@ func (a *PhoneRegisterTaskApi) OpenAPIReportPhoneRegisterTask(c *gin.Context) {
 		zap.String("deviceId", strings.TrimSpace(req.DeviceID)),
 		zap.Uint("taskId", req.TaskID),
 		zap.String("status", strings.TrimSpace(req.Status)),
+		zap.String("region", strings.TrimSpace(req.Region)),
 		zap.String("reason", strings.TrimSpace(req.Reason)),
 	)
 
 	switch strings.ToLower(strings.TrimSpace(req.Status)) {
 	case phoneRegisterOpenAPIStatusFailed:
-		task, err := phoneRegisterTaskService.OpenAPIReportFailure(req.DeviceID, req.TaskID, req.Reason)
+		task, err := phoneRegisterTaskService.OpenAPIReportFailure(req.DeviceID, req.TaskID, req.Reason, req.Region)
 		if err != nil {
 			response.FailWithMessage(err.Error(), c)
 			return
 		}
 		response.OkWithDetailed(systemRes.PhoneRegisterOpenAPIReportResponse{OK: true, TaskID: task.ID}, "上报成功", c)
 	case phoneRegisterOpenAPIStatusSuccess:
-		task, err := phoneRegisterTaskService.OpenAPIReportSuccess(req.DeviceID, req.TaskID)
+		task, err := phoneRegisterTaskService.OpenAPIReportSuccess(req.DeviceID, req.TaskID, req.Region)
 		if err != nil {
 			response.FailWithMessage(err.Error(), c)
 			return
@@ -315,6 +317,7 @@ func bindPhoneRegisterOpenAPIReport(c *gin.Context) (systemReq.PhoneRegisterOpen
 	if strings.Contains(contentType, "multipart/form-data") {
 		req.DeviceID = strings.TrimSpace(c.PostForm("deviceId"))
 		req.Status = strings.TrimSpace(c.PostForm("status"))
+		req.Region = strings.TrimSpace(c.PostForm("region"))
 		req.Reason = strings.TrimSpace(c.PostForm("reason"))
 		req.QQPwd = strings.TrimSpace(c.PostForm("qqPwd"))
 		req.ClientID = strings.TrimSpace(c.PostForm("clientId"))

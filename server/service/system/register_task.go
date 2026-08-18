@@ -872,22 +872,62 @@ func applyRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID uint
 	switch operatorRole {
 	case roleSuperAdmin, roleAdmin:
 		if req.LeaderID != 0 {
-			db = db.Where("leader_id = ?", req.LeaderID)
+			db = db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_register_tasks.promoter_id").
+				Where("COALESCE(sys_register_tasks.leader_id, promoter.leader_id) = ?", req.LeaderID)
 		}
 		if req.PromoterID != 0 {
-			db = db.Where("promoter_id = ?", req.PromoterID)
+			db = db.Where("sys_register_tasks.promoter_id = ?", req.PromoterID)
 		}
 	case roleLeader:
-		db = db.Where("leader_id = ?", operatorID)
+		db = db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_register_tasks.promoter_id").
+			Where("COALESCE(sys_register_tasks.leader_id, promoter.leader_id) = ?", operatorID)
 		if req.PromoterID != 0 {
-			db = db.Where("promoter_id = ?", req.PromoterID)
+			db = db.Where("sys_register_tasks.promoter_id = ?", req.PromoterID)
 		}
 	case rolePromoter:
-		db = db.Where("promoter_id = ?", operatorID)
+		db = db.Where("sys_register_tasks.promoter_id = ?", operatorID)
 	default:
 		return nil, errors.New("无权限查看任务")
 	}
 	return db, nil
+}
+
+func fillRegisterTaskFallbackLeaders(tasks []system.SysRegisterTask) error {
+	leaderIDs := make([]uint, 0)
+	seen := make(map[uint]struct{})
+	for i := range tasks {
+		if tasks[i].Leader.ID != 0 || tasks[i].Promoter.LeaderID == nil || *tasks[i].Promoter.LeaderID == 0 {
+			continue
+		}
+		leaderID := *tasks[i].Promoter.LeaderID
+		if _, ok := seen[leaderID]; ok {
+			continue
+		}
+		seen[leaderID] = struct{}{}
+		leaderIDs = append(leaderIDs, leaderID)
+	}
+	if len(leaderIDs) == 0 {
+		return nil
+	}
+
+	var leaders []system.SysUser
+	if err := global.GVA_DB.Where("id IN ?", leaderIDs).Find(&leaders).Error; err != nil {
+		return err
+	}
+	leaderMap := make(map[uint]system.SysUser, len(leaders))
+	for _, leader := range leaders {
+		leaderMap[leader.ID] = leader
+	}
+	for i := range tasks {
+		if tasks[i].Leader.ID != 0 || tasks[i].Promoter.LeaderID == nil {
+			continue
+		}
+		if leader, ok := leaderMap[*tasks[i].Promoter.LeaderID]; ok {
+			tasks[i].LeaderID = tasks[i].Promoter.LeaderID
+			tasks[i].Leader = leader
+		}
+	}
+	return nil
 }
 
 func shouldUseRegisterTaskDayScoped(operatorRole uint, dayScoped bool) bool {
@@ -1033,8 +1073,11 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 	offset := (page - 1) * pageSize
 
 	var list []system.SysRegisterTask
-	if err := db.Order("id DESC").Limit(pageSize).Offset(offset).Find(&list).Error; err != nil {
+	if err := db.Order("sys_register_tasks.id DESC").Limit(pageSize).Offset(offset).Find(&list).Error; err != nil {
 		global.GVA_LOG.Error("【注册任务】任务列表-查询失败", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID), zap.Error(err))
+		return registerTaskListResult{}, err
+	}
+	if err := fillRegisterTaskFallbackLeaders(list); err != nil {
 		return registerTaskListResult{}, err
 	}
 
@@ -1095,7 +1138,7 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 	successQQCountExpr := successLoggedQQCountSQL("t.qq_logged_list")
 	db := global.GVA_DB.Table("sys_register_tasks t").
 		Select(fmt.Sprintf(`
-			t.leader_id,
+			COALESCE(t.leader_id, promoter.leader_id) AS leader_id,
 			leader.nick_name AS leader_name,
 			t.promoter_id,
 			promoter.nick_name AS promoter_name,
@@ -1105,12 +1148,12 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 AND t.settled_at IS NOT NULL THEN %s ELSE 0 END) AS settled_count,
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 AND t.settled_at IS NULL THEN %s ELSE 0 END) AS unsettled_count`, successQQCountExpr, successQQCountExpr, successQQCountExpr)).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
-		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id")
+		Joins("LEFT JOIN sys_users leader ON leader.id = COALESCE(t.leader_id, promoter.leader_id)")
 
 	if operatorRole == roleLeader {
-		db = db.Where("t.leader_id = ?", operatorID)
+		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", operatorID)
 	} else if req.LeaderID != 0 {
-		db = db.Where("t.leader_id = ?", req.LeaderID)
+		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", req.LeaderID)
 	}
 	if shouldUseRegisterTaskDayScoped(operatorRole, req.DayScoped) {
 		db = applyRegisterTaskDayRangeFilterWithColumns(db, "t.finished_at", "t.created_at", req.FinishedAtStart, req.FinishedAtEnd)
@@ -1119,7 +1162,7 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 	}
 
 	var promoterRows []summaryRow
-	if err := db.Group("t.leader_id, leader.nick_name, t.promoter_id, promoter.nick_name").Scan(&promoterRows).Error; err != nil {
+	if err := db.Group("COALESCE(t.leader_id, promoter.leader_id), leader.nick_name, t.promoter_id, promoter.nick_name").Scan(&promoterRows).Error; err != nil {
 		global.GVA_LOG.Error("【注册任务】任务统计-查询失败", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID), zap.Uint("leaderId", req.LeaderID), zap.Error(err))
 		return systemRes.RegisterTaskSummaryResponse{}, err
 	}

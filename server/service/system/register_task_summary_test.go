@@ -63,6 +63,96 @@ func TestRegisterTaskSummaryOrderIsStable(t *testing.T) {
 	}
 }
 
+func TestRegisterTaskSummaryFallsBackToPromoterLeader(t *testing.T) {
+	setupRegisterTaskSummaryTestDB(t)
+
+	now := time.Now()
+	leaderID := uint(2)
+	promoterID := uint(3)
+	successCode := 0
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: leaderID},
+		Username:    "leader",
+		NickName:    "团长",
+		AuthorityId: 200,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: promoterID},
+		Username:    "promoter",
+		NickName:    "地推",
+		AuthorityId: 300,
+		LeaderID:    &leaderID,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterTask{
+		Phone:        "18800000001",
+		PromoterID:   promoterID,
+		StatusCode:   &successCode,
+		QQLoggedList: `["10001"]`,
+		FinishedAt:   &now,
+		ExpiresAt:    now.Add(time.Hour),
+	}).Error)
+
+	adminGot, err := (&RegisterTaskService{}).GetSummary(roleAdmin, 100, modelSystemReq.RegisterTaskSummaryFilter{})
+	require.NoError(t, err)
+	require.Len(t, adminGot.Leaders, 1)
+	require.Equal(t, leaderID, adminGot.Leaders[0].LeaderID)
+	require.Equal(t, "团长", adminGot.Leaders[0].LeaderName)
+	require.EqualValues(t, 1, adminGot.Leaders[0].SuccessCount)
+	require.Len(t, adminGot.Promoters, 1)
+	require.Equal(t, leaderID, adminGot.Promoters[0].LeaderID)
+	require.Equal(t, promoterID, adminGot.Promoters[0].PromoterID)
+
+	leaderGot, err := (&RegisterTaskService{}).GetSummary(roleLeader, leaderID, modelSystemReq.RegisterTaskSummaryFilter{})
+	require.NoError(t, err)
+	require.Len(t, leaderGot.Leaders, 1)
+	require.Len(t, leaderGot.Promoters, 1)
+}
+
+func TestRegisterTaskListFallsBackToPromoterLeader(t *testing.T) {
+	setupRegisterTaskSummaryTestDB(t)
+
+	now := time.Now()
+	leaderID := uint(2)
+	promoterID := uint(3)
+	successCode := 0
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: leaderID},
+		Username:    "leader",
+		NickName:    "团长",
+		AuthorityId: 200,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysUser{
+		GVA_MODEL:   global.GVA_MODEL{ID: promoterID},
+		Username:    "promoter",
+		NickName:    "地推",
+		AuthorityId: 300,
+		LeaderID:    &leaderID,
+		Enable:      1,
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&modelSystem.SysRegisterTask{
+		Phone:        "18800000001",
+		PromoterID:   promoterID,
+		StatusCode:   &successCode,
+		QQLoggedList: `["10001"]`,
+		FinishedAt:   &now,
+		ExpiresAt:    now.Add(time.Hour),
+	}).Error)
+
+	adminGot, err := (&RegisterTaskService{}).GetTaskList(roleAdmin, 100, modelSystemReq.RegisterTaskList{})
+	require.NoError(t, err)
+	require.Len(t, adminGot.List, 1)
+	require.Equal(t, leaderID, adminGot.List[0].Leader.ID)
+	require.Equal(t, "团长", adminGot.List[0].Leader.NickName)
+
+	leaderGot, err := (&RegisterTaskService{}).GetTaskList(roleLeader, leaderID, modelSystemReq.RegisterTaskList{})
+	require.NoError(t, err)
+	require.Len(t, leaderGot.List, 1)
+	require.Equal(t, leaderID, leaderGot.List[0].Leader.ID)
+}
+
 func registerSummaryLeaderIDs(items []modelSystemRes.RegisterTaskSummaryItem) []uint {
 	ids := make([]uint, 0, len(items))
 	for _, item := range items {

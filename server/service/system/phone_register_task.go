@@ -35,6 +35,7 @@ const (
 	phoneRegisterDeviceStatsTTL          = 2 * time.Second
 	phoneRegisterPendingCountCacheMaxTTL = 5 * time.Minute
 	phoneRegisterOpenAPICacheCooldown    = 5 * time.Minute
+	phoneRegisterRegionMaxRunes          = 128
 
 	phoneRoleSuperAdmin = uint(888)
 	phoneRoleAdmin      = uint(100)
@@ -522,7 +523,10 @@ func (s *PhoneRegisterTaskService) GetTaskList(operatorRole uint, operatorID uin
 	}
 
 	var list []system.SysPhoneRegisterTask
-	if err = db.Order("id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error; err != nil {
+	if err = db.Order("sys_phone_register_tasks.id desc").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error; err != nil {
+		return phoneRegisterTaskListResult{}, err
+	}
+	if err = fillPhoneRegisterTaskFallbackLeaders(list); err != nil {
 		return phoneRegisterTaskListResult{}, err
 	}
 
@@ -777,6 +781,7 @@ func buildPhoneRegisterTaskListItems(tasks []system.SysPhoneRegisterTask, includ
 			SMSReceiveMode:  task.SMSReceiveMode,
 			CreateSource:    task.CreateSource,
 			TaskSource:      task.TaskSource,
+			Region:          task.Region,
 			CacheStatus:     task.CacheStatus,
 			Status:          task.Status,
 			StatusCode:      task.StatusCode,
@@ -811,6 +816,44 @@ func buildPhoneRegisterTaskListItems(tasks []system.SysPhoneRegisterTask, includ
 	return items
 }
 
+func fillPhoneRegisterTaskFallbackLeaders(tasks []system.SysPhoneRegisterTask) error {
+	leaderIDs := make([]uint, 0)
+	seen := make(map[uint]struct{})
+	for i := range tasks {
+		if tasks[i].Leader.ID != 0 || tasks[i].Promoter.LeaderID == nil || *tasks[i].Promoter.LeaderID == 0 {
+			continue
+		}
+		leaderID := *tasks[i].Promoter.LeaderID
+		if _, ok := seen[leaderID]; ok {
+			continue
+		}
+		seen[leaderID] = struct{}{}
+		leaderIDs = append(leaderIDs, leaderID)
+	}
+	if len(leaderIDs) == 0 {
+		return nil
+	}
+
+	var leaders []system.SysUser
+	if err := global.GVA_DB.Where("id IN ?", leaderIDs).Find(&leaders).Error; err != nil {
+		return err
+	}
+	leaderMap := make(map[uint]system.SysUser, len(leaders))
+	for _, leader := range leaders {
+		leaderMap[leader.ID] = leader
+	}
+	for i := range tasks {
+		if tasks[i].Leader.ID != 0 || tasks[i].Promoter.LeaderID == nil {
+			continue
+		}
+		if leader, ok := leaderMap[*tasks[i].Promoter.LeaderID]; ok {
+			tasks[i].LeaderID = tasks[i].Promoter.LeaderID
+			tasks[i].Leader = leader
+		}
+	}
+	return nil
+}
+
 func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskSummaryFilter) (systemRes.PhoneRegisterTaskSummaryResponse, error) {
 	if operatorRole != phoneRoleSuperAdmin && operatorRole != phoneRoleAdmin && operatorRole != phoneRoleLeader {
 		return systemRes.PhoneRegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
@@ -833,7 +876,7 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 
 	db := global.GVA_DB.Table("sys_phone_register_tasks t").
 		Select(`
-			t.leader_id,
+			COALESCE(t.leader_id, promoter.leader_id) AS leader_id,
 			leader.nick_name AS leader_name,
 			t.promoter_id,
 			promoter.nick_name AS promoter_name,
@@ -844,12 +887,12 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS settled_count,
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NULL THEN 1 ELSE 0 END), 0) AS unsettled_count`, phoneRegisterRiskStatusCodes()).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
-		Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id")
+		Joins("LEFT JOIN sys_users leader ON leader.id = COALESCE(t.leader_id, promoter.leader_id)")
 
 	if operatorRole == phoneRoleLeader {
-		db = db.Where("t.leader_id = ?", operatorID)
+		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", operatorID)
 	} else if req.LeaderID != 0 {
-		db = db.Where("t.leader_id = ?", req.LeaderID)
+		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", req.LeaderID)
 	}
 	if shouldUsePhoneRegisterTaskDayScoped(operatorRole, req.DayScoped) {
 		db = applyPhoneRegisterTaskDayRangeFilterWithColumns(db, "t.finished_at", "t.created_at", req.FinishedAtStart, req.FinishedAtEnd)
@@ -858,7 +901,7 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 	}
 
 	var rows []row
-	if err := db.Group("t.leader_id, leader.nick_name, t.promoter_id, promoter.nick_name").Scan(&rows).Error; err != nil {
+	if err := db.Group("COALESCE(t.leader_id, promoter.leader_id), leader.nick_name, t.promoter_id, promoter.nick_name").Scan(&rows).Error; err != nil {
 		return systemRes.PhoneRegisterTaskSummaryResponse{}, err
 	}
 
@@ -1385,8 +1428,9 @@ func (s *PhoneRegisterTaskService) DeviceReport(req systemReq.PhoneRegisterDevic
 	return task, nil
 }
 
-func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID uint) (system.SysPhoneRegisterTask, error) {
+func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID uint, regionList ...string) (system.SysPhoneRegisterTask, error) {
 	deviceID = strings.TrimSpace(deviceID)
+	region := firstTrimmedString(regionList...)
 	if deviceID == "" {
 		return system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
 	}
@@ -1410,9 +1454,15 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 		}
 		if isPhoneRegisterTaskTerminal(task.Status, task.FinishedAt) {
 			if task.Status == system.PhoneRegisterStatusSucceeded || isPhoneRegisterRiskStatusCode(task.StatusCode) {
+				if err := updatePhoneRegisterTaskRegionTx(tx, &task, region); err != nil {
+					return err
+				}
 				return nil
 			}
 			return errors.New("任务已完成")
+		}
+		if region != "" {
+			task.Region = region
 		}
 		if !time.Now().Before(task.ExpiresAt) {
 			if err := s.failTaskTx(tx, &task, system.PhoneRegisterStatusCodeTaskTimeout, "任务总超时"); err != nil {
@@ -1438,7 +1488,7 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 		task.CodeRequestedAt = nil
 		task.LastError = ""
 		return tx.Model(&task).
-			Select("status", "status_code", "cache_status", "finished_at", "last_heartbeat_at", "pending_code", "code_requested_at", "last_error", "updated_at").
+			Select("status", "status_code", "region", "cache_status", "finished_at", "last_heartbeat_at", "pending_code", "code_requested_at", "last_error", "updated_at").
 			Updates(task).Error
 	})
 	if err != nil {
@@ -1448,8 +1498,9 @@ func (s *PhoneRegisterTaskService) OpenAPIReportSuccess(deviceID string, taskID 
 	return task, nil
 }
 
-func (s *PhoneRegisterTaskService) OpenAPIReportFailure(deviceID string, taskID uint, reason string) (system.SysPhoneRegisterTask, error) {
+func (s *PhoneRegisterTaskService) OpenAPIReportFailure(deviceID string, taskID uint, reason string, regionList ...string) (system.SysPhoneRegisterTask, error) {
 	deviceID = strings.TrimSpace(deviceID)
+	region := firstTrimmedString(regionList...)
 	if deviceID == "" {
 		return system.SysPhoneRegisterTask{}, errors.New("deviceId不能为空")
 	}
@@ -1474,9 +1525,15 @@ func (s *PhoneRegisterTaskService) OpenAPIReportFailure(deviceID string, taskID 
 		}
 		if isPhoneRegisterTaskTerminal(task.Status, task.FinishedAt) {
 			if task.Status == system.PhoneRegisterStatusFailed {
+				if err := updatePhoneRegisterTaskRegionTx(tx, &task, region); err != nil {
+					return err
+				}
 				return nil
 			}
 			return errors.New("任务已完成")
+		}
+		if region != "" {
+			task.Region = region
 		}
 		if !time.Now().Before(task.ExpiresAt) {
 			return s.failTaskTx(tx, &task, system.PhoneRegisterStatusCodeTaskTimeout, "任务总超时")
@@ -1494,7 +1551,7 @@ func (s *PhoneRegisterTaskService) OpenAPIReportFailure(deviceID string, taskID 
 		task.PendingCode = ""
 		task.CodeRequestedAt = nil
 		return tx.Model(&task).
-			Select("status", "status_code", "last_error", "finished_at", "pending_code", "code_requested_at", "updated_at").
+			Select("status", "status_code", "region", "last_error", "finished_at", "pending_code", "code_requested_at", "updated_at").
 			Updates(task).Error
 	})
 	if err != nil {
@@ -1837,7 +1894,7 @@ func (s *PhoneRegisterTaskService) riskFailTaskTx(tx *gorm.DB, task *system.SysP
 	task.PendingCode = ""
 	task.CodeRequestedAt = nil
 	if err := tx.Model(task).
-		Select("status", "status_code", "last_error", "cache_status", "finished_at", "last_heartbeat_at", "pending_code", "code_requested_at", "updated_at").
+		Select("status", "status_code", "region", "last_error", "cache_status", "finished_at", "last_heartbeat_at", "pending_code", "code_requested_at", "updated_at").
 		Updates(task).Error; err != nil {
 		return err
 	}
@@ -1875,6 +1932,35 @@ func stringValue(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func firstTrimmedString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimRunes(trimmed, phoneRegisterRegionMaxRunes)
+		}
+	}
+	return ""
+}
+
+func trimRunes(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes])
+}
+
+func updatePhoneRegisterTaskRegionTx(tx *gorm.DB, task *system.SysPhoneRegisterTask, region string) error {
+	region = trimRunes(strings.TrimSpace(region), phoneRegisterRegionMaxRunes)
+	if tx == nil || task == nil || region == "" || task.Region == region {
+		return nil
+	}
+	task.Region = region
+	return tx.Model(task).Select("region", "updated_at").Updates(task).Error
 }
 
 func (s *PhoneRegisterTaskService) CompleteTaskAfterQQCacheUploadTx(tx *gorm.DB, deviceID string, qqCacheRecordID uint, qqNum string) (system.SysPhoneRegisterTask, error) {
@@ -2207,7 +2293,7 @@ func (s *PhoneRegisterTaskService) failTaskTx(tx *gorm.DB, task *system.SysPhone
 	task.PendingCode = ""
 	task.CodeRequestedAt = nil
 	if err := tx.Model(task).
-		Select("status", "status_code", "last_error", "finished_at", "holder_device_id", "pending_code", "code_requested_at", "updated_at").
+		Select("status", "status_code", "region", "last_error", "finished_at", "holder_device_id", "pending_code", "code_requested_at", "updated_at").
 		Updates(task).Error; err != nil {
 		return err
 	}
@@ -2248,20 +2334,22 @@ func applyPhoneRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID
 	switch operatorRole {
 	case phoneRoleSuperAdmin, phoneRoleAdmin:
 		if req.LeaderID != 0 {
-			db = db.Where("leader_id = ?", req.LeaderID)
+			db = db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_phone_register_tasks.promoter_id").
+				Where("COALESCE(sys_phone_register_tasks.leader_id, promoter.leader_id) = ?", req.LeaderID)
 		}
 		if req.PromoterID != 0 {
-			db = db.Where("promoter_id = ?", req.PromoterID)
+			db = db.Where("sys_phone_register_tasks.promoter_id = ?", req.PromoterID)
 		}
 		return db, nil
 	case phoneRoleLeader:
-		db = db.Where("leader_id = ?", operatorID)
+		db = db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_phone_register_tasks.promoter_id").
+			Where("COALESCE(sys_phone_register_tasks.leader_id, promoter.leader_id) = ?", operatorID)
 		if req.PromoterID != 0 {
-			db = db.Where("promoter_id = ?", req.PromoterID)
+			db = db.Where("sys_phone_register_tasks.promoter_id = ?", req.PromoterID)
 		}
 		return db, nil
 	case phoneRolePromoter:
-		return db.Where("promoter_id = ?", operatorID), nil
+		return db.Where("sys_phone_register_tasks.promoter_id = ?", operatorID), nil
 	default:
 		return nil, errors.New("无权限查看任务列表")
 	}

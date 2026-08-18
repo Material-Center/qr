@@ -1557,6 +1557,7 @@ type qqCacheExportAccountTaskInfo struct {
 	SMSReceiveMode string
 	LeaderName     string
 	LeaderUsername string
+	Region         string
 }
 
 func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCacheRecord) (map[uint]qqCacheExportAccountTaskInfo, error) {
@@ -1576,12 +1577,13 @@ func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCache
 		SMSReceiveMode  string `gorm:"column:sms_receive_mode"`
 		LeaderName      string `gorm:"column:leader_name"`
 		LeaderUsername  string `gorm:"column:leader_username"`
+		Region          string `gorm:"column:region"`
 	}
 	var rows []row
 	if err := forEachQQCacheBatch(ids, func(batchIDs []uint) error {
 		var batchRows []row
 		if err := global.GVA_DB.Table("sys_phone_register_tasks AS t").
-			Select("t.qq_cache_record_id, t.sms_receive_mode, leader.nick_name AS leader_name, leader.username AS leader_username").
+			Select("t.qq_cache_record_id, t.sms_receive_mode, t.region, leader.nick_name AS leader_name, leader.username AS leader_username").
 			Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id AND leader.deleted_at IS NULL").
 			Where("t.deleted_at IS NULL AND t.qq_cache_record_id IN ?", batchIDs).
 			Order("t.id desc").
@@ -1604,6 +1606,7 @@ func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCache
 			SMSReceiveMode: row.SMSReceiveMode,
 			LeaderName:     row.LeaderName,
 			LeaderUsername: row.LeaderUsername,
+			Region:         row.Region,
 		}
 	}
 	return result, nil
@@ -1629,6 +1632,7 @@ func buildQQCacheExportAccountListLine(record system.SysQQCacheRecord, task qqCa
 		qqCacheExportTextValue(stringValue(record.DeviceID)),
 		qqCacheExportTextValue(qqCacheExportLeaderName(task)),
 		qqCacheExportTextValue(qqCacheExportSMSModeName(task.SMSReceiveMode)),
+		qqCacheExportTextValue(task.Region),
 	}, "----")
 }
 
@@ -1710,6 +1714,14 @@ func parseQQCacheExportQQNums(raw string) []string {
 }
 
 func buildQQCacheIniZip(records []system.SysQQCacheRecord) ([]byte, int, error) {
+	regionMap, err := qqCacheExportAccountRegionMap(records)
+	if err != nil {
+		return nil, 0, err
+	}
+	return buildQQCacheIniZipWithRegions(records, regionMap)
+}
+
+func buildQQCacheIniZipWithRegions(records []system.SysQQCacheRecord, regionMap map[uint]string) ([]byte, int, error) {
 	buf := new(bytes.Buffer)
 	zw := zip.NewWriter(buf)
 	added := 0
@@ -1729,7 +1741,7 @@ func buildQQCacheIniZip(records []system.SysQQCacheRecord) ([]byte, int, error) 
 			_ = zw.Close()
 			return nil, 0, err
 		}
-		accountLines = append(accountLines, buildQQCacheAccountLine(rec, normalizedINI))
+		accountLines = append(accountLines, buildQQCacheAccountLine(rec, normalizedINI, regionMap[rec.ID]))
 		added++
 	}
 	if added > 0 {
@@ -1757,12 +1769,56 @@ func buildQQCacheIniZip(records []system.SysQQCacheRecord) ([]byte, int, error) 
 	return buf.Bytes(), added, nil
 }
 
-func buildQQCacheAccountLine(rec system.SysQQCacheRecord, iniText string) string {
-	return fmt.Sprintf("%s----%s----%s----%s",
+func qqCacheExportAccountRegionMap(records []system.SysQQCacheRecord) (map[uint]string, error) {
+	ids := make([]uint, 0, len(records))
+	for _, record := range records {
+		if record.ID != 0 {
+			ids = append(ids, record.ID)
+		}
+	}
+	result := map[uint]string{}
+	if len(ids) == 0 || global.GVA_DB == nil {
+		return result, nil
+	}
+
+	type row struct {
+		QQCacheRecordID uint   `gorm:"column:qq_cache_record_id"`
+		Region          string `gorm:"column:region"`
+	}
+	var rows []row
+	if err := forEachQQCacheBatch(ids, func(batchIDs []uint) error {
+		var batchRows []row
+		if err := global.GVA_DB.Table("sys_phone_register_tasks").
+			Select("qq_cache_record_id, region").
+			Where("deleted_at IS NULL AND qq_cache_record_id IN ?", batchIDs).
+			Order("id desc").
+			Scan(&batchRows).Error; err != nil {
+			return err
+		}
+		rows = append(rows, batchRows...)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row.QQCacheRecordID == 0 {
+			continue
+		}
+		if _, exists := result[row.QQCacheRecordID]; exists {
+			continue
+		}
+		result[row.QQCacheRecordID] = strings.TrimSpace(row.Region)
+	}
+	return result, nil
+}
+
+func buildQQCacheAccountLine(rec system.SysQQCacheRecord, iniText string, regionList ...string) string {
+	return fmt.Sprintf("%s----%s----%s----%s----%s",
 		strings.TrimSpace(rec.QQNum),
 		strings.TrimSpace(rec.QQPwd),
 		extractQQCacheGUID(iniText),
 		formatQQCacheRegisterTime(rec.CreatedAt),
+		qqCacheExportTextValue(firstTrimmedString(regionList...)),
 	)
 }
 
