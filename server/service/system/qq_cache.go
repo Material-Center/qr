@@ -1539,13 +1539,22 @@ func (s *QQCacheService) buildQQCacheExportAccountListText(records []system.SysQ
 	if err != nil {
 		return "", 0, err
 	}
+	groupMap, err := qqCacheExportDeviceGroupMap(records)
+	if err != nil {
+		return "", 0, err
+	}
 	lines := make([]string, 0, len(records))
 	for _, record := range records {
 		qqNum := strings.TrimSpace(record.QQNum)
 		if qqNum == "" {
 			continue
 		}
-		lines = append(lines, buildQQCacheExportAccountListLine(record, taskMap[record.ID]))
+		task := taskMap[record.ID]
+		task.GroupName = groupMap[strings.TrimSpace(stringValue(record.DeviceID))]
+		if strings.TrimSpace(task.Phone) == "" && record.Phone != nil {
+			task.Phone = strings.TrimSpace(*record.Phone)
+		}
+		lines = append(lines, buildQQCacheExportAccountListLine(record, task))
 	}
 	if len(lines) == 0 {
 		return "", 0, errors.New("暂无可导出的账号")
@@ -1554,6 +1563,8 @@ func (s *QQCacheService) buildQQCacheExportAccountListText(records []system.SysQ
 }
 
 type qqCacheExportAccountTaskInfo struct {
+	Phone          string
+	GroupName      string
 	SMSReceiveMode string
 	LeaderName     string
 	LeaderUsername string
@@ -1574,6 +1585,7 @@ func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCache
 
 	type row struct {
 		QQCacheRecordID uint   `gorm:"column:qq_cache_record_id"`
+		Phone           string `gorm:"column:phone"`
 		SMSReceiveMode  string `gorm:"column:sms_receive_mode"`
 		LeaderName      string `gorm:"column:leader_name"`
 		LeaderUsername  string `gorm:"column:leader_username"`
@@ -1583,7 +1595,7 @@ func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCache
 	if err := forEachQQCacheBatch(ids, func(batchIDs []uint) error {
 		var batchRows []row
 		if err := global.GVA_DB.Table("sys_phone_register_tasks AS t").
-			Select("t.qq_cache_record_id, t.sms_receive_mode, t.region, leader.nick_name AS leader_name, leader.username AS leader_username").
+			Select("t.qq_cache_record_id, t.phone, t.sms_receive_mode, t.region, leader.nick_name AS leader_name, leader.username AS leader_username").
 			Joins("LEFT JOIN sys_users leader ON leader.id = t.leader_id AND leader.deleted_at IS NULL").
 			Where("t.deleted_at IS NULL AND t.qq_cache_record_id IN ?", batchIDs).
 			Order("t.id desc").
@@ -1603,6 +1615,7 @@ func (s *QQCacheService) qqCacheExportAccountTaskMap(records []system.SysQQCache
 			continue
 		}
 		result[row.QQCacheRecordID] = qqCacheExportAccountTaskInfo{
+			Phone:          row.Phone,
 			SMSReceiveMode: row.SMSReceiveMode,
 			LeaderName:     row.LeaderName,
 			LeaderUsername: row.LeaderUsername,
@@ -1630,10 +1643,45 @@ func buildQQCacheExportAccountListLine(record system.SysQQCacheRecord, task qqCa
 		qqCacheExportTextValue(record.QQNum),
 		qqCacheExportTextValue(record.ClientVersion),
 		qqCacheExportTextValue(stringValue(record.DeviceID)),
+		qqCacheExportTextValue(task.GroupName),
+		qqCacheExportTextValue(task.Phone),
 		qqCacheExportTextValue(qqCacheExportLeaderName(task)),
 		qqCacheExportTextValue(qqCacheExportSMSModeName(task.SMSReceiveMode)),
 		qqCacheExportTextValue(task.Region),
 	}, "----")
+}
+
+func qqCacheExportDeviceGroupMap(records []system.SysQQCacheRecord) (map[string]string, error) {
+	result := map[string]string{}
+	deviceIDs := make([]string, 0, len(records))
+	seen := map[string]struct{}{}
+	for _, record := range records {
+		deviceID := strings.TrimSpace(stringValue(record.DeviceID))
+		if deviceID != "" {
+			if _, ok := seen[deviceID]; !ok {
+				seen[deviceID] = struct{}{}
+				deviceIDs = append(deviceIDs, deviceID)
+			}
+		}
+	}
+	if len(deviceIDs) == 0 || global.GVA_DB == nil {
+		return result, nil
+	}
+	var rows []struct {
+		DeviceID string `gorm:"column:device_id"`
+		Name     string `gorm:"column:name"`
+	}
+	if err := global.GVA_DB.Table("sys_device_configs AS dc").
+		Select("dc.device_id, dg.name").
+		Joins("LEFT JOIN sys_device_groups dg ON dg.id = dc.group_id AND dg.deleted_at IS NULL").
+		Where("dc.deleted_at IS NULL AND dc.device_id IN ?", deviceIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[strings.TrimSpace(row.DeviceID)] = strings.TrimSpace(row.Name)
+	}
+	return result, nil
 }
 
 func qqCacheExportLeaderName(task qqCacheExportAccountTaskInfo) string {

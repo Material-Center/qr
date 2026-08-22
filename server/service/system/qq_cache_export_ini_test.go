@@ -777,7 +777,7 @@ func TestExportAccountListTextBySelectedIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "40001----9.2.70--------------------\r\n", text)
+	require.Equal(t, "40001----9.2.70------------------------------\r\n", text)
 }
 
 func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
@@ -791,7 +791,7 @@ func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "50001----9.2.70--------------------\r\n", text)
+	require.Equal(t, "50001----9.2.70------------------------------\r\n", text)
 
 	var stored model.SysQQCacheRecord
 	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "50001").First(&stored).Error)
@@ -864,12 +864,17 @@ func TestExportAccountListTextIncludesDeviceLeaderAndReceiveMode(t *testing.T) {
 
 	leader := model.SysUser{NickName: "团长A", Username: "leader-a", AuthorityId: 200}
 	require.NoError(t, global.GVA_DB.Create(&leader).Error)
+	group := model.SysDeviceGroup{Name: "分组A"}
+	require.NoError(t, global.GVA_DB.Create(&group).Error)
 	deviceID := "device-a"
+	phone := "13800138000"
 	require.NoError(t, global.GVA_DB.Create(&model.SysQQCacheRecord{
 		QQNum:         "60001",
 		ClientVersion: "9.2.70",
+		Phone:         &phone,
 		DeviceID:      &deviceID,
 	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&model.SysDeviceConfig{DeviceID: deviceID, GroupID: &group.ID}).Error)
 	var record model.SysQQCacheRecord
 	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "60001").First(&record).Error)
 	require.NoError(t, global.GVA_DB.Create(&model.SysPhoneRegisterTask{
@@ -886,7 +891,7 @@ func TestExportAccountListTextIncludesDeviceLeaderAndReceiveMode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "60001----9.2.70----device-a----团长A----收码----广东深圳\r\n", text)
+	require.Equal(t, "60001----9.2.70----device-a----分组A----13800138000----团长A----收码----广东深圳\r\n", text)
 }
 
 func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
@@ -916,7 +921,7 @@ func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "60002----9.2.75----device-b----团长B----发码----上海浦东\r\n", text)
+	require.Equal(t, "60002----9.2.75----device-b--------------团长B----发码----上海浦东\r\n", text)
 }
 
 func TestExportAccountListTextByQQTextKeepsInputOrder(t *testing.T) {
@@ -937,8 +942,8 @@ func TestExportAccountListTextByQQTextKeepsInputOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 2, count)
 	require.Equal(t, strings.Join([]string{
-		"70002----9.2.75----device-b---------------",
-		"70001----9.2.70----device-a---------------",
+		"70002----9.2.75----device-b-------------------------",
+		"70001----9.2.70----device-a-------------------------",
 		"",
 	}, "\r\n"), text)
 }

@@ -890,7 +890,7 @@ func (a *QQCacheApi) ExportPendingIniZip(c *gin.Context) {
 
 // ExportAccountList
 // @Tags      QQCache
-// @Summary   管理端导出QQ账号列表（txt）
+// @Summary   管理端导出QQ账号列表（txt，字段：QQ号----客户端版本----设备ID----分组----手机号----团长----收发码模式----地区）
 // @Security  ApiKeyAuth
 // @accept    application/json
 // @Produce   text/plain
@@ -980,7 +980,7 @@ func (a *QQCacheApi) ExportIniZipByQQFile(c *gin.Context) {
 
 // ExportAccountListByQQFile
 // @Tags      QQCache
-// @Summary   管理端按上传TXT内QQ账号导出账号列表（txt）
+// @Summary   管理端按上传TXT内QQ账号导出账号列表（txt，字段：QQ号----客户端版本----设备ID----分组----手机号----团长----收发码模式----地区）
 // @Security  ApiKeyAuth
 // @accept    multipart/form-data
 // @Produce   text/plain
