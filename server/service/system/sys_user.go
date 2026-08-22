@@ -31,6 +31,7 @@ const (
 	userRoleSuperAdmin     = uint(888)
 	userRoleAdmin          = uint(100)
 	userRoleLeader         = uint(200)
+	userRoleDeputyLeader   = uint(210)
 	userRolePromoter       = uint(300)
 	userRoleAppExtract     = uint(400)
 	userRoleAppUpload      = uint(500)
@@ -69,11 +70,14 @@ func canManageUserAuthority(operatorAuthorityID, targetAuthorityID uint) bool {
 		return true
 	case userRoleAdmin:
 		return targetAuthorityID == userRoleLeader ||
+			targetAuthorityID == userRoleDeputyLeader ||
 			targetAuthorityID == userRolePromoter ||
 			targetAuthorityID == userRoleAppExtract ||
 			targetAuthorityID == userRoleAppUpload ||
 			targetAuthorityID == userRoleSales
 	case userRoleLeader:
+		return targetAuthorityID == userRoleDeputyLeader || targetAuthorityID == userRolePromoter
+	case userRoleDeputyLeader:
 		return targetAuthorityID == userRolePromoter
 	default:
 		return false
@@ -87,7 +91,29 @@ func canManageTargetUser(operatorID, operatorAuthorityID uint, target system.Sys
 	if operatorAuthorityID == userRoleLeader {
 		return target.LeaderID != nil && *target.LeaderID == operatorID
 	}
+	if operatorAuthorityID == userRoleDeputyLeader {
+		leaderID, err := userServiceOwningLeaderID(operatorID)
+		return err == nil && target.AuthorityId == userRolePromoter && target.LeaderID != nil && *target.LeaderID == leaderID
+	}
 	return true
+}
+
+func userServiceOwningLeaderID(operatorID uint) (uint, error) {
+	var user system.SysUser
+	if err := global.GVA_DB.Select("id, authority_id, leader_id").Where("id = ?", operatorID).First(&user).Error; err != nil {
+		return 0, err
+	}
+	if user.AuthorityId == userRoleLeader {
+		return user.ID, nil
+	}
+	if user.AuthorityId != userRoleDeputyLeader || user.LeaderID == nil || *user.LeaderID == 0 {
+		return 0, errors.New("副团长未绑定所属团长")
+	}
+	return *user.LeaderID, nil
+}
+
+func (userService *UserService) ResolveOwningLeaderID(operatorID uint) (uint, error) {
+	return userServiceOwningLeaderID(operatorID)
 }
 
 func (userService *UserService) Register(u system.SysUser) (userInter system.SysUser, err error) {
@@ -120,14 +146,14 @@ func (userService *UserService) Login(u *system.SysUser) (userInter *system.SysU
 		if ok := utils.BcryptCheck(u.Password, user.Password); !ok {
 			return nil, errors.New("密码错误")
 		}
-		// 地推登录时检查所属团长状态，团长被禁用则地推不可登录
-		if user.AuthorityId == 300 && user.LeaderID != nil {
+		// 下属账号登录时检查所属团长状态，团长被禁用则下属不可登录
+		if (user.AuthorityId == userRolePromoter || user.AuthorityId == userRoleDeputyLeader) && user.LeaderID != nil {
 			var leader system.SysUser
 			leaderErr := global.GVA_DB.Select("id, authority_id, enable").Where("id = ?", *user.LeaderID).First(&leader).Error
 			if leaderErr != nil {
 				return nil, errors.New("上级团长不存在")
 			}
-			if leader.AuthorityId != 200 {
+			if leader.AuthorityId != userRoleLeader {
 				return nil, errors.New("上级账号不是团长")
 			}
 			if leader.Enable != 1 {
@@ -171,8 +197,18 @@ func (userService *UserService) GetUserInfoList(operatorID, operatorAuthorityID 
 	db := global.GVA_DB.Model(&system.SysUser{})
 	var userList []system.SysUser
 
-	if operatorAuthorityID == userRoleLeader {
-		db = db.Where("id = ? OR leader_id = ?", operatorID, operatorID)
+	if operatorAuthorityID == userRoleLeader || operatorAuthorityID == userRoleDeputyLeader {
+		leaderID := operatorID
+		if operatorAuthorityID == userRoleDeputyLeader {
+			leaderID, err = userServiceOwningLeaderID(operatorID)
+			if err != nil {
+				return userList, 0, err
+			}
+		}
+		db = db.Where("id = ? OR leader_id = ?", operatorID, leaderID)
+		if operatorAuthorityID == userRoleDeputyLeader {
+			db = db.Where("authority_id = ? AND leader_id = ?", userRolePromoter, leaderID)
+		}
 	}
 
 	if info.NickName != "" {

@@ -19,13 +19,14 @@ import (
 )
 
 const (
-	roleSuperAdmin = uint(888)
-	roleAdmin      = uint(100)
-	roleLeader     = uint(200)
-	rolePromoter   = uint(300)
-	roleAppExtract = uint(400)
-	roleAppUpload  = uint(500)
-	roleSales      = uint(600)
+	roleSuperAdmin   = uint(888)
+	roleAdmin        = uint(100)
+	roleLeader       = uint(200)
+	roleDeputyLeader = uint(210)
+	rolePromoter     = uint(300)
+	roleAppExtract   = uint(400)
+	roleAppUpload    = uint(500)
+	roleSales        = uint(600)
 
 	userCacheSampleRatioKey = "cacheSampleRatio"
 )
@@ -35,12 +36,14 @@ func canManageTarget(operatorAuthorityID, targetAuthorityID uint) bool {
 	case roleSuperAdmin:
 		return true
 	case roleAdmin:
-		return targetAuthorityID == roleLeader ||
+		return targetAuthorityID == roleLeader || targetAuthorityID == roleDeputyLeader ||
 			targetAuthorityID == rolePromoter ||
 			targetAuthorityID == roleAppExtract ||
 			targetAuthorityID == roleAppUpload ||
 			targetAuthorityID == roleSales
 	case roleLeader:
+		return targetAuthorityID == roleDeputyLeader || targetAuthorityID == rolePromoter
+	case roleDeputyLeader:
 		return targetAuthorityID == rolePromoter
 	default:
 		return false
@@ -296,6 +299,10 @@ func (b *BaseApi) Register(c *gin.Context) {
 	}
 	operatorAuthorityID := utils.GetUserAuthorityId(c)
 	operatorID := utils.GetUserID(c)
+	if r.AuthorityId == roleDeputyLeader && operatorAuthorityID == roleDeputyLeader {
+		response.FailWithMessage("副团长不能创建副团长账号", c)
+		return
+	}
 	if (r.AuthorityId == roleAppExtract || r.AuthorityId == roleAppUpload || r.AuthorityId == roleSales) &&
 		operatorAuthorityID != roleAdmin && operatorAuthorityID != roleSuperAdmin {
 		response.FailWithMessage("仅管理员可创建App提取/App上传/销售角色账号", c)
@@ -307,9 +314,21 @@ func (b *BaseApi) Register(c *gin.Context) {
 	}
 
 	var leaderID *uint
+	if r.AuthorityId == roleDeputyLeader && operatorAuthorityID == roleLeader {
+		leaderID = &operatorID
+		r.LeaderID = operatorID
+	}
 	// 团长创建地推自动绑定自己为上级
 	if operatorAuthorityID == roleLeader && r.AuthorityId == rolePromoter {
 		leaderID = &operatorID
+	}
+	if operatorAuthorityID == roleDeputyLeader && r.AuthorityId == rolePromoter {
+		resolvedLeaderID, resolveErr := userService.ResolveOwningLeaderID(operatorID)
+		if resolveErr != nil {
+			response.FailWithMessage(resolveErr.Error(), c)
+			return
+		}
+		leaderID = &resolvedLeaderID
 	}
 	// 管理员/超级管理员创建地推需要显式指定团长
 	if (operatorAuthorityID == roleAdmin || operatorAuthorityID == roleSuperAdmin) && r.AuthorityId == rolePromoter {
@@ -328,6 +347,18 @@ func (b *BaseApi) Register(c *gin.Context) {
 		}
 		if leaderUser.Enable != 1 {
 			response.FailWithMessage("所属团长已被禁用", c)
+			return
+		}
+		leaderID = &r.LeaderID
+	}
+	if r.AuthorityId == roleDeputyLeader {
+		if r.LeaderID == 0 {
+			response.FailWithMessage("创建副团长账号必须指定所属团长", c)
+			return
+		}
+		leaderUser, findErr := userService.FindUserById(int(r.LeaderID))
+		if findErr != nil || leaderUser.AuthorityId != roleLeader || leaderUser.Enable != 1 {
+			response.FailWithMessage("所属团长不存在或已被禁用", c)
 			return
 		}
 		leaderID = &r.LeaderID
@@ -432,7 +463,7 @@ func (b *BaseApi) GetUserList(c *gin.Context) {
 	}
 	operatorAuthorityID := utils.GetUserAuthorityId(c)
 	operatorID := utils.GetUserID(c)
-	includeCacheSampleRatio := operatorAuthorityID == roleSuperAdmin || operatorAuthorityID == roleAdmin
+	includeCacheSampleRatio := operatorAuthorityID == roleSuperAdmin || operatorAuthorityID == roleAdmin || operatorAuthorityID == roleLeader || operatorAuthorityID == roleDeputyLeader
 	list, total, err := userService.GetUserInfoList(operatorID, operatorAuthorityID, pageInfo, includeCacheSampleRatio)
 	if err != nil {
 		global.GVA_LOG.Error("获取失败!", zap.Error(err))
@@ -590,6 +621,13 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 	if operatorAuthorityID == roleLeader && (targetUser.LeaderID == nil || *targetUser.LeaderID != operatorID) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
+	}
+	if operatorAuthorityID == roleDeputyLeader {
+		leaderID, resolveErr := userService.ResolveOwningLeaderID(operatorID)
+		if resolveErr != nil || targetUser.AuthorityId != rolePromoter || targetUser.LeaderID == nil || *targetUser.LeaderID != leaderID {
+			response.FailWithMessage("无权操作该账号", c)
+			return
+		}
 	}
 	if user.CacheSampleRatioConfigured != nil {
 		if targetUser.AuthorityId != roleLeader && targetUser.AuthorityId != rolePromoter {
@@ -776,6 +814,13 @@ func (b *BaseApi) ResetPassword(c *gin.Context) {
 	if operatorAuthorityID == roleLeader && (targetUser.LeaderID == nil || *targetUser.LeaderID != operatorID) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
+	}
+	if operatorAuthorityID == roleDeputyLeader {
+		leaderID, resolveErr := userService.ResolveOwningLeaderID(operatorID)
+		if resolveErr != nil || targetUser.AuthorityId != rolePromoter || targetUser.LeaderID == nil || *targetUser.LeaderID != leaderID {
+			response.FailWithMessage("无权操作该账号", c)
+			return
+		}
 	}
 	err = userService.ResetPassword(rps.ID, rps.Password)
 	if err != nil {

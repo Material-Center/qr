@@ -50,6 +50,7 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 		// 业务角色
 		{AuthorityId: 100, AuthorityName: "管理员", ParentId: utils.Pointer[uint](0), DefaultRouter: "accountManage"},
 		{AuthorityId: 200, AuthorityName: "团长", ParentId: utils.Pointer[uint](100), DefaultRouter: "accountManage"},
+		{AuthorityId: 210, AuthorityName: "副团长", ParentId: utils.Pointer[uint](200), DefaultRouter: "accountManage"},
 		{AuthorityId: 300, AuthorityName: "地推", ParentId: utils.Pointer[uint](200), DefaultRouter: "phoneRegisterTaskCenter"},
 		{AuthorityId: 400, AuthorityName: "App提取", ParentId: utils.Pointer[uint](100), DefaultRouter: "about"},
 		{AuthorityId: 500, AuthorityName: "App上传", ParentId: utils.Pointer[uint](100), DefaultRouter: "about"},
@@ -65,6 +66,7 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 			{AuthorityId: 888},
 			{AuthorityId: 100},
 			{AuthorityId: 200},
+			{AuthorityId: 210},
 			{AuthorityId: 300},
 			{AuthorityId: 400},
 			{AuthorityId: 500},
@@ -79,22 +81,30 @@ func (i *initAuthority) InitializeData(ctx context.Context) (context.Context, er
 		[]*sysModel.SysAuthority{
 			{AuthorityId: 100},
 			{AuthorityId: 200},
+			{AuthorityId: 210},
 			{AuthorityId: 300},
 			{AuthorityId: 400},
 			{AuthorityId: 500},
 			{AuthorityId: 600},
 		}); err != nil {
 		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
-			db.Model(&entities[3]).Association("DataAuthorityId").Relationship.JoinTable.Name)
+			db.Model(&entities[1]).Association("DataAuthorityId").Relationship.JoinTable.Name)
 	}
-	// 团长可见团长/地推数据
+	// 团长可见团长/副团长/地推数据
 	if err := db.Model(&entities[2]).Association("DataAuthorityId").Replace(
 		[]*sysModel.SysAuthority{
 			{AuthorityId: 200},
+			{AuthorityId: 210},
 			{AuthorityId: 300},
 		}); err != nil {
 		return ctx, errors.Wrapf(err, "%s表数据初始化失败!",
 			db.Model(&entities[2]).Association("DataAuthorityId").Relationship.JoinTable.Name)
+	}
+	// 副团长仅使用地推账号数据（具体所属团长范围由业务层按 leader_id 限制）
+	if err := db.Model(&entities[3]).Association("DataAuthorityId").Replace(
+		[]*sysModel.SysAuthority{{AuthorityId: 300}},
+	); err != nil {
+		return ctx, errors.Wrapf(err, "%s表数据初始化失败!", db.Model(&entities[3]).Association("DataAuthorityId").Relationship.JoinTable.Name)
 	}
 	// App提取仅可见自身数据
 	if err := db.Model(&entities[4]).Association("DataAuthorityId").Replace(

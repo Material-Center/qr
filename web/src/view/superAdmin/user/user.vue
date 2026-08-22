@@ -329,6 +329,7 @@
   const appStore = useAppStore()
 
   const ROLE_LEADER = 200
+  const ROLE_DEPUTY_LEADER = 210
   const ROLE_PROMOTER = 300
 
   const searchInfo = ref({
@@ -449,7 +450,7 @@
     if (hasRole(row, ROLE_PROMOTER)) {
       return leaderDisplayText(row) ? `所属团长：${leaderDisplayText(row)}` : '未分配团长'
     }
-    if (hasRole(row, ROLE_LEADER)) {
+    if (hasRole(row, ROLE_LEADER) || hasRole(row, ROLE_DEPUTY_LEADER)) {
       return `下属地推：${row.promoterCount || 0}`
     }
     return '-'

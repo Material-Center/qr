@@ -160,6 +160,10 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	if err = assignMenus(200, leaderMenus, "为团长分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为团长分配菜单失败")
 	}
+	deputyLeaderMenus := append([]sysModel.SysBaseMenu{}, accountMenus...)
+	if err = assignMenus(210, deputyLeaderMenus, "为副团长分配菜单失败"); err != nil {
+		return next, errors.Wrap(err, "为副团长分配菜单失败")
+	}
 
 	// 300 地推：基础菜单 + 创建任务页面
 	promoterMenus := append([]sysModel.SysBaseMenu{}, basicMenus...)
@@ -219,5 +223,6 @@ func (i *initMenuAuthority) DataInserted(ctx context.Context) bool {
 		}
 		return true
 	}
+	// 210 由幂等 SQL 补丁兼容已部署的旧环境，不作为全量重建条件。
 	return checkRole(100) && checkRole(200) && checkRole(300) && checkRole(400) && checkRole(500)
 }

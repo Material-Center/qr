@@ -277,7 +277,7 @@
           </el-select>
         </el-form-item>
         <el-form-item
-          v-if="[ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId) && userForm.authorityId === ROLE_PROMOTER && drawerMode === 'add'"
+          v-if="[ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId) && [ROLE_PROMOTER, ROLE_DEPUTY_LEADER].includes(userForm.authorityId) && drawerMode === 'add'"
           label="所属团长"
         >
           <el-select v-model="userForm.leaderId" style="width: 100%" placeholder="请选择团长">
@@ -332,6 +332,7 @@ defineOptions({
 const ROLE_SUPER = 888
 const ROLE_ADMIN = 100
 const ROLE_LEADER = 200
+const ROLE_DEPUTY_LEADER = 210
 const ROLE_PROMOTER = 300
 const ROLE_APP_EXTRACT = 400
 const ROLE_APP_UPLOAD = 500
@@ -341,7 +342,7 @@ const appStore = useAppStore()
 const userStore = useUserStore()
 
 const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
-const canManage = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].includes(currentRoleId.value))
+const canManage = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
 const useLeaderTree = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 
 const roleOptions = computed(() => {
@@ -350,6 +351,7 @@ const roleOptions = computed(() => {
       { label: '超级管理员', value: ROLE_SUPER },
       { label: '管理员', value: ROLE_ADMIN },
       { label: '团长', value: ROLE_LEADER },
+      { label: '副团长', value: ROLE_DEPUTY_LEADER },
       { label: '地推', value: ROLE_PROMOTER },
       { label: 'App提取', value: ROLE_APP_EXTRACT },
       { label: 'App上传', value: ROLE_APP_UPLOAD },
@@ -359,6 +361,7 @@ const roleOptions = computed(() => {
   if (currentRoleId.value === ROLE_ADMIN) {
     return [
       { label: '团长', value: ROLE_LEADER },
+      { label: '副团长', value: ROLE_DEPUTY_LEADER },
       { label: '地推', value: ROLE_PROMOTER },
       { label: 'App提取', value: ROLE_APP_EXTRACT },
       { label: 'App上传', value: ROLE_APP_UPLOAD },
@@ -366,6 +369,12 @@ const roleOptions = computed(() => {
     ]
   }
   if (currentRoleId.value === ROLE_LEADER) {
+    return [
+      { label: '副团长', value: ROLE_DEPUTY_LEADER },
+      { label: '地推', value: ROLE_PROMOTER }
+    ]
+  }
+  if (currentRoleId.value === ROLE_DEPUTY_LEADER) {
     return [{ label: '地推', value: ROLE_PROMOTER }]
   }
   return []
@@ -375,6 +384,7 @@ const roleText = (authorityId) => {
   if (authorityId === ROLE_SUPER) return '超级管理员'
   if (authorityId === ROLE_ADMIN) return '管理员'
   if (authorityId === ROLE_LEADER) return '团长'
+  if (authorityId === ROLE_DEPUTY_LEADER) return '副团长'
   if (authorityId === ROLE_PROMOTER) return '地推'
   if (authorityId === ROLE_APP_EXTRACT) return 'App提取'
   if (authorityId === ROLE_APP_UPLOAD) return 'App上传'
@@ -560,11 +570,14 @@ const filterByRole = (list) => {
   }
   if (currentRoleId.value === ROLE_ADMIN) {
     return list.filter((item) =>
-      [ROLE_LEADER, ROLE_PROMOTER, ROLE_APP_EXTRACT, ROLE_APP_UPLOAD, ROLE_SALES].includes(item.authorityId)
+      [ROLE_LEADER, ROLE_DEPUTY_LEADER, ROLE_PROMOTER, ROLE_APP_EXTRACT, ROLE_APP_UPLOAD, ROLE_SALES].includes(item.authorityId)
     )
   }
   if (currentRoleId.value === ROLE_LEADER) {
     return list.filter((item) => item.authorityId === ROLE_PROMOTER && item.leaderId === currentUserId.value)
+  }
+  if (currentRoleId.value === ROLE_DEPUTY_LEADER) {
+    return list.filter((item) => item.authorityId === ROLE_PROMOTER)
   }
   return []
 }
@@ -580,6 +593,8 @@ const fetchUsers = async () => {
   if (currentRoleId.value === ROLE_LEADER) {
     query.authorityId = ROLE_PROMOTER
     query.leaderId = currentUserId.value
+  } else if (currentRoleId.value === ROLE_DEPUTY_LEADER) {
+    query.authorityId = ROLE_PROMOTER
   }
   const res = await getUserList(query)
   if (res.code === 0) {
@@ -699,7 +714,7 @@ const submitDrawer = async () => {
         ...clearTreeFields(userForm.value),
         authorityIds: [userForm.value.authorityId]
       }
-      if (currentRoleId.value === ROLE_LEADER && payload.authorityId === ROLE_PROMOTER) {
+      if ([ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value) && payload.authorityId === ROLE_PROMOTER) {
         payload.leaderId = currentUserId.value
       }
       const res = await register(payload)
