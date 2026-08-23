@@ -400,7 +400,7 @@ const leaderDisplayText = (row) => {
 }
 
 const relationText = (row) => {
-  if (row.authorityId === ROLE_PROMOTER) {
+  if ([ROLE_DEPUTY_LEADER, ROLE_PROMOTER].includes(row.authorityId)) {
     return leaderDisplayText(row) ? `所属团长：${leaderDisplayText(row)}` : '未分配团长'
   }
   if (row.authorityId === ROLE_LEADER) {
@@ -489,7 +489,7 @@ const buildLeaderTree = (list) => {
   const visibleList = filterByRole(list).map((item) => ({ ...item }))
   const leaderMap = new Map()
   const roots = []
-  const promoters = []
+  const managedAccounts = []
 
   visibleList.forEach((item) => {
     if (item.authorityId === ROLE_LEADER) {
@@ -498,14 +498,14 @@ const buildLeaderTree = (list) => {
       roots.push(item)
       return
     }
-    if (item.authorityId === ROLE_PROMOTER) {
-      promoters.push(item)
+    if ([ROLE_DEPUTY_LEADER, ROLE_PROMOTER].includes(item.authorityId)) {
+      managedAccounts.push(item)
       return
     }
     roots.push(item)
   })
 
-  promoters.forEach((item) => {
+  managedAccounts.forEach((item) => {
     const leader = item.leaderId ? leaderMap.get(item.leaderId) : null
     if (leader) {
       leader.children.push({
