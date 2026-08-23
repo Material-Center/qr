@@ -574,7 +574,9 @@ const filterByRole = (list) => {
     )
   }
   if (currentRoleId.value === ROLE_LEADER) {
-    return list.filter((item) => item.authorityId === ROLE_PROMOTER && item.leaderId === currentUserId.value)
+    return list.filter(
+      (item) => [ROLE_DEPUTY_LEADER, ROLE_PROMOTER].includes(item.authorityId) && item.leaderId === currentUserId.value
+    )
   }
   if (currentRoleId.value === ROLE_DEPUTY_LEADER) {
     return list.filter((item) => item.authorityId === ROLE_PROMOTER)
@@ -591,7 +593,6 @@ const fetchUsers = async () => {
     Object.assign(query, searchInfo.value)
   }
   if (currentRoleId.value === ROLE_LEADER) {
-    query.authorityId = ROLE_PROMOTER
     query.leaderId = currentUserId.value
   } else if (currentRoleId.value === ROLE_DEPUTY_LEADER) {
     query.authorityId = ROLE_PROMOTER
