@@ -394,6 +394,7 @@ func (b *BaseApi) Register(c *gin.Context) {
 		AuthorityId:                      r.AuthorityId,
 		Authorities:                      authorities,
 		LeaderID:                         leaderID,
+		CreatedBy:                        operatorID,
 		Enable:                           r.Enable,
 		Phone:                            r.Phone,
 		Email:                            r.Email,

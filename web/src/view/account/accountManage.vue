@@ -460,34 +460,19 @@ const matchSearchInfo = (item) => {
 
 const filterTreeBySearch = (roots) => {
   if (!hasSearchCondition()) return roots
-  return roots.reduce((result, item) => {
-    if (item.authorityId !== ROLE_LEADER) {
-      if (matchSearchInfo(item)) result.push(item)
-      return result
-    }
-
-    const children = item.children || []
-    const leaderMatched = matchSearchInfo(item)
-    const matchedChildren = children.filter(matchSearchInfo)
-    if (!leaderMatched && matchedChildren.length === 0) {
-      return result
-    }
-
-    const nextItem = {
-      ...item,
-      children: leaderMatched ? children : matchedChildren
-    }
-    if (nextItem.children.length === 0) {
-      delete nextItem.children
-    }
-    result.push(nextItem)
-    return result
-  }, [])
+  const filterNode = (item) => {
+    if (matchSearchInfo(item)) return item
+    const matchedChildren = (item.children || []).map(filterNode).filter(Boolean)
+    if (matchedChildren.length === 0) return null
+    return { ...item, children: matchedChildren }
+  }
+  return roots.map(filterNode).filter(Boolean)
 }
 
 const buildLeaderTree = (list) => {
   const visibleList = filterByRole(list).map((item) => ({ ...item }))
   const leaderMap = new Map()
+  const deputyLeaderMap = new Map()
   const roots = []
   const managedAccounts = []
 
@@ -500,12 +485,26 @@ const buildLeaderTree = (list) => {
     }
     if ([ROLE_DEPUTY_LEADER, ROLE_PROMOTER].includes(item.authorityId)) {
       managedAccounts.push(item)
+      if (item.authorityId === ROLE_DEPUTY_LEADER) {
+        item.children = []
+        deputyLeaderMap.set(item.ID, item)
+      }
       return
     }
     roots.push(item)
   })
 
   managedAccounts.forEach((item) => {
+    if (item.authorityId === ROLE_PROMOTER && item.createdBy) {
+      const deputyLeader = deputyLeaderMap.get(item.createdBy)
+      if (deputyLeader && deputyLeader.leaderId === item.leaderId) {
+        deputyLeader.children.push({
+          ...item,
+          _relationChild: true
+        })
+        return
+      }
+    }
     const leader = item.leaderId ? leaderMap.get(item.leaderId) : null
     if (leader) {
       leader.children.push({

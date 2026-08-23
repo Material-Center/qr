@@ -66,6 +66,35 @@ func TestResetPasswordRejectsOtherLeadersPromoter(t *testing.T) {
 	require.Equal(t, "无权操作该账号", resp.Msg)
 }
 
+func TestDeputyLeaderCreatedPromoterRecordsCreator(t *testing.T) {
+	setupUserSecurityAPITestDB(t)
+
+	router := gin.New()
+	router.POST("/user/admin_register", func(c *gin.Context) {
+		c.Set("claims", &modelSystemReq.CustomClaims{
+			BaseClaims: modelSystemReq.BaseClaims{ID: 20, AuthorityId: 210},
+		})
+		(&BaseApi{}).Register(c)
+	})
+
+	body := []byte(`{"userName":"deputy-created-promoter","nickName":"地推","passWord":"password","authorityId":300,"authorityIds":[300],"enable":1}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/user/admin_register", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp commonResp.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, commonResp.SUCCESS, resp.Code, resp.Msg)
+
+	var user modelSystem.SysUser
+	require.NoError(t, global.GVA_DB.Where("username = ?", "deputy-created-promoter").First(&user).Error)
+	require.Equal(t, uint(20), user.CreatedBy)
+	require.NotNil(t, user.LeaderID)
+	require.Equal(t, uint(10), *user.LeaderID)
+}
+
 func setupUserSecurityAPITestDB(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -83,11 +112,13 @@ func setupUserSecurityAPITestDB(t *testing.T) {
 	))
 	require.NoError(t, db.Create(&[]modelSystem.SysAuthority{
 		{AuthorityId: 200, AuthorityName: "团长"},
+		{AuthorityId: 210, AuthorityName: "副团长"},
 		{AuthorityId: 300, AuthorityName: "地推"},
 	}).Error)
 	require.NoError(t, db.Create(&[]modelSystem.SysUser{
 		{GVA_MODEL: global.GVA_MODEL{ID: 10}, Username: "leader", AuthorityId: 200, Enable: 1},
 		{GVA_MODEL: global.GVA_MODEL{ID: 12}, Username: "other-promoter", AuthorityId: 300, LeaderID: uintPtr(99), Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 20}, Username: "deputy", AuthorityId: 210, LeaderID: uintPtr(10), Enable: 1},
 	}).Error)
 }
 

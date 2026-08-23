@@ -29,6 +29,7 @@ type SysUser struct {
 	Authority                        SysAuthority   `json:"authority" gorm:"foreignKey:AuthorityId;references:AuthorityId;comment:用户角色"` // 用户角色
 	Authorities                      []SysAuthority `json:"authorities" gorm:"many2many:sys_user_authority;"`                            // 多用户角色
 	LeaderID                         *uint          `json:"leaderId" gorm:"index;comment:所属团长ID"`                                        // 所属团长ID（地推账号使用）
+	CreatedBy                        uint           `json:"createdBy" gorm:"column:created_by;index;comment:创建人账号ID"`                    // 由服务端根据当前登录账号写入
 	Phone                            string         `json:"phone"  gorm:"comment:用户手机号"`                                                 // 用户手机号
 	Email                            string         `json:"email"  gorm:"comment:用户邮箱"`                                                  // 用户邮箱
 	Enable                           int            `json:"enable" gorm:"default:1;comment:用户是否被冻结 1正常 2冻结"`                             //用户是否被冻结 1正常 2冻结
