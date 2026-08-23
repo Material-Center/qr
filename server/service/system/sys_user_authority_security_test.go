@@ -124,6 +124,7 @@ func setupUserAuthoritySecurityTestDB(t *testing.T) {
 		{GVA_MODEL: global.GVA_MODEL{ID: 12}, Username: "other-promoter", AuthorityId: 300, LeaderID: uintPtr(99), Enable: 1},
 		{GVA_MODEL: global.GVA_MODEL{ID: 13}, Username: "own-promoter", AuthorityId: 300, LeaderID: uintPtr(10), Enable: 1},
 		{GVA_MODEL: global.GVA_MODEL{ID: 14}, Username: "other-leader", AuthorityId: 200, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 15}, Username: "own-admin", AuthorityId: 100, LeaderID: uintPtr(10), Enable: 1},
 	}).Error)
 	require.NoError(t, db.Create(&[]modelSystem.SysUserAuthority{
 		{SysUserId: 10, SysAuthorityAuthorityId: 200},
@@ -131,6 +132,7 @@ func setupUserAuthoritySecurityTestDB(t *testing.T) {
 		{SysUserId: 12, SysAuthorityAuthorityId: 300},
 		{SysUserId: 13, SysAuthorityAuthorityId: 300},
 		{SysUserId: 14, SysAuthorityAuthorityId: 200},
+		{SysUserId: 15, SysAuthorityAuthorityId: 100},
 	}).Error)
 }
 

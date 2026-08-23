@@ -205,7 +205,17 @@ func (userService *UserService) GetUserInfoList(operatorID, operatorAuthorityID 
 				return userList, 0, err
 			}
 		}
-		db = db.Where("id = ? OR leader_id = ?", operatorID, leaderID)
+		if operatorAuthorityID == userRoleLeader {
+			// Leaders may only list themselves and accounts in their managed roles.
+			// Keep this boundary in the service layer; client-side filtering is not
+			// an authorization control.
+			db = db.Where(
+				"(id = ? AND authority_id = ?) OR (leader_id = ? AND authority_id IN (?, ?))",
+				operatorID, userRoleLeader, leaderID, userRoleDeputyLeader, userRolePromoter,
+			)
+		} else {
+			db = db.Where("id = ? OR leader_id = ?", operatorID, leaderID)
+		}
 		if operatorAuthorityID == userRoleDeputyLeader {
 			db = db.Where("authority_id = ? AND leader_id = ?", userRolePromoter, leaderID)
 		}
