@@ -885,16 +885,6 @@ func applyRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID uint
 		if req.PromoterID != 0 {
 			db = db.Where("sys_register_tasks.promoter_id = ?", req.PromoterID)
 		}
-	case roleDeputyLeader:
-		leaderID, err := userServiceOwningLeaderID(operatorID)
-		if err != nil {
-			return nil, err
-		}
-		db = db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_register_tasks.promoter_id").
-			Where("COALESCE(sys_register_tasks.leader_id, promoter.leader_id) = ? AND promoter.created_by = ?", leaderID, operatorID)
-		if req.PromoterID != 0 {
-			db = db.Where("sys_register_tasks.promoter_id = ?", req.PromoterID)
-		}
 	case rolePromoter:
 		db = db.Where("sys_register_tasks.promoter_id = ?", operatorID)
 	default:

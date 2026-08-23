@@ -177,10 +177,6 @@ func TestRegisterTaskDeputySummaryOnlyIncludesCreatedPromoters(t *testing.T) {
 	require.Len(t, summary.Promoters, 1)
 	require.Equal(t, uint(31), summary.Promoters[0].PromoterID)
 
-	list, err := (&RegisterTaskService{}).GetTaskList(roleDeputyLeader, deputyID, modelSystemReq.RegisterTaskList{})
-	require.NoError(t, err)
-	require.Len(t, list.List, 1)
-	require.Equal(t, uint(31), list.List[0].PromoterID)
 }
 
 func registerSummaryLeaderIDs(items []modelSystemRes.RegisterTaskSummaryItem) []uint {

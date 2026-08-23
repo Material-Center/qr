@@ -34,10 +34,11 @@ type registerTaskListItem struct {
 }
 
 const (
-	rtRoleSuperAdmin = uint(888)
-	rtRoleAdmin      = uint(100)
-	rtRoleLeader     = uint(200)
-	rtRolePromoter   = uint(300)
+	rtRoleSuperAdmin   = uint(888)
+	rtRoleAdmin        = uint(100)
+	rtRoleLeader       = uint(200)
+	rtRoleDeputyLeader = uint(210)
+	rtRolePromoter     = uint(300)
 )
 
 // CreateRegisterTask
@@ -232,7 +233,7 @@ func (a *RegisterTaskApi) GetRegisterTaskList(c *gin.Context) {
 // @Router    /registerTask/summary [get]
 func (a *RegisterTaskApi) GetRegisterTaskSummary(c *gin.Context) {
 	role := utils.GetUserAuthorityId(c)
-	if role != rtRoleSuperAdmin && role != rtRoleAdmin && role != rtRoleLeader {
+	if role != rtRoleSuperAdmin && role != rtRoleAdmin && role != rtRoleLeader && role != rtRoleDeputyLeader {
 		response.FailWithMessage("无权限查看统计", c)
 		return
 	}

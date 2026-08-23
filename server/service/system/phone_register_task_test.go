@@ -1695,11 +1695,6 @@ func TestPhoneRegisterTaskDeputySummaryOnlyIncludesCreatedPromoters(t *testing.T
 	require.Len(t, summary.Promoters, 1)
 	require.Equal(t, uint(31), summary.Promoters[0].PromoterID)
 
-	list, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleDeputyLeader, deputyID, modelSystemReq.PhoneRegisterTaskList{})
-	require.NoError(t, err)
-	require.Len(t, list.List, 1)
-	require.NotNil(t, list.List[0].Promoter)
-	require.Equal(t, uint(31), list.List[0].Promoter.ID)
 }
 
 func TestGetSummaryHidesRiskFailCountForLeaderRole(t *testing.T) {

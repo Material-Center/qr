@@ -395,9 +395,7 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "210", V1: "/user/deleteUser", V2: "DELETE"},
 		{Ptype: "p", V0: "210", V1: "/user/resetPassword", V2: "POST"},
 		{Ptype: "p", V0: "210", V1: "/user/setUserAuthorities", V2: "POST"},
-		{Ptype: "p", V0: "210", V1: "/registerTask/list", V2: "POST"},
 		{Ptype: "p", V0: "210", V1: "/registerTask/summary", V2: "GET"},
-		{Ptype: "p", V0: "210", V1: "/phoneRegisterTask/list", V2: "POST"},
 		{Ptype: "p", V0: "210", V1: "/phoneRegisterTask/summary", V2: "GET"},
 		{Ptype: "p", V0: "210", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 

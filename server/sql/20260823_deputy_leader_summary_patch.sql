@@ -15,14 +15,17 @@ WHERE m.`name` IN ('register', 'registerTaskManage', 'phoneRegisterTaskManage')
 INSERT INTO `casbin_rule` (`ptype`,`v0`,`v1`,`v2`)
 SELECT 'p', '210', p.path, p.method
 FROM (
-  SELECT '/registerTask/list' path, 'POST' method UNION ALL
-  SELECT '/registerTask/summary', 'GET' UNION ALL
-  SELECT '/phoneRegisterTask/list', 'POST' UNION ALL
+  SELECT '/registerTask/summary' path, 'GET' method UNION ALL
   SELECT '/phoneRegisterTask/summary', 'GET'
 ) p
 WHERE NOT EXISTS (
   SELECT 1 FROM `casbin_rule` c
   WHERE c.`ptype` = 'p' AND c.`v0` = '210' AND c.`v1` = p.path AND c.`v2` = p.method
 );
+
+DELETE FROM `casbin_rule`
+WHERE `ptype` = 'p' AND `v0` = '210'
+  AND ((`v1` = '/registerTask/list' AND `v2` = 'POST')
+    OR (`v1` = '/phoneRegisterTask/list' AND `v2` = 'POST'));
 
 COMMIT;

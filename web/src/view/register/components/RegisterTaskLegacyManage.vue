@@ -160,7 +160,7 @@
 
       <el-divider />
       <el-row :gutter="12">
-        <el-col :span="12">
+        <el-col v-if="showLeaderSummary" :span="12">
           <el-card shadow="never">
             <template #header>
               <span class="header-with-tip">
@@ -206,7 +206,7 @@
             </el-table>
           </el-card>
         </el-col>
-        <el-col :span="12">
+        <el-col :span="showLeaderSummary ? 12 : 24">
           <el-card shadow="never">
             <template #header>
               <span class="header-with-tip">
@@ -291,6 +291,7 @@ const canDownloadCache = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(curren
 const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showTaskList = computed(() => ![ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
+const showLeaderSummary = computed(() => currentRoleId.value !== ROLE_DEPUTY_LEADER)
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showDailyResetTip = computed(() => [ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
 const searchInfo = ref({
@@ -529,7 +530,11 @@ const openSettlementHistory = async (row) => {
 
 const fetchAll = async () => {
   try {
-    await Promise.all([fetchList(), fetchSummary()])
+    if (showTaskList.value) {
+      await Promise.all([fetchList(), fetchSummary()])
+    } else {
+      await fetchSummary()
+    }
   } catch (e) {
     ElMessage.error(e?.message || '加载失败')
   }

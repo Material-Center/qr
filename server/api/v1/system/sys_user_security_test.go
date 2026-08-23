@@ -95,6 +95,27 @@ func TestDeputyLeaderCreatedPromoterRecordsCreator(t *testing.T) {
 	require.Equal(t, uint(10), *user.LeaderID)
 }
 
+func TestDeputyLeaderCanGetRegisterTaskSummary(t *testing.T) {
+	setupUserSecurityAPITestDB(t)
+
+	router := gin.New()
+	router.GET("/registerTask/summary", func(c *gin.Context) {
+		c.Set("claims", &modelSystemReq.CustomClaims{
+			BaseClaims: modelSystemReq.BaseClaims{ID: 20, AuthorityId: 210},
+		})
+		(&RegisterTaskApi{}).GetRegisterTaskSummary(c)
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/registerTask/summary", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp commonResp.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, commonResp.SUCCESS, resp.Code, resp.Msg)
+}
+
 func setupUserSecurityAPITestDB(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -109,6 +130,7 @@ func setupUserSecurityAPITestDB(t *testing.T) {
 		&modelSystem.SysUser{},
 		&modelSystem.SysAuthority{},
 		&modelSystem.SysUserAuthority{},
+		&modelSystem.SysRegisterTask{},
 	))
 	require.NoError(t, db.Create(&[]modelSystem.SysAuthority{
 		{AuthorityId: 200, AuthorityName: "团长"},

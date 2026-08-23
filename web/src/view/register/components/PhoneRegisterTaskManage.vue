@@ -224,7 +224,7 @@
       <template v-if="showSummary">
         <el-divider v-if="showTaskList" />
         <el-row :gutter="12" class="summary-row">
-          <el-col :span="12">
+          <el-col v-if="showLeaderSummary" :span="12">
             <el-card shadow="never">
               <template #header>
                 <span class="header-with-tip">
@@ -270,7 +270,7 @@
               </el-table>
             </el-card>
           </el-col>
-          <el-col :span="12">
+          <el-col :span="showLeaderSummary ? 12 : 24">
             <el-card shadow="never">
               <template #header>
                 <span class="header-with-tip">
@@ -422,6 +422,7 @@ const currentUserId = computed(() => userStore.userInfo?.ID)
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showSummary = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
 const showTaskList = computed(() => ![ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
+const showLeaderSummary = computed(() => currentRoleId.value !== ROLE_DEPUTY_LEADER)
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showPromoterLeaderColumn = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
@@ -778,7 +779,11 @@ const handleLogSizeChange = async () => {
 
 const fetchAll = async () => {
   try {
-    await Promise.all([fetchList(), fetchSummary()])
+    if (showTaskList.value) {
+      await Promise.all([fetchList(), fetchSummary()])
+    } else {
+      await fetchSummary()
+    }
   } catch (e) {
     ElMessage.error(e?.message || '加载失败')
   }
