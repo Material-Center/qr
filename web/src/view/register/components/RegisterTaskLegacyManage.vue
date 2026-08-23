@@ -158,7 +158,7 @@
         </div>
       </template>
 
-      <el-divider />
+      <el-divider v-if="showTaskList" />
       <el-row :gutter="12">
         <el-col v-if="showLeaderSummary" :span="12">
           <el-card shadow="never">
