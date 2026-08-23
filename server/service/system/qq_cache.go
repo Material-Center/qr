@@ -1648,6 +1648,7 @@ func buildQQCacheExportAccountListLine(record system.SysQQCacheRecord, task qqCa
 		qqCacheExportTextValue(qqCacheExportLeaderName(task)),
 		qqCacheExportTextValue(qqCacheExportSMSModeName(task.SMSReceiveMode)),
 		qqCacheExportTextValue(task.Region),
+		formatQQCacheRegisterTime(record.CreatedAt),
 	}, "----")
 }
 

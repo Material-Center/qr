@@ -777,7 +777,7 @@ func TestExportAccountListTextBySelectedIDs(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "40001----9.2.70------------------------------\r\n", text)
+	require.Equal(t, "40001----9.2.70----------------------------------"+formatQQCacheRegisterTime(selected.CreatedAt)+"\r\n", text)
 }
 
 func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
@@ -791,10 +791,9 @@ func TestExportAccountListTextByFiltersDoesNotMarkExtracted(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "50001----9.2.70------------------------------\r\n", text)
-
 	var stored model.SysQQCacheRecord
 	require.NoError(t, global.GVA_DB.Where("qq_num = ?", "50001").First(&stored).Error)
+	require.Equal(t, "50001----9.2.70----------------------------------"+formatQQCacheRegisterTime(stored.CreatedAt)+"\r\n", text)
 	require.Nil(t, stored.Extractor)
 	require.Nil(t, stored.ExtractionAt)
 }
@@ -891,7 +890,7 @@ func TestExportAccountListTextIncludesDeviceLeaderAndReceiveMode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "60001----9.2.70----device-a----分组A----13800138000----团长A----收码----广东深圳\r\n", text)
+	require.Equal(t, "60001----9.2.70----device-a----分组A----13800138000----团长A----收码----广东深圳----"+formatQQCacheRegisterTime(record.CreatedAt)+"\r\n", text)
 }
 
 func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
@@ -921,7 +920,7 @@ func TestExportAccountListTextFormatsUserSentModeAsSendCode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, 1, count)
-	require.Equal(t, "60002----9.2.75----device-b--------------团长B----发码----上海浦东\r\n", text)
+	require.Equal(t, "60002----9.2.75----device-b--------------团长B----发码----上海浦东----"+formatQQCacheRegisterTime(record.CreatedAt)+"\r\n", text)
 }
 
 func TestExportAccountListTextByQQTextKeepsInputOrder(t *testing.T) {
@@ -941,9 +940,15 @@ func TestExportAccountListTextByQQTextKeepsInputOrder(t *testing.T) {
 
 	require.NoError(t, err)
 	require.EqualValues(t, 2, count)
+	var records []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("qq_num IN ?", []string{"70001", "70002"}).Find(&records).Error)
+	createdAt := map[string]string{}
+	for _, record := range records {
+		createdAt[record.QQNum] = formatQQCacheRegisterTime(record.CreatedAt)
+	}
 	require.Equal(t, strings.Join([]string{
-		"70002----9.2.75----device-b-------------------------",
-		"70001----9.2.70----device-a-------------------------",
+		"70002----9.2.75----device-b-----------------------------" + createdAt["70002"],
+		"70001----9.2.70----device-a-----------------------------" + createdAt["70001"],
 		"",
 	}, "\r\n"), text)
 }
