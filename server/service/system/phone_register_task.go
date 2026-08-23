@@ -146,6 +146,13 @@ type phoneRegisterRiskDecision struct {
 	Reason     string
 }
 
+type phoneRegisterRiskScope struct {
+	ID     uint
+	Kind   string
+	Ratio  int
+	Active bool
+}
+
 func init() {
 	startPhoneRegisterTaskDaemon()
 }
@@ -1640,16 +1647,16 @@ func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm
 	if task == nil {
 		return phoneRegisterRiskDecision{}, errors.New("任务不存在")
 	}
-	ratio, err := s.effectivePhoneRegisterRiskRatioTx(tx, task.PromoterID)
+	scope, err := s.resolvePhoneRegisterRiskScopeTx(tx, task.PromoterID, task.LeaderID)
 	if err != nil {
 		return phoneRegisterRiskDecision{}, err
 	}
-	decision := phoneRegisterRiskDecision{Ratio: ratio}
-	if ratio <= 0 {
+	decision := phoneRegisterRiskDecision{Ratio: scope.Ratio}
+	if !scope.Active || scope.Ratio <= 0 {
 		return decision, nil
 	}
 
-	stat, err := s.loadPhoneRegisterRiskDailyStatTx(tx, task.PromoterID, now)
+	stat, err := s.loadPhoneRegisterRiskDailyStatTx(tx, scope, now)
 	if err != nil {
 		if isPhoneRegisterRiskStatTableMissingError(err) {
 			if global.GVA_LOG != nil {
@@ -1661,15 +1668,15 @@ func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm
 	}
 	seq := stat.SuccessReportCount + 1
 	decision.Seq = seq
-	targetRiskCount := int64(math.Floor(float64(seq*int64(ratio)) / 100))
+	targetRiskCount := int64(math.Floor(float64(seq*int64(scope.Ratio)) / 100))
 
 	shouldHit := false
 	if seq > phoneRegisterRiskWarmupSuccessCount && targetRiskCount > stat.RiskFailCount {
 		gap := seq - stat.LastRiskSuccessSeq
-		minGap := phoneRegisterRiskMinGap(ratio, task.PromoterID, stat.BizDate, seq)
+		minGap := phoneRegisterRiskMinGap(scope.Ratio, scope, stat.BizDate, seq)
 		if stat.LastRiskSuccessSeq == 0 || gap > minGap {
-			probability := phoneRegisterRiskHitProbability(ratio, seq, stat.RiskFailCount, targetRiskCount, gap)
-			shouldHit = phoneRegisterRiskRandomFloat(fmt.Sprintf("hit:%d:%s:%d:%d", task.PromoterID, stat.BizDate, seq, task.ID)) < probability
+			probability := phoneRegisterRiskHitProbability(scope.Ratio, seq, stat.RiskFailCount, targetRiskCount, gap)
+			shouldHit = phoneRegisterRiskRandomFloat(fmt.Sprintf("hit:%s:%d:%s:%d:%d", scope.Kind, scope.ID, stat.BizDate, seq, task.ID)) < probability
 			if shouldHit && stat.LastRiskGap > 0 && gap == stat.LastRiskGap && gap == stat.PreviousRiskGap {
 				shouldHit = false
 			}
@@ -1681,7 +1688,7 @@ func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm
 		"updated_at":           now,
 	}
 	if shouldHit {
-		reason := phoneRegisterRiskReason(task.PromoterID, stat.BizDate, seq, stat.LastRiskReason, stat.PreviousRiskReason)
+		reason := phoneRegisterRiskReason(scope.ID, stat.BizDate, seq, stat.LastRiskReason, stat.PreviousRiskReason)
 		statusCode := system.PhoneRegisterStatusCodeRiskFace
 		decision.Hit = true
 		decision.StatusCode = statusCode
@@ -1702,34 +1709,59 @@ func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm
 	return decision, nil
 }
 
-func (s *PhoneRegisterTaskService) effectivePhoneRegisterRiskRatioTx(tx *gorm.DB, promoterID uint) (int, error) {
+func (s *PhoneRegisterTaskService) resolvePhoneRegisterRiskScopeTx(tx *gorm.DB, promoterID uint, taskLeaderID *uint) (phoneRegisterRiskScope, error) {
+	scope := phoneRegisterRiskScope{
+		ID:   promoterID,
+		Kind: "promoter",
+	}
+	if taskLeaderID != nil && *taskLeaderID != 0 {
+		var leader system.SysUser
+		if err := tx.Select("id, origin_setting").Where("id = ?", *taskLeaderID).First(&leader).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return phoneRegisterRiskScope{}, err
+			}
+		} else {
+			scope.ID = leader.ID
+			scope.Kind = "leader"
+			scope.Active = true
+			if ratio := getCacheSampleRatio(leader.OriginSetting); ratio != nil {
+				scope.Ratio = clampPhoneRegisterRiskRatio(*ratio)
+			}
+			return scope, nil
+		}
+	}
 	if promoterID == 0 {
-		return 0, nil
+		return scope, nil
 	}
 	var promoter system.SysUser
 	if err := tx.Select("id, leader_id, origin_setting").Where("id = ?", promoterID).First(&promoter).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, nil
+			return phoneRegisterRiskScope{}, nil
 		}
-		return 0, err
+		return phoneRegisterRiskScope{}, err
 	}
+	if promoter.LeaderID != nil && *promoter.LeaderID != 0 {
+		var leader system.SysUser
+		if err := tx.Select("id, origin_setting").Where("id = ?", *promoter.LeaderID).First(&leader).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				return phoneRegisterRiskScope{}, err
+			}
+		} else {
+			scope.ID = leader.ID
+			scope.Kind = "leader"
+			scope.Active = true
+			if ratio := getCacheSampleRatio(leader.OriginSetting); ratio != nil {
+				scope.Ratio = clampPhoneRegisterRiskRatio(*ratio)
+			}
+			return scope, nil
+		}
+	}
+	scope.ID = promoter.ID
+	scope.Active = true
 	if ratio := getCacheSampleRatio(promoter.OriginSetting); ratio != nil {
-		return clampPhoneRegisterRiskRatio(*ratio), nil
+		scope.Ratio = clampPhoneRegisterRiskRatio(*ratio)
 	}
-	if promoter.LeaderID == nil || *promoter.LeaderID == 0 {
-		return 0, nil
-	}
-	var leader system.SysUser
-	if err := tx.Select("id, origin_setting").Where("id = ?", *promoter.LeaderID).First(&leader).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return 0, nil
-		}
-		return 0, err
-	}
-	if ratio := getCacheSampleRatio(leader.OriginSetting); ratio != nil {
-		return clampPhoneRegisterRiskRatio(*ratio), nil
-	}
-	return 0, nil
+	return scope, nil
 }
 
 func clampPhoneRegisterRiskRatio(ratio int) int {
@@ -1742,11 +1774,11 @@ func clampPhoneRegisterRiskRatio(ratio int) int {
 	return ratio
 }
 
-func (s *PhoneRegisterTaskService) loadPhoneRegisterRiskDailyStatTx(tx *gorm.DB, promoterID uint, now time.Time) (system.SysPhoneRegisterRiskDailyStat, error) {
+func (s *PhoneRegisterTaskService) loadPhoneRegisterRiskDailyStatTx(tx *gorm.DB, scope phoneRegisterRiskScope, now time.Time) (system.SysPhoneRegisterRiskDailyStat, error) {
 	bizDate, start, end := phoneRegisterRiskDayRange(now)
 	var stat system.SysPhoneRegisterRiskDailyStat
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("promoter_id = ? AND biz_date = ?", promoterID, bizDate).
+		Where("promoter_id = ? AND biz_date = ?", scope.ID, bizDate).
 		First(&stat).Error
 	if err == nil {
 		return stat, nil
@@ -1755,12 +1787,12 @@ func (s *PhoneRegisterTaskService) loadPhoneRegisterRiskDailyStatTx(tx *gorm.DB,
 		return system.SysPhoneRegisterRiskDailyStat{}, err
 	}
 
-	successCount, riskCount, err := countPhoneRegisterRiskDayTasksTx(tx, promoterID, start, end)
+	successCount, riskCount, err := countPhoneRegisterRiskDayTasksTx(tx, scope, start, end)
 	if err != nil {
 		return system.SysPhoneRegisterRiskDailyStat{}, err
 	}
 	stat = system.SysPhoneRegisterRiskDailyStat{
-		PromoterID:         promoterID,
+		PromoterID:         scope.ID,
 		BizDate:            bizDate,
 		SuccessReportCount: successCount,
 		RiskFailCount:      riskCount,
@@ -1772,7 +1804,7 @@ func (s *PhoneRegisterTaskService) loadPhoneRegisterRiskDailyStatTx(tx *gorm.DB,
 	if err := tx.Create(&stat).Error; err != nil {
 		if isPhoneRegisterDuplicateKeyError(err) {
 			if loadErr := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				Where("promoter_id = ? AND biz_date = ?", promoterID, bizDate).
+				Where("promoter_id = ? AND biz_date = ?", scope.ID, bizDate).
 				First(&stat).Error; loadErr != nil {
 				return system.SysPhoneRegisterRiskDailyStat{}, loadErr
 			}
@@ -1783,18 +1815,23 @@ func (s *PhoneRegisterTaskService) loadPhoneRegisterRiskDailyStatTx(tx *gorm.DB,
 	return stat, nil
 }
 
-func countPhoneRegisterRiskDayTasksTx(tx *gorm.DB, promoterID uint, start time.Time, end time.Time) (int64, int64, error) {
+func countPhoneRegisterRiskDayTasksTx(tx *gorm.DB, scope phoneRegisterRiskScope, start time.Time, end time.Time) (int64, int64, error) {
+	applyScope := func(db *gorm.DB) *gorm.DB {
+		if scope.Kind == "leader" {
+			return db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_phone_register_tasks.promoter_id").
+				Where("COALESCE(sys_phone_register_tasks.leader_id, promoter.leader_id) = ?", scope.ID)
+		}
+		return db.Where("promoter_id = ?", scope.ID)
+	}
 	var successCount int64
-	if err := tx.Model(&system.SysPhoneRegisterTask{}).
-		Where("promoter_id = ?", promoterID).
+	if err := applyScope(tx.Model(&system.SysPhoneRegisterTask{})).
 		Where("finished_at >= ? AND finished_at < ?", start, end).
 		Where("status_code IN ?", phoneRegisterRiskSuccessStatusCodes()).
 		Count(&successCount).Error; err != nil {
 		return 0, 0, err
 	}
 	var riskCount int64
-	if err := tx.Model(&system.SysPhoneRegisterTask{}).
-		Where("promoter_id = ?", promoterID).
+	if err := applyScope(tx.Model(&system.SysPhoneRegisterTask{})).
 		Where("finished_at >= ? AND finished_at < ?", start, end).
 		Where("status_code IN ?", phoneRegisterRiskStatusCodes()).
 		Count(&riskCount).Error; err != nil {
@@ -1853,7 +1890,7 @@ func isPhoneRegisterRiskStatusCode(statusCode *int) bool {
 	return *statusCode == system.PhoneRegisterStatusCodeRiskFace || *statusCode == system.PhoneRegisterStatusCodeRiskQuota
 }
 
-func phoneRegisterRiskMinGap(ratio int, promoterID uint, bizDate string, seq int64) int64 {
+func phoneRegisterRiskMinGap(ratio int, scope phoneRegisterRiskScope, bizDate string, seq int64) int64 {
 	var low, high int64
 	switch {
 	case ratio <= 10:
@@ -1865,7 +1902,7 @@ func phoneRegisterRiskMinGap(ratio int, promoterID uint, bizDate string, seq int
 	default:
 		low, high = 1, 4
 	}
-	value := int64(phoneRegisterRiskRandomFloat(fmt.Sprintf("gap:%d:%s:%d", promoterID, bizDate, seq)) * float64(high-low+1))
+	value := int64(phoneRegisterRiskRandomFloat(fmt.Sprintf("gap:%s:%d:%s:%d", scope.Kind, scope.ID, bizDate, seq)) * float64(high-low+1))
 	return low + value
 }
 

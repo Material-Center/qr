@@ -641,6 +641,16 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
 	}
+	if user.LeaderID != nil {
+		currentLeaderID := uint(0)
+		if targetUser.LeaderID != nil {
+			currentLeaderID = *targetUser.LeaderID
+		}
+		if *user.LeaderID != currentLeaderID {
+			response.FailWithMessage("禁止修改所属团长", c)
+			return
+		}
+	}
 	if !canConfigureAccountRisk(operatorAuthorityID) {
 		if user.CacheSampleRatioConfigured != nil {
 			response.FailWithMessage("仅管理员可配置风控比例", c)

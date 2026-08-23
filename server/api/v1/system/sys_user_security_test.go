@@ -42,6 +42,64 @@ func TestSetUserInfoRejectsOtherLeadersPromoter(t *testing.T) {
 	require.Equal(t, "无权操作该账号", resp.Msg)
 }
 
+func TestSetUserInfoRejectsLeaderChange(t *testing.T) {
+	setupUserSecurityAPITestDB(t)
+
+	router := gin.New()
+	router.PUT("/user/setUserInfo", func(c *gin.Context) {
+		c.Set("claims", &modelSystemReq.CustomClaims{
+			BaseClaims: modelSystemReq.BaseClaims{ID: 10, AuthorityId: 200},
+		})
+		(&BaseApi{}).SetUserInfo(c)
+	})
+
+	body := []byte(`{"ID":11,"nickName":"promoter","enable":1,"leaderId":99}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/user/setUserInfo", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp commonResp.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, commonResp.ERROR, resp.Code)
+	require.Equal(t, "禁止修改所属团长", resp.Msg)
+
+	var user modelSystem.SysUser
+	require.NoError(t, global.GVA_DB.Select("id, leader_id").Where("id = ?", 11).First(&user).Error)
+	require.NotNil(t, user.LeaderID)
+	require.Equal(t, uint(10), *user.LeaderID)
+}
+
+func TestSetUserInfoAllowsExistingLeaderID(t *testing.T) {
+	setupUserSecurityAPITestDB(t)
+
+	router := gin.New()
+	router.PUT("/user/setUserInfo", func(c *gin.Context) {
+		c.Set("claims", &modelSystemReq.CustomClaims{
+			BaseClaims: modelSystemReq.BaseClaims{ID: 10, AuthorityId: 200},
+		})
+		(&BaseApi{}).SetUserInfo(c)
+	})
+
+	body := []byte(`{"ID":11,"nickName":"updated-promoter","enable":1,"leaderId":10}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/user/setUserInfo", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp commonResp.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, commonResp.SUCCESS, resp.Code, resp.Msg)
+
+	var user modelSystem.SysUser
+	require.NoError(t, global.GVA_DB.Select("id, nick_name, leader_id").Where("id = ?", 11).First(&user).Error)
+	require.Equal(t, "updated-promoter", user.NickName)
+	require.NotNil(t, user.LeaderID)
+	require.Equal(t, uint(10), *user.LeaderID)
+}
+
 func TestResetPasswordRejectsOtherLeadersPromoter(t *testing.T) {
 	setupUserSecurityAPITestDB(t)
 

@@ -64,6 +64,7 @@ type ChangeUserInfo struct {
 	PhoneRegisterSkipBlockedPrefixes *bool                 `json:"phoneRegisterSkipBlockedPrefixes"`
 	CacheSampleRatio                 *int                  `json:"cacheSampleRatio"`
 	CacheSampleRatioConfigured       *bool                 `json:"cacheSampleRatioConfigured"`
+	LeaderID                         *uint                 `json:"leaderId"`
 	Authorities                      []system.SysAuthority `json:"-" gorm:"many2many:sys_user_authority;"`
 }
 
