@@ -93,9 +93,14 @@ func canManageTargetUser(operatorID, operatorAuthorityID uint, target system.Sys
 	}
 	if operatorAuthorityID == userRoleDeputyLeader {
 		leaderID, err := userServiceOwningLeaderID(operatorID)
-		return err == nil && target.AuthorityId == userRolePromoter && target.LeaderID != nil && *target.LeaderID == leaderID
+		return err == nil && target.AuthorityId == userRolePromoter && target.LeaderID != nil &&
+			*target.LeaderID == leaderID && target.CreatedBy == operatorID
 	}
 	return true
+}
+
+func (userService *UserService) CanManageTargetUser(operatorID, operatorAuthorityID uint, target system.SysUser) bool {
+	return canManageTargetUser(operatorID, operatorAuthorityID, target)
 }
 
 func userServiceOwningLeaderID(operatorID uint) (uint, error) {
@@ -214,10 +219,10 @@ func (userService *UserService) GetUserInfoList(operatorID, operatorAuthorityID 
 				operatorID, userRoleLeader, leaderID, userRoleDeputyLeader, userRolePromoter,
 			)
 		} else {
-			db = db.Where("id = ? OR leader_id = ?", operatorID, leaderID)
-		}
-		if operatorAuthorityID == userRoleDeputyLeader {
-			db = db.Where("authority_id = ? AND leader_id = ?", userRolePromoter, leaderID)
+			db = db.Where(
+				"authority_id = ? AND leader_id = ? AND created_by = ?",
+				userRolePromoter, leaderID, operatorID,
+			)
 		}
 	}
 
@@ -540,7 +545,7 @@ func (userService *UserService) SetUserAuthorities(operatorID, operatorAuthority
 
 func (userService *UserService) DeleteUser(operatorID, operatorAuthorityID uint, id int) (err error) {
 	var target system.SysUser
-	if err = global.GVA_DB.Select("id, authority_id, leader_id").Where("id = ?", id).First(&target).Error; err != nil {
+	if err = global.GVA_DB.Select("id, authority_id, leader_id, created_by").Where("id = ?", id).First(&target).Error; err != nil {
 		return err
 	}
 	if !canManageTargetUser(operatorID, operatorAuthorityID, target) {

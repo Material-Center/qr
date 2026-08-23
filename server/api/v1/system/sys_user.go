@@ -615,20 +615,9 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 		response.FailWithMessage("设置失败，目标用户不存在", c)
 		return
 	}
-	if !canManageTarget(operatorAuthorityID, targetUser.AuthorityId) {
+	if !userService.CanManageTargetUser(operatorID, operatorAuthorityID, *targetUser) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
-	}
-	if operatorAuthorityID == roleLeader && (targetUser.LeaderID == nil || *targetUser.LeaderID != operatorID) {
-		response.FailWithMessage("无权操作该账号", c)
-		return
-	}
-	if operatorAuthorityID == roleDeputyLeader {
-		leaderID, resolveErr := userService.ResolveOwningLeaderID(operatorID)
-		if resolveErr != nil || targetUser.AuthorityId != rolePromoter || targetUser.LeaderID == nil || *targetUser.LeaderID != leaderID {
-			response.FailWithMessage("无权操作该账号", c)
-			return
-		}
 	}
 	if user.CacheSampleRatioConfigured != nil {
 		if targetUser.AuthorityId != roleLeader && targetUser.AuthorityId != rolePromoter {
@@ -808,20 +797,9 @@ func (b *BaseApi) ResetPassword(c *gin.Context) {
 		response.FailWithMessage("重置失败，目标用户不存在", c)
 		return
 	}
-	if !canManageTarget(operatorAuthorityID, targetUser.AuthorityId) {
+	if !userService.CanManageTargetUser(operatorID, operatorAuthorityID, *targetUser) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
-	}
-	if operatorAuthorityID == roleLeader && (targetUser.LeaderID == nil || *targetUser.LeaderID != operatorID) {
-		response.FailWithMessage("无权操作该账号", c)
-		return
-	}
-	if operatorAuthorityID == roleDeputyLeader {
-		leaderID, resolveErr := userService.ResolveOwningLeaderID(operatorID)
-		if resolveErr != nil || targetUser.AuthorityId != rolePromoter || targetUser.LeaderID == nil || *targetUser.LeaderID != leaderID {
-			response.FailWithMessage("无权操作该账号", c)
-			return
-		}
 	}
 	err = userService.ResetPassword(rps.ID, rps.Password)
 	if err != nil {

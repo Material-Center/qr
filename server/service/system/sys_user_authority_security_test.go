@@ -89,6 +89,29 @@ func TestGetUserInfoListLimitsLeaderToSelfAndOwnPromoters(t *testing.T) {
 	}
 }
 
+func TestGetUserInfoListLimitsDeputyLeaderToCreatedPromoters(t *testing.T) {
+	setupUserAuthoritySecurityTestDB(t)
+
+	list, total, err := (&UserService{}).GetUserInfoList(20, 210, modelSystemReq.GetUserList{
+		PageInfo: commonReq.PageInfo{Page: 1, PageSize: 10},
+	}, false)
+
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	users := list.([]modelSystem.SysUser)
+	require.Len(t, users, 1)
+	require.Equal(t, uint(21), users[0].ID)
+}
+
+func TestDeleteUserRejectsDeputyDeletingPromoterCreatedByOthers(t *testing.T) {
+	setupUserAuthoritySecurityTestDB(t)
+
+	err := (&UserService{}).DeleteUser(20, 210, 22)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "无权操作该账号")
+}
+
 func TestValidateAssignableAuthoritiesRejectsHiddenAuthorityIds(t *testing.T) {
 	err := ValidateAssignableAuthorities(100, 200, []uint{200, 888})
 
@@ -116,6 +139,7 @@ func setupUserAuthoritySecurityTestDB(t *testing.T) {
 		{AuthorityId: 888, AuthorityName: "超级管理员"},
 		{AuthorityId: 100, AuthorityName: "管理员"},
 		{AuthorityId: 200, AuthorityName: "团长"},
+		{AuthorityId: 210, AuthorityName: "副团长"},
 		{AuthorityId: 300, AuthorityName: "地推"},
 	}).Error)
 	require.NoError(t, db.Create(&[]modelSystem.SysUser{
@@ -125,6 +149,10 @@ func setupUserAuthoritySecurityTestDB(t *testing.T) {
 		{GVA_MODEL: global.GVA_MODEL{ID: 13}, Username: "own-promoter", AuthorityId: 300, LeaderID: uintPtr(10), Enable: 1},
 		{GVA_MODEL: global.GVA_MODEL{ID: 14}, Username: "other-leader", AuthorityId: 200, Enable: 1},
 		{GVA_MODEL: global.GVA_MODEL{ID: 15}, Username: "own-admin", AuthorityId: 100, LeaderID: uintPtr(10), Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 20}, Username: "deputy", AuthorityId: 210, LeaderID: uintPtr(30), Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 21}, Username: "deputy-own-promoter", AuthorityId: 300, LeaderID: uintPtr(30), CreatedBy: 20, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 22}, Username: "other-created-promoter", AuthorityId: 300, LeaderID: uintPtr(30), CreatedBy: 99, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 30}, Username: "deputy-leader", AuthorityId: 200, Enable: 1},
 	}).Error)
 	require.NoError(t, db.Create(&[]modelSystem.SysUserAuthority{
 		{SysUserId: 10, SysAuthorityAuthorityId: 200},
@@ -133,6 +161,10 @@ func setupUserAuthoritySecurityTestDB(t *testing.T) {
 		{SysUserId: 13, SysAuthorityAuthorityId: 300},
 		{SysUserId: 14, SysAuthorityAuthorityId: 200},
 		{SysUserId: 15, SysAuthorityAuthorityId: 100},
+		{SysUserId: 20, SysAuthorityAuthorityId: 210},
+		{SysUserId: 21, SysAuthorityAuthorityId: 300},
+		{SysUserId: 22, SysAuthorityAuthorityId: 300},
+		{SysUserId: 30, SysAuthorityAuthorityId: 200},
 	}).Error)
 }
 
