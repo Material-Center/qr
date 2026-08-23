@@ -282,6 +282,7 @@ const multipleSelection = ref([])
 const ROLE_SUPER = 888
 const ROLE_ADMIN = 100
 const ROLE_LEADER = 200
+const ROLE_DEPUTY_LEADER = 210
 const ROLE_PROMOTER = 300
 const userStore = useUserStore()
 const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
@@ -289,9 +290,9 @@ const currentUserId = computed(() => userStore.userInfo?.ID)
 const canDownloadCache = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
-const showTaskList = computed(() => currentRoleId.value !== ROLE_LEADER)
+const showTaskList = computed(() => ![ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
-const showDailyResetTip = computed(() => currentRoleId.value === ROLE_LEADER)
+const showDailyResetTip = computed(() => [ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
 const searchInfo = ref({
   promoterId: undefined,
   leaderId: undefined,
@@ -361,7 +362,7 @@ const summaryQueryParams = () => {
     finishedAtStart: finishedAtStart || undefined,
     finishedAtEnd: finishedAtEnd || undefined
   }
-  if (currentRoleId.value === ROLE_LEADER) {
+  if ([ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value)) {
     Object.assign(params, todayRangeParams())
   }
   return params

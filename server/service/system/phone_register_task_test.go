@@ -1671,6 +1671,37 @@ func TestPhoneRegisterTaskListFallsBackToPromoterLeader(t *testing.T) {
 	require.Equal(t, leaderID, leaderGot.List[0].Leader.ID)
 }
 
+func TestPhoneRegisterTaskDeputySummaryOnlyIncludesCreatedPromoters(t *testing.T) {
+	setupPhoneRegisterTaskTestDB(t)
+
+	now := time.Now()
+	leaderID := uint(2)
+	deputyID := uint(20)
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	require.NoError(t, global.GVA_DB.Create(&[]modelSystem.SysUser{
+		{GVA_MODEL: global.GVA_MODEL{ID: leaderID}, Username: "leader", NickName: "团长", AuthorityId: 200, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: deputyID}, Username: "deputy", NickName: "副团长", AuthorityId: 210, LeaderID: &leaderID, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 31}, Username: "own-promoter", NickName: "直属地推", AuthorityId: 300, LeaderID: &leaderID, CreatedBy: deputyID, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 32}, Username: "other-promoter", NickName: "其他地推", AuthorityId: 300, LeaderID: &leaderID, CreatedBy: 99, Enable: 1},
+	}).Error)
+	require.NoError(t, global.GVA_DB.Create(&[]modelSystem.SysPhoneRegisterTask{
+		{Phone: "18800000001", PromoterID: 31, LeaderID: &leaderID, SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend, Status: modelSystem.PhoneRegisterStatusSucceeded, StatusCode: &successCode, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+		{Phone: "18800000002", PromoterID: 32, LeaderID: &leaderID, SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend, Status: modelSystem.PhoneRegisterStatusSucceeded, StatusCode: &successCode, FinishedAt: &now, ExpiresAt: now.Add(time.Hour)},
+	}).Error)
+
+	summary, err := (&PhoneRegisterTaskService{}).GetSummary(phoneRoleDeputyLeader, deputyID, modelSystemReq.PhoneRegisterTaskSummaryFilter{})
+	require.NoError(t, err)
+	require.Len(t, summary.Leaders, 1)
+	require.Len(t, summary.Promoters, 1)
+	require.Equal(t, uint(31), summary.Promoters[0].PromoterID)
+
+	list, err := (&PhoneRegisterTaskService{}).GetTaskList(phoneRoleDeputyLeader, deputyID, modelSystemReq.PhoneRegisterTaskList{})
+	require.NoError(t, err)
+	require.Len(t, list.List, 1)
+	require.NotNil(t, list.List[0].Promoter)
+	require.Equal(t, uint(31), list.List[0].Promoter.ID)
+}
+
 func TestGetSummaryHidesRiskFailCountForLeaderRole(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 

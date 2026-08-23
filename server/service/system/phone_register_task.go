@@ -37,10 +37,11 @@ const (
 	phoneRegisterOpenAPICacheCooldown    = 5 * time.Minute
 	phoneRegisterRegionMaxRunes          = 128
 
-	phoneRoleSuperAdmin = uint(888)
-	phoneRoleAdmin      = uint(100)
-	phoneRoleLeader     = uint(200)
-	phoneRolePromoter   = uint(300)
+	phoneRoleSuperAdmin   = uint(888)
+	phoneRoleAdmin        = uint(100)
+	phoneRoleLeader       = uint(200)
+	phoneRoleDeputyLeader = uint(210)
+	phoneRolePromoter     = uint(300)
 )
 
 const phoneRegisterOpenAPICacheTimeoutLog = "OpenAPI缓存上传超时未上传"
@@ -855,7 +856,7 @@ func fillPhoneRegisterTaskFallbackLeaders(tasks []system.SysPhoneRegisterTask) e
 }
 
 func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req systemReq.PhoneRegisterTaskSummaryFilter) (systemRes.PhoneRegisterTaskSummaryResponse, error) {
-	if operatorRole != phoneRoleSuperAdmin && operatorRole != phoneRoleAdmin && operatorRole != phoneRoleLeader {
+	if operatorRole != phoneRoleSuperAdmin && operatorRole != phoneRoleAdmin && operatorRole != phoneRoleLeader && operatorRole != phoneRoleDeputyLeader {
 		return systemRes.PhoneRegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
 	}
 	_ = s.timeoutUnfinishedTasksThrottled()
@@ -891,6 +892,12 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 
 	if operatorRole == phoneRoleLeader {
 		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", operatorID)
+	} else if operatorRole == phoneRoleDeputyLeader {
+		leaderID, err := userServiceOwningLeaderID(operatorID)
+		if err != nil {
+			return systemRes.PhoneRegisterTaskSummaryResponse{}, err
+		}
+		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ? AND promoter.created_by = ?", leaderID, operatorID)
 	} else if req.LeaderID != 0 {
 		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", req.LeaderID)
 	}
@@ -2348,6 +2355,17 @@ func applyPhoneRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID
 			db = db.Where("sys_phone_register_tasks.promoter_id = ?", req.PromoterID)
 		}
 		return db, nil
+	case phoneRoleDeputyLeader:
+		leaderID, err := userServiceOwningLeaderID(operatorID)
+		if err != nil {
+			return nil, err
+		}
+		db = db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_phone_register_tasks.promoter_id").
+			Where("COALESCE(sys_phone_register_tasks.leader_id, promoter.leader_id) = ? AND promoter.created_by = ?", leaderID, operatorID)
+		if req.PromoterID != 0 {
+			db = db.Where("sys_phone_register_tasks.promoter_id = ?", req.PromoterID)
+		}
+		return db, nil
 	case phoneRolePromoter:
 		return db.Where("sys_phone_register_tasks.promoter_id = ?", operatorID), nil
 	default:
@@ -2356,7 +2374,7 @@ func applyPhoneRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID
 }
 
 func shouldUsePhoneRegisterTaskDayScoped(operatorRole uint, dayScoped bool) bool {
-	return dayScoped && (operatorRole == phoneRoleLeader || operatorRole == phoneRolePromoter)
+	return dayScoped && (operatorRole == phoneRoleLeader || operatorRole == phoneRoleDeputyLeader || operatorRole == phoneRolePromoter)
 }
 
 func applyPhoneRegisterTaskQueryFilters(db *gorm.DB, req systemReq.PhoneRegisterTaskList) *gorm.DB {

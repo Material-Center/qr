@@ -33,10 +33,11 @@ var registerTaskNaichaBypassPhones = map[string]struct{}{
 }
 
 const (
-	roleSuperAdmin = uint(888)
-	roleAdmin      = uint(100)
-	roleLeader     = uint(200)
-	rolePromoter   = uint(300)
+	roleSuperAdmin   = uint(888)
+	roleAdmin        = uint(100)
+	roleLeader       = uint(200)
+	roleDeputyLeader = uint(210)
+	rolePromoter     = uint(300)
 )
 
 type RegisterTaskService struct{}
@@ -884,6 +885,16 @@ func applyRegisterTaskRoleFilter(db *gorm.DB, operatorRole uint, operatorID uint
 		if req.PromoterID != 0 {
 			db = db.Where("sys_register_tasks.promoter_id = ?", req.PromoterID)
 		}
+	case roleDeputyLeader:
+		leaderID, err := userServiceOwningLeaderID(operatorID)
+		if err != nil {
+			return nil, err
+		}
+		db = db.Joins("LEFT JOIN sys_users promoter ON promoter.id = sys_register_tasks.promoter_id").
+			Where("COALESCE(sys_register_tasks.leader_id, promoter.leader_id) = ? AND promoter.created_by = ?", leaderID, operatorID)
+		if req.PromoterID != 0 {
+			db = db.Where("sys_register_tasks.promoter_id = ?", req.PromoterID)
+		}
 	case rolePromoter:
 		db = db.Where("sys_register_tasks.promoter_id = ?", operatorID)
 	default:
@@ -931,7 +942,7 @@ func fillRegisterTaskFallbackLeaders(tasks []system.SysRegisterTask) error {
 }
 
 func shouldUseRegisterTaskDayScoped(operatorRole uint, dayScoped bool) bool {
-	return dayScoped && (operatorRole == roleLeader || operatorRole == rolePromoter)
+	return dayScoped && (operatorRole == roleLeader || operatorRole == roleDeputyLeader || operatorRole == rolePromoter)
 }
 
 func successLoggedQQCountSQL(column string) string {
@@ -1115,7 +1126,7 @@ func (s *RegisterTaskService) GetTaskList(operatorRole uint, operatorID uint, re
 }
 
 func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req systemReq.RegisterTaskSummaryFilter) (systemRes.RegisterTaskSummaryResponse, error) {
-	if operatorRole != roleSuperAdmin && operatorRole != roleAdmin && operatorRole != roleLeader {
+	if operatorRole != roleSuperAdmin && operatorRole != roleAdmin && operatorRole != roleLeader && operatorRole != roleDeputyLeader {
 		global.GVA_LOG.Warn("【注册任务】任务统计-无权限", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID))
 		return systemRes.RegisterTaskSummaryResponse{}, errors.New("无权限查看统计")
 	}
@@ -1152,6 +1163,12 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 
 	if operatorRole == roleLeader {
 		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", operatorID)
+	} else if operatorRole == roleDeputyLeader {
+		leaderID, err := userServiceOwningLeaderID(operatorID)
+		if err != nil {
+			return systemRes.RegisterTaskSummaryResponse{}, err
+		}
+		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ? AND promoter.created_by = ?", leaderID, operatorID)
 	} else if req.LeaderID != 0 {
 		db = db.Where("COALESCE(t.leader_id, promoter.leader_id) = ?", req.LeaderID)
 	}

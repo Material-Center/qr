@@ -161,6 +161,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 		return next, errors.Wrap(err, "为团长分配菜单失败")
 	}
 	deputyLeaderMenus := append([]sysModel.SysBaseMenu{}, accountMenus...)
+	deputyLeaderMenus = append(deputyLeaderMenus, leaderRegisterMenus...)
 	if err = assignMenus(210, deputyLeaderMenus, "为副团长分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为副团长分配菜单失败")
 	}
