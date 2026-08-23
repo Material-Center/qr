@@ -116,6 +116,74 @@ func TestDeputyLeaderCanGetRegisterTaskSummary(t *testing.T) {
 	require.Equal(t, commonResp.SUCCESS, resp.Code, resp.Msg)
 }
 
+func TestLeaderCannotConfigurePromoterSkipBlockedPrefixes(t *testing.T) {
+	setupUserSecurityAPITestDB(t)
+
+	router := gin.New()
+	router.PUT("/user/setUserInfo", func(c *gin.Context) {
+		c.Set("claims", &modelSystemReq.CustomClaims{
+			BaseClaims: modelSystemReq.BaseClaims{ID: 10, AuthorityId: 200},
+		})
+		(&BaseApi{}).SetUserInfo(c)
+	})
+
+	body := []byte(`{"ID":11,"nickName":"promoter","enable":1,"phoneRegisterSkipBlockedPrefixes":true}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/user/setUserInfo", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	var resp commonResp.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, commonResp.ERROR, resp.Code)
+	require.Equal(t, "仅管理员可配置跳过禁用号段", resp.Msg)
+}
+
+func TestDeputyLeaderCannotConfigurePromoterCacheSampleRatio(t *testing.T) {
+	setupUserSecurityAPITestDB(t)
+
+	router := gin.New()
+	router.PUT("/user/setUserInfo", func(c *gin.Context) {
+		c.Set("claims", &modelSystemReq.CustomClaims{
+			BaseClaims: modelSystemReq.BaseClaims{ID: 20, AuthorityId: 210},
+		})
+		(&BaseApi{}).SetUserInfo(c)
+	})
+
+	body := []byte(`{"ID":21,"nickName":"promoter","enable":1,"cacheSampleRatioConfigured":true,"cacheSampleRatio":20}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/user/setUserInfo", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(rec, req)
+
+	var resp commonResp.Response
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, commonResp.ERROR, resp.Code)
+	require.Equal(t, "仅管理员可配置风控比例", resp.Msg)
+}
+
+func TestNonAdminAccountListHidesRiskControls(t *testing.T) {
+	skip := true
+	ratio := 25
+	users := []modelSystem.SysUser{{
+		AuthorityId:                      300,
+		PhoneRegisterSkipBlockedPrefixes: &skip,
+		OriginSetting:                    map[string]interface{}{userCacheSampleRatioKey: ratio, "other": true},
+		CacheSampleRatio:                 &ratio,
+		EffectiveCacheSampleRatio:        ratio,
+		CacheSampleRatioInherited:        true,
+	}}
+
+	hideAccountRiskControlsForNonAdmin(users)
+
+	require.Nil(t, users[0].PhoneRegisterSkipBlockedPrefixes)
+	require.Nil(t, users[0].CacheSampleRatio)
+	require.Zero(t, users[0].EffectiveCacheSampleRatio)
+	require.False(t, users[0].CacheSampleRatioInherited)
+	require.NotContains(t, users[0].OriginSetting, userCacheSampleRatioKey)
+	require.Equal(t, true, users[0].OriginSetting["other"])
+}
+
 func setupUserSecurityAPITestDB(t *testing.T) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -139,8 +207,10 @@ func setupUserSecurityAPITestDB(t *testing.T) {
 	}).Error)
 	require.NoError(t, db.Create(&[]modelSystem.SysUser{
 		{GVA_MODEL: global.GVA_MODEL{ID: 10}, Username: "leader", AuthorityId: 200, Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 11}, Username: "promoter", AuthorityId: 300, LeaderID: uintPtr(10), CreatedBy: 10, Enable: 1},
 		{GVA_MODEL: global.GVA_MODEL{ID: 12}, Username: "other-promoter", AuthorityId: 300, LeaderID: uintPtr(99), Enable: 1},
 		{GVA_MODEL: global.GVA_MODEL{ID: 20}, Username: "deputy", AuthorityId: 210, LeaderID: uintPtr(10), Enable: 1},
+		{GVA_MODEL: global.GVA_MODEL{ID: 21}, Username: "deputy-promoter", AuthorityId: 300, LeaderID: uintPtr(10), CreatedBy: 20, Enable: 1},
 	}).Error)
 }
 

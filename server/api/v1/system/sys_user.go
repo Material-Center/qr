@@ -50,6 +50,10 @@ func canManageTarget(operatorAuthorityID, targetAuthorityID uint) bool {
 	}
 }
 
+func canConfigureAccountRisk(operatorAuthorityID uint) bool {
+	return operatorAuthorityID == roleSuperAdmin || operatorAuthorityID == roleAdmin
+}
+
 func hideCacheSampleRatioForNonAdmin(user *system.SysUser) {
 	if user == nil {
 		return
@@ -63,6 +67,17 @@ func hideCacheSampleRatioForNonAdmin(user *system.SysUser) {
 	user.CacheSampleRatio = nil
 	user.EffectiveCacheSampleRatio = 0
 	user.CacheSampleRatioInherited = false
+}
+
+func hideAccountRiskControlsForNonAdmin(list interface{}) {
+	users, ok := list.([]system.SysUser)
+	if !ok {
+		return
+	}
+	for i := range users {
+		hideCacheSampleRatioForNonAdmin(&users[i])
+		users[i].PhoneRegisterSkipBlockedPrefixes = nil
+	}
 }
 
 // Login
@@ -384,6 +399,10 @@ func (b *BaseApi) Register(c *gin.Context) {
 	}
 	phoneRegisterSkipBlockedPrefixes := false
 	if r.PhoneRegisterSkipBlockedPrefixes != nil {
+		if !canConfigureAccountRisk(operatorAuthorityID) && *r.PhoneRegisterSkipBlockedPrefixes {
+			response.FailWithMessage("仅管理员可配置跳过禁用号段", c)
+			return
+		}
 		phoneRegisterSkipBlockedPrefixes = *r.PhoneRegisterSkipBlockedPrefixes
 	}
 	user := &system.SysUser{
@@ -464,12 +483,15 @@ func (b *BaseApi) GetUserList(c *gin.Context) {
 	}
 	operatorAuthorityID := utils.GetUserAuthorityId(c)
 	operatorID := utils.GetUserID(c)
-	includeCacheSampleRatio := operatorAuthorityID == roleSuperAdmin || operatorAuthorityID == roleAdmin || operatorAuthorityID == roleLeader || operatorAuthorityID == roleDeputyLeader
+	includeCacheSampleRatio := canConfigureAccountRisk(operatorAuthorityID)
 	list, total, err := userService.GetUserInfoList(operatorID, operatorAuthorityID, pageInfo, includeCacheSampleRatio)
 	if err != nil {
 		global.GVA_LOG.Error("获取失败!", zap.Error(err))
 		response.FailWithMessage("获取失败", c)
 		return
+	}
+	if !canConfigureAccountRisk(operatorAuthorityID) {
+		hideAccountRiskControlsForNonAdmin(list)
 	}
 	response.OkWithDetailed(response.PageResult{
 		List:     list,
@@ -618,6 +640,17 @@ func (b *BaseApi) SetUserInfo(c *gin.Context) {
 	if !userService.CanManageTargetUser(operatorID, operatorAuthorityID, *targetUser) {
 		response.FailWithMessage("无权操作该账号", c)
 		return
+	}
+	if !canConfigureAccountRisk(operatorAuthorityID) {
+		if user.CacheSampleRatioConfigured != nil {
+			response.FailWithMessage("仅管理员可配置风控比例", c)
+			return
+		}
+		currentSkipBlockedPrefixes := targetUser.PhoneRegisterSkipBlockedPrefixes != nil && *targetUser.PhoneRegisterSkipBlockedPrefixes
+		if user.PhoneRegisterSkipBlockedPrefixes != nil && *user.PhoneRegisterSkipBlockedPrefixes != currentSkipBlockedPrefixes {
+			response.FailWithMessage("仅管理员可配置跳过禁用号段", c)
+			return
+		}
 	}
 	if user.CacheSampleRatioConfigured != nil {
 		if targetUser.AuthorityId != roleLeader && targetUser.AuthorityId != rolePromoter {

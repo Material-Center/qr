@@ -69,7 +69,7 @@
             <span>{{ relationText(scope.row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column v-if="useLeaderTree" align="left" label="风控比例" min-width="190">
+        <el-table-column v-if="canConfigureAccountRisk" align="left" label="风控比例" min-width="190">
           <template #default="scope">
             <div v-if="canConfigureCacheSample(scope.row)" class="cache-sample-cell">
               <span>{{ cacheSampleText(scope.row) }}</span>
@@ -103,7 +103,7 @@
             />
           </template>
         </el-table-column>
-        <el-table-column align="left" label="跳过禁用号段" min-width="140">
+        <el-table-column v-if="canConfigureAccountRisk" align="left" label="跳过禁用号段" min-width="140">
           <template #default="scope">
             <el-switch
               v-model="scope.row.phoneRegisterSkipBlockedPrefixes"
@@ -299,7 +299,7 @@
             inactive-text="正常"
           />
         </el-form-item>
-        <el-form-item v-if="userForm.authorityId === ROLE_PROMOTER" label="跳过禁用号段">
+        <el-form-item v-if="canConfigureAccountRisk && userForm.authorityId === ROLE_PROMOTER" label="跳过禁用号段">
           <el-switch
             v-model="userForm.phoneRegisterSkipBlockedPrefixes"
             active-text="跳过"
@@ -344,6 +344,7 @@ const userStore = useUserStore()
 const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const canManage = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
 const useLeaderTree = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].includes(currentRoleId.value))
+const canConfigureAccountRisk = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 
 const roleOptions = computed(() => {
   if (currentRoleId.value === ROLE_SUPER) {
@@ -438,6 +439,18 @@ const clearTreeFields = (row) => {
   delete rest.children
   delete rest._relationChild
   return rest
+}
+
+const accountPayload = (row) => {
+  const payload = clearTreeFields(row)
+  if (!canConfigureAccountRisk.value) {
+    delete payload.phoneRegisterSkipBlockedPrefixes
+    delete payload.cacheSampleRatio
+    delete payload.cacheSampleRatioConfigured
+    delete payload.effectiveCacheSampleRatio
+    delete payload.cacheSampleRatioInherited
+  }
+  return payload
 }
 
 const textIncludes = (value, keyword) => {
@@ -711,7 +724,7 @@ const submitDrawer = async () => {
         return
       }
       const payload = {
-        ...clearTreeFields(userForm.value),
+        ...accountPayload(userForm.value),
         authorityIds: [userForm.value.authorityId]
       }
       if ([ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value) && payload.authorityId === ROLE_PROMOTER) {
@@ -727,7 +740,7 @@ const submitDrawer = async () => {
     }
 
     const payload = {
-      ...clearTreeFields(userForm.value),
+      ...accountPayload(userForm.value),
       authorityIds: [userForm.value.authorityId]
     }
     const res = await setUserInfo(payload)
@@ -754,7 +767,7 @@ const deleteUserFunc = async (row) => {
 
 const switchEnable = async (row) => {
   const res = await setUserInfo({
-    ...clearTreeFields(row),
+    ...accountPayload(row),
     authorityIds: [row.authorityId]
   })
   if (res.code === 0) {
@@ -766,7 +779,7 @@ const switchEnable = async (row) => {
 
 const switchTaskCreate = async (row) => {
   const res = await setUserInfo({
-    ...clearTreeFields(row),
+    ...accountPayload(row),
     authorityIds: [row.authorityId]
   })
   if (res.code === 0) {
@@ -777,8 +790,9 @@ const switchTaskCreate = async (row) => {
 }
 
 const switchBlockedPrefix = async (row) => {
+  if (!canConfigureAccountRisk.value) return
   const res = await setUserInfo({
-    ...clearTreeFields(row),
+    ...accountPayload(row),
     authorityIds: [row.authorityId]
   })
   if (res.code === 0) {
@@ -789,6 +803,7 @@ const switchBlockedPrefix = async (row) => {
 }
 
 const openCacheSampleDialog = (row) => {
+  if (!canConfigureAccountRisk.value) return
   const hasCustomRatio = row.cacheSampleRatio !== undefined && row.cacheSampleRatio !== null
   cacheSampleForm.value = {
     row,
@@ -803,6 +818,7 @@ const openCacheSampleDialog = (row) => {
 }
 
 const submitCacheSampleConfig = async () => {
+  if (!canConfigureAccountRisk.value) return
   const row = cacheSampleForm.value.row
   if (!row) return
   const ratio = Number(cacheSampleForm.value.ratio || 0)
@@ -811,7 +827,7 @@ const submitCacheSampleConfig = async () => {
     return
   }
   const res = await setUserInfo({
-    ...clearTreeFields(row),
+    ...accountPayload(row),
     authorityIds: [row.authorityId],
     cacheSampleRatioConfigured: cacheSampleForm.value.configured,
     cacheSampleRatio: cacheSampleForm.value.configured ? ratio : null
