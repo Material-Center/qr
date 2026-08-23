@@ -343,7 +343,7 @@ const userStore = useUserStore()
 
 const currentRoleId = computed(() => userStore.userInfo?.authority?.authorityId)
 const canManage = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
-const useLeaderTree = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const useLeaderTree = computed(() => [ROLE_SUPER, ROLE_ADMIN, ROLE_LEADER].includes(currentRoleId.value))
 
 const roleOptions = computed(() => {
   if (currentRoleId.value === ROLE_SUPER) {
