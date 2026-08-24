@@ -1127,6 +1127,8 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 	type summaryRow struct {
 		LeaderID        *uint  `gorm:"column:leader_id"`
 		LeaderName      string `gorm:"column:leader_name"`
+		DeputyID        *uint  `gorm:"column:deputy_id"`
+		DeputyName      string `gorm:"column:deputy_name"`
 		PromoterID      uint   `gorm:"column:promoter_id"`
 		PromoterName    string `gorm:"column:promoter_name"`
 		SuccessCount    int64  `gorm:"column:success_count"`
@@ -1141,6 +1143,8 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 		Select(fmt.Sprintf(`
 			COALESCE(t.leader_id, promoter.leader_id) AS leader_id,
 			leader.nick_name AS leader_name,
+			CASE WHEN creator.authority_id = 210 THEN creator.id END AS deputy_id,
+			CASE WHEN creator.authority_id = 210 THEN creator.nick_name ELSE '' END AS deputy_name,
 			t.promoter_id,
 			promoter.nick_name AS promoter_name,
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 THEN %s ELSE 0 END) AS success_count,
@@ -1149,6 +1153,7 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 AND t.settled_at IS NOT NULL THEN %s ELSE 0 END) AS settled_count,
 			SUM(CASE WHEN t.finished_at IS NOT NULL AND t.status_code = 0 AND t.settled_at IS NULL THEN %s ELSE 0 END) AS unsettled_count`, successQQCountExpr, successQQCountExpr, successQQCountExpr)).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
+		Joins("LEFT JOIN sys_users creator ON creator.id = promoter.created_by").
 		Joins("LEFT JOIN sys_users leader ON leader.id = COALESCE(t.leader_id, promoter.leader_id)")
 
 	if operatorRole == roleLeader {
@@ -1169,12 +1174,13 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 	}
 
 	var promoterRows []summaryRow
-	if err := db.Group("COALESCE(t.leader_id, promoter.leader_id), leader.nick_name, t.promoter_id, promoter.nick_name").Scan(&promoterRows).Error; err != nil {
+	if err := db.Group("COALESCE(t.leader_id, promoter.leader_id), leader.nick_name, creator.id, creator.authority_id, creator.nick_name, t.promoter_id, promoter.nick_name").Scan(&promoterRows).Error; err != nil {
 		global.GVA_LOG.Error("【注册任务】任务统计-查询失败", zap.Uint("operatorRole", operatorRole), zap.Uint("operatorId", operatorID), zap.Uint("leaderId", req.LeaderID), zap.Error(err))
 		return systemRes.RegisterTaskSummaryResponse{}, err
 	}
 
 	leaderMap := map[uint]systemRes.RegisterTaskSummaryItem{}
+	deputyMap := map[uint]systemRes.RegisterTaskDeputySummaryItem{}
 	promoters := make([]systemRes.RegisterTaskSummaryItem, 0, len(promoterRows))
 	for _, row := range promoterRows {
 		item := systemRes.RegisterTaskSummaryItem{
@@ -1190,6 +1196,10 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 		if row.LeaderID != nil {
 			item.LeaderID = *row.LeaderID
 		}
+		if operatorRole == roleLeader && row.DeputyID != nil {
+			item.DeputyID = *row.DeputyID
+			item.DeputyName = row.DeputyName
+		}
 		promoters = append(promoters, item)
 
 		if item.LeaderID != 0 {
@@ -1203,6 +1213,23 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 			leaderAgg.UnsettledCount += item.UnsettledCount
 			leaderMap[item.LeaderID] = leaderAgg
 		}
+		if operatorRole == roleLeader {
+			deputyID := uint(0)
+			deputyName := "团长直属"
+			if row.DeputyID != nil {
+				deputyID = *row.DeputyID
+				deputyName = row.DeputyName
+			}
+			deputyAgg := deputyMap[deputyID]
+			deputyAgg.DeputyID = deputyID
+			deputyAgg.DeputyName = deputyName
+			deputyAgg.SuccessCount += row.SuccessCount
+			deputyAgg.FailCount += row.FailCount
+			deputyAgg.ProcessingCount += row.ProcessingCount
+			deputyAgg.SettledCount += row.SettledCount
+			deputyAgg.UnsettledCount += row.UnsettledCount
+			deputyMap[deputyID] = deputyAgg
+		}
 	}
 
 	leaders := make([]systemRes.RegisterTaskSummaryItem, 0, len(leaderMap))
@@ -1212,6 +1239,13 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 	sort.Slice(leaders, func(i, j int) bool {
 		return leaders[i].LeaderID < leaders[j].LeaderID
 	})
+	deputies := make([]systemRes.RegisterTaskDeputySummaryItem, 0, len(deputyMap))
+	for _, item := range deputyMap {
+		deputies = append(deputies, item)
+	}
+	sort.Slice(deputies, func(i, j int) bool {
+		return deputies[i].DeputyID < deputies[j].DeputyID
+	})
 	sort.Slice(promoters, func(i, j int) bool {
 		if promoters[i].LeaderID != promoters[j].LeaderID {
 			return promoters[i].LeaderID < promoters[j].LeaderID
@@ -1220,6 +1254,7 @@ func (s *RegisterTaskService) GetSummary(operatorRole uint, operatorID uint, req
 	})
 	return systemRes.RegisterTaskSummaryResponse{
 		Leaders:   leaders,
+		Deputies:  deputies,
 		Promoters: promoters,
 	}, nil
 }

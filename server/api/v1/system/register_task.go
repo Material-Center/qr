@@ -248,6 +248,7 @@ func (a *RegisterTaskApi) GetRegisterTaskSummary(c *gin.Context) {
 	}
 	response.OkWithDetailed(systemRes.RegisterTaskSummaryResponse{
 		Leaders:   data.Leaders,
+		Deputies:  data.Deputies,
 		Promoters: data.Promoters,
 	}, "获取成功", c)
 }

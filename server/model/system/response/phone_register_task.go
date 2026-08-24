@@ -80,6 +80,8 @@ type PhoneRegisterTaskLogListResponse struct {
 type PhoneRegisterTaskSummaryItem struct {
 	LeaderID        uint   `json:"leaderId"`
 	LeaderName      string `json:"leaderName"`
+	DeputyID        uint   `json:"deputyId,omitempty"`
+	DeputyName      string `json:"deputyName,omitempty"`
 	PromoterID      uint   `json:"promoterId"`
 	PromoterName    string `json:"promoterName"`
 	SuccessCount    int64  `json:"successCount"`
@@ -90,9 +92,20 @@ type PhoneRegisterTaskSummaryItem struct {
 	UnsettledCount  int64  `json:"unsettledCount"`
 }
 
+type PhoneRegisterTaskDeputySummaryItem struct {
+	DeputyID        uint   `json:"deputyId"`
+	DeputyName      string `json:"deputyName"`
+	SuccessCount    int64  `json:"successCount"`
+	FailCount       int64  `json:"failCount"`
+	ProcessingCount int64  `json:"processingCount"`
+	SettledCount    int64  `json:"settledCount"`
+	UnsettledCount  int64  `json:"unsettledCount"`
+}
+
 type PhoneRegisterTaskSummaryResponse struct {
-	Leaders   []PhoneRegisterTaskSummaryItem `json:"leaders"`
-	Promoters []PhoneRegisterTaskSummaryItem `json:"promoters"`
+	Leaders   []PhoneRegisterTaskSummaryItem       `json:"leaders"`
+	Deputies  []PhoneRegisterTaskDeputySummaryItem `json:"deputies"`
+	Promoters []PhoneRegisterTaskSummaryItem       `json:"promoters"`
 }
 
 type PhoneRegisterTaskSettlementHistoryItem struct {

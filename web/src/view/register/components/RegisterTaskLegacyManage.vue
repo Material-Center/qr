@@ -160,11 +160,11 @@
 
       <el-divider v-if="showTaskList" />
       <el-row :gutter="12">
-        <el-col v-if="showLeaderSummary" :span="12">
+        <el-col v-if="showPrimarySummary" :span="12">
           <el-card shadow="never">
             <template #header>
               <span class="header-with-tip">
-                <span>团长汇总</span>
+                <span>{{ primarySummaryTitle }}</span>
                 <el-tooltip
                   v-if="showDailyResetTip"
                   content="当前仅展示当天数据，每天 00:00 清空历史展示数据"
@@ -174,9 +174,13 @@
                 </el-tooltip>
               </span>
             </template>
-            <el-table :data="summary.leaders" size="small">
-              <el-table-column label="团长ID" prop="leaderId" width="90" />
-              <el-table-column label="团长名称" prop="leaderName" min-width="100" />
+            <el-table :data="primarySummaryRows" size="small">
+              <el-table-column :label="primarySummaryIdLabel" :prop="primarySummaryIdProp" width="90">
+                <template #default="scope">
+                  {{ primarySummaryId(scope.row) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="primarySummaryNameLabel" :prop="primarySummaryNameProp" min-width="100" />
               <el-table-column label="成功QQ" prop="successCount" width="80" />
               <el-table-column label="失败" prop="failCount" width="80" />
               <el-table-column label="处理中" prop="processingCount" width="90" />
@@ -206,7 +210,7 @@
             </el-table>
           </el-card>
         </el-col>
-        <el-col :span="showLeaderSummary ? 12 : 24">
+        <el-col :span="showPrimarySummary ? 12 : 24">
           <el-card shadow="never">
             <template #header>
               <span class="header-with-tip">
@@ -223,6 +227,11 @@
             <el-table :data="summary.promoters" size="small">
               <el-table-column label="地推ID" prop="promoterId" width="90" />
               <el-table-column label="地推名称" prop="promoterName" min-width="100" />
+              <el-table-column v-if="showPromoterDeputyColumn" label="所属副团长" min-width="120">
+                <template #default="scope">
+                  <span>{{ scope.row.deputyName || '-' }}</span>
+                </template>
+              </el-table-column>
               <el-table-column label="成功QQ" prop="successCount" width="80" />
               <el-table-column label="失败" prop="failCount" width="80" />
               <el-table-column label="处理中" prop="processingCount" width="90" />
@@ -291,8 +300,16 @@ const canDownloadCache = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(curren
 const canSettle = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showLeaderFilter = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
 const showTaskList = computed(() => ![ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
-const showLeaderSummary = computed(() => currentRoleId.value !== ROLE_DEPUTY_LEADER)
+const showPrimarySummary = computed(() => currentRoleId.value !== ROLE_DEPUTY_LEADER)
+const primarySummaryTitle = computed(() => currentRoleId.value === ROLE_LEADER ? '副团长汇总' : '团长汇总')
+const primarySummaryRows = computed(() => currentRoleId.value === ROLE_LEADER ? summary.value.deputies : summary.value.leaders)
+const primarySummaryIdLabel = computed(() => currentRoleId.value === ROLE_LEADER ? '副团长ID' : '团长ID')
+const primarySummaryIdProp = computed(() => currentRoleId.value === ROLE_LEADER ? 'deputyId' : 'leaderId')
+const primarySummaryNameLabel = computed(() => currentRoleId.value === ROLE_LEADER ? '副团长名称' : '团长名称')
+const primarySummaryNameProp = computed(() => currentRoleId.value === ROLE_LEADER ? 'deputyName' : 'leaderName')
+const primarySummaryId = (row) => row?.[primarySummaryIdProp.value] || '-'
 const showCounters = computed(() => [ROLE_SUPER, ROLE_ADMIN].includes(currentRoleId.value))
+const showPromoterDeputyColumn = computed(() => currentRoleId.value === ROLE_LEADER)
 const showDailyResetTip = computed(() => [ROLE_LEADER, ROLE_DEPUTY_LEADER].includes(currentRoleId.value))
 const searchInfo = ref({
   promoterId: undefined,
@@ -311,6 +328,7 @@ const counters = ref({
 })
 const summary = ref({
   leaders: [],
+  deputies: [],
   promoters: []
 })
 const downloadDialogVisible = ref(false)
@@ -491,7 +509,7 @@ const fetchList = async () => {
 
 const fetchSummary = async () => {
   const { data } = await getRegisterTaskSummary(summaryQueryParams())
-  summary.value = data || { leaders: [], promoters: [] }
+  summary.value = data || { leaders: [], deputies: [], promoters: [] }
 }
 
 const confirmSettleLeader = async (row) => {

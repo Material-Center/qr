@@ -7,6 +7,8 @@ import (
 type RegisterTaskSummaryItem struct {
 	LeaderID        uint   `json:"leaderId"`
 	LeaderName      string `json:"leaderName"`
+	DeputyID        uint   `json:"deputyId,omitempty"`
+	DeputyName      string `json:"deputyName,omitempty"`
 	PromoterID      uint   `json:"promoterId"`
 	PromoterName    string `json:"promoterName"`
 	SuccessCount    int64  `json:"successCount"`
@@ -16,9 +18,20 @@ type RegisterTaskSummaryItem struct {
 	UnsettledCount  int64  `json:"unsettledCount"`
 }
 
+type RegisterTaskDeputySummaryItem struct {
+	DeputyID        uint   `json:"deputyId"`
+	DeputyName      string `json:"deputyName"`
+	SuccessCount    int64  `json:"successCount"`
+	FailCount       int64  `json:"failCount"`
+	ProcessingCount int64  `json:"processingCount"`
+	SettledCount    int64  `json:"settledCount"`
+	UnsettledCount  int64  `json:"unsettledCount"`
+}
+
 type RegisterTaskSummaryResponse struct {
-	Leaders   []RegisterTaskSummaryItem `json:"leaders"`
-	Promoters []RegisterTaskSummaryItem `json:"promoters"`
+	Leaders   []RegisterTaskSummaryItem       `json:"leaders"`
+	Deputies  []RegisterTaskDeputySummaryItem `json:"deputies"`
+	Promoters []RegisterTaskSummaryItem       `json:"promoters"`
 }
 
 type RegisterTaskSettlementHistoryItem struct {

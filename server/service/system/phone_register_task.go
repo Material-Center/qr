@@ -872,6 +872,8 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 	type row struct {
 		LeaderID        *uint  `gorm:"column:leader_id"`
 		LeaderName      string `gorm:"column:leader_name"`
+		DeputyID        *uint  `gorm:"column:deputy_id"`
+		DeputyName      string `gorm:"column:deputy_name"`
 		PromoterID      uint   `gorm:"column:promoter_id"`
 		PromoterName    string `gorm:"column:promoter_name"`
 		SuccessCount    int64  `gorm:"column:success_count"`
@@ -886,6 +888,8 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 		Select(`
 			COALESCE(t.leader_id, promoter.leader_id) AS leader_id,
 			leader.nick_name AS leader_name,
+			CASE WHEN creator.authority_id = 210 THEN creator.id END AS deputy_id,
+			CASE WHEN creator.authority_id = 210 THEN creator.nick_name ELSE '' END AS deputy_name,
 			t.promoter_id,
 			promoter.nick_name AS promoter_name,
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' THEN 1 ELSE 0 END), 0) AS success_count,
@@ -895,6 +899,7 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS settled_count,
 			COALESCE(SUM(CASE WHEN t.status = 'succeeded' AND t.settled_at IS NULL THEN 1 ELSE 0 END), 0) AS unsettled_count`, phoneRegisterRiskStatusCodes()).
 		Joins("LEFT JOIN sys_users promoter ON promoter.id = t.promoter_id").
+		Joins("LEFT JOIN sys_users creator ON creator.id = promoter.created_by").
 		Joins("LEFT JOIN sys_users leader ON leader.id = COALESCE(t.leader_id, promoter.leader_id)")
 
 	if operatorRole == phoneRoleLeader {
@@ -915,11 +920,12 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 	}
 
 	var rows []row
-	if err := db.Group("COALESCE(t.leader_id, promoter.leader_id), leader.nick_name, t.promoter_id, promoter.nick_name").Scan(&rows).Error; err != nil {
+	if err := db.Group("COALESCE(t.leader_id, promoter.leader_id), leader.nick_name, creator.id, creator.authority_id, creator.nick_name, t.promoter_id, promoter.nick_name").Scan(&rows).Error; err != nil {
 		return systemRes.PhoneRegisterTaskSummaryResponse{}, err
 	}
 
 	leaderMap := map[uint]systemRes.PhoneRegisterTaskSummaryItem{}
+	deputyMap := map[uint]systemRes.PhoneRegisterTaskDeputySummaryItem{}
 	promoters := make([]systemRes.PhoneRegisterTaskSummaryItem, 0, len(rows))
 	for _, row := range rows {
 		item := systemRes.PhoneRegisterTaskSummaryItem{
@@ -938,6 +944,10 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 		}
 		if row.LeaderID != nil {
 			item.LeaderID = *row.LeaderID
+		}
+		if operatorRole == phoneRoleLeader && row.DeputyID != nil {
+			item.DeputyID = *row.DeputyID
+			item.DeputyName = row.DeputyName
 		}
 		promoters = append(promoters, item)
 		if item.LeaderID != 0 {
@@ -958,6 +968,23 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 			leader.UnsettledCount += item.UnsettledCount
 			leaderMap[item.LeaderID] = leader
 		}
+		if operatorRole == phoneRoleLeader {
+			deputyID := uint(0)
+			deputyName := "团长直属"
+			if row.DeputyID != nil {
+				deputyID = *row.DeputyID
+				deputyName = row.DeputyName
+			}
+			deputy := deputyMap[deputyID]
+			deputy.DeputyID = deputyID
+			deputy.DeputyName = deputyName
+			deputy.SuccessCount += row.SuccessCount
+			deputy.FailCount += row.FailCount
+			deputy.ProcessingCount += row.ProcessingCount
+			deputy.SettledCount += row.SettledCount
+			deputy.UnsettledCount += row.UnsettledCount
+			deputyMap[deputyID] = deputy
+		}
 	}
 
 	leaders := make([]systemRes.PhoneRegisterTaskSummaryItem, 0, len(leaderMap))
@@ -967,6 +994,13 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 	sort.Slice(leaders, func(i, j int) bool {
 		return leaders[i].LeaderID < leaders[j].LeaderID
 	})
+	deputies := make([]systemRes.PhoneRegisterTaskDeputySummaryItem, 0, len(deputyMap))
+	for _, item := range deputyMap {
+		deputies = append(deputies, item)
+	}
+	sort.Slice(deputies, func(i, j int) bool {
+		return deputies[i].DeputyID < deputies[j].DeputyID
+	})
 	sort.Slice(promoters, func(i, j int) bool {
 		if promoters[i].LeaderID != promoters[j].LeaderID {
 			return promoters[i].LeaderID < promoters[j].LeaderID
@@ -975,6 +1009,7 @@ func (s *PhoneRegisterTaskService) GetSummary(operatorRole uint, operatorID uint
 	})
 	return systemRes.PhoneRegisterTaskSummaryResponse{
 		Leaders:   leaders,
+		Deputies:  deputies,
 		Promoters: promoters,
 	}, nil
 }
