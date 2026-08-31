@@ -274,7 +274,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { downloadRegisterTaskCache, getRegisterTaskList, getRegisterTaskSettlementHistory, getRegisterTaskSummary, settleRegisterTaskLeader } from '@/api/registerTask'
+import { prepareRegisterTaskCacheDownload, getRegisterTaskList, getRegisterTaskSettlementHistory, getRegisterTaskSummary, settleRegisterTaskLeader } from '@/api/registerTask'
 import { getUserList } from '@/api/user'
 import { formatDate } from '@/utils/format'
 import { useUserStore } from '@/pinia/modules/user'
@@ -587,21 +587,6 @@ const handleSelectionChange = (rows) => {
   multipleSelection.value = rows || []
 }
 
-const parseFilenameFromDisposition = (disposition) => {
-  const source = String(disposition || '')
-  if (!source) return ''
-  const utfMatch = source.match(/filename\*=UTF-8''([^;]+)/i)
-  if (utfMatch?.[1]) {
-    try {
-      return decodeURIComponent(utfMatch[1])
-    } catch (e) {
-      return utfMatch[1]
-    }
-  }
-  const basicMatch = source.match(/filename="?([^";]+)"?/i)
-  return basicMatch?.[1] || ''
-}
-
 const openSingleDownloadDialog = (row) => {
   if (!row?.ID) return
   downloadTaskIds.value = [row.ID]
@@ -625,40 +610,25 @@ const confirmDownloadZip = async () => {
   try {
     const ids = Array.from(new Set(downloadTaskIds.value))
     const params = {
-      onlyCache: downloadOnlyCache.value
+      onlyCache: downloadOnlyCache.value,
+      taskIds: ids
     }
     if (ids.length === 1) {
       params.taskId = ids[0]
-    } else {
-      params.taskIds = ids.join(',')
     }
-    const rsp = await downloadRegisterTaskCache(params)
-    const contentType = String(rsp?.headers?.['content-type'] || rsp?.headers?.['Content-Type'] || '').toLowerCase()
-    const buffer = rsp?.data
-    if (contentType.includes('application/json')) {
-      const text = new TextDecoder('utf-8').decode(buffer)
-      try {
-        const parsed = JSON.parse(text)
-        ElMessage.error(parsed?.msg || '下载失败')
-      } catch (e) {
-        ElMessage.error(text || '下载失败')
-      }
+    const rsp = await prepareRegisterTaskCacheDownload(params)
+    const payload = rsp?.data || rsp
+    if (!payload?.ticket || !payload?.path) {
+      ElMessage.error(rsp?.msg || '生成下载链接失败')
       return
     }
-    const blob = new Blob([buffer], { type: 'application/zip' })
-    const disposition = rsp?.headers?.['content-disposition'] || rsp?.headers?.['Content-Disposition']
-    const filename = parseFilenameFromDisposition(disposition) || 'register_task_cache.zip'
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    window.setTimeout(() => {
-      window.URL.revokeObjectURL(url)
-    }, 10000)
-    ElMessage.success('压缩包下载成功')
+    const baseURL = String(import.meta.env.VITE_BASE_API || window.location.origin).replace(/\/$/, '')
+    const downloadURL = new URL(`${baseURL}${payload.path}`, window.location.origin)
+    downloadURL.searchParams.set('ticket', payload.ticket)
+    // Navigate to a real attachment URL so iOS Safari and Android WebViews
+    // can hand the download to the browser/system download manager.
+    window.location.href = downloadURL.toString()
+    ElMessage.success('已开始下载')
     downloadDialogVisible.value = false
     await fetchList()
   } catch (e) {

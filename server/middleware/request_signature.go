@@ -30,41 +30,50 @@ var requestSignatureNonceMarker = markRequestSignatureNonce
 
 func RequestSignatureGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		body, err := io.ReadAll(c.Request.Body)
-		if err != nil {
-			failRequestSignature(c)
+		if !VerifyRequestSignature(c) {
 			return
 		}
-		c.Request.Body = io.NopCloser(bytes.NewReader(body))
-
-		timestamp := c.GetHeader(requestSignatureTimestampHeader)
-		nonce := c.GetHeader(requestSignatureNonceHeader)
-		signature := c.GetHeader(requestSignatureHeader)
-		if !validRequestSignatureHeaders(timestamp, nonce, signature) {
-			failRequestSignature(c)
-			return
-		}
-
-		ts, err := strconv.ParseInt(timestamp, 10, 64)
-		if err != nil || !requestSignatureTimestampInWindow(ts) {
-			failRequestSignature(c)
-			return
-		}
-
-		expected := buildRequestSignature(c.Request.Method, c.Request.URL.Path, timestamp, nonce, body)
-		actual, err := hex.DecodeString(signature)
-		if err != nil || !bytes.Equal(expected, actual) {
-			failRequestSignature(c)
-			return
-		}
-
-		if err := requestSignatureNonceMarker(nonce, requestSignatureNonceTTL()); err != nil {
-			failRequestSignature(c)
-			return
-		}
-
 		c.Next()
 	}
+}
+
+// VerifyRequestSignature validates the signed timestamp and one-time nonce on
+// the current request. It is exported for endpoints where only a sensitive
+// mode of an otherwise backwards-compatible route requires signing.
+func VerifyRequestSignature(c *gin.Context) bool {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		failRequestSignature(c)
+		return false
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
+	timestamp := c.GetHeader(requestSignatureTimestampHeader)
+	nonce := c.GetHeader(requestSignatureNonceHeader)
+	signature := c.GetHeader(requestSignatureHeader)
+	if !validRequestSignatureHeaders(timestamp, nonce, signature) {
+		failRequestSignature(c)
+		return false
+	}
+
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil || !requestSignatureTimestampInWindow(ts) {
+		failRequestSignature(c)
+		return false
+	}
+
+	expected := buildRequestSignature(c.Request.Method, c.Request.URL.Path, timestamp, nonce, body)
+	actual, err := hex.DecodeString(signature)
+	if err != nil || !bytes.Equal(expected, actual) {
+		failRequestSignature(c)
+		return false
+	}
+
+	if err := requestSignatureNonceMarker(nonce, requestSignatureNonceTTL()); err != nil {
+		failRequestSignature(c)
+		return false
+	}
+	return true
 }
 
 func failRequestSignature(c *gin.Context) {

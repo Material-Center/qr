@@ -295,6 +295,7 @@ func (i *initApi) InitializeData(ctx context.Context) (context.Context, error) {
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/settle", Description: "管理员结算团长反扫任务"},
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/settlement/history", Description: "管理员查询团长反扫结算历史"},
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/cache/download", Description: "下载任务登录缓存INI"},
+		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/cache/prepare", Description: "签发任务缓存下载凭证"},
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/debug/login/start", Description: "管理员启动登录调试"},
 		{ApiGroup: "注册任务", Method: "POST", Path: "/registerTask/debug/login/submit", Description: "管理员提交调试登录验证码"},
 		{ApiGroup: "注册任务", Method: "GET", Path: "/registerTask/debug/login/task", Description: "管理员查询调试登录任务"},

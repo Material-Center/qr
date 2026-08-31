@@ -98,3 +98,12 @@ export const downloadRegisterTaskCache = (params) => {
     donNotShowLoading: true
   })
 }
+
+export const prepareRegisterTaskCacheDownload = (params) => {
+  return service({
+    url: '/registerTask/cache/prepare',
+    method: 'post',
+    data: params,
+    donNotShowLoading: true
+  })
+}

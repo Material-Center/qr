@@ -408,6 +408,56 @@ func (a *RegisterTaskApi) DownloadRegisterTaskCache(c *gin.Context) {
 		return
 	}
 	onlyCache := strings.EqualFold(strings.TrimSpace(c.Query("onlyCache")), "true") || strings.TrimSpace(c.Query("onlyCache")) == "1"
+	writeRegisterTaskCache(c, exporterID, taskIDs, onlyCache)
+}
+
+type registerTaskCacheDownloadPrepareRequest struct {
+	TaskID    uint   `json:"taskId"`
+	TaskIDs   []uint `json:"taskIds"`
+	OnlyCache bool   `json:"onlyCache"`
+}
+
+// PrepareRegisterTaskCacheDownload issues a signed, one-time browser download
+// ticket. The POST body is covered by RequestSignatureGuard to prevent task
+// IDs or download mode from being altered in transit.
+func (a *RegisterTaskApi) PrepareRegisterTaskCacheDownload(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	role := utils.GetUserAuthorityId(c)
+	if role != rtRoleSuperAdmin && role != rtRoleAdmin {
+		response.FailWithMessage("仅管理员可下载缓存", c)
+		return
+	}
+	var req registerTaskCacheDownloadPrepareRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	ids := append([]uint(nil), req.TaskIDs...)
+	if req.TaskID != 0 {
+		ids = append(ids, req.TaskID)
+	}
+	if len(ids) == 0 {
+		response.FailWithMessage("任务ID不能为空", c)
+		return
+	}
+	ids = parseDownloadTaskIDs(strings.Trim(strings.Join(uintSliceToStrings(ids), ","), ","), "")
+	ticket, expiresAt, err := issueRegisterTaskCacheDownloadTicket(utils.GetUserID(c), ids, req.OnlyCache)
+	if err != nil {
+		response.FailWithMessage("生成下载凭证失败", c)
+		return
+	}
+	response.OkWithDetailed(gin.H{"ticket": ticket, "path": "/registerTask/cache/downloadByTicket", "expiresAt": expiresAt.UnixMilli()}, "获取成功", c)
+}
+
+func uintSliceToStrings(ids []uint) []string {
+	result := make([]string, len(ids))
+	for i, id := range ids {
+		result[i] = strconv.FormatUint(uint64(id), 10)
+	}
+	return result
+}
+
+func writeRegisterTaskCache(c *gin.Context, exporterID uint, taskIDs []uint, onlyCache bool) {
 	var tasks []system.SysRegisterTask
 	err := global.GVA_DB.Where("id IN ?", taskIDs).Find(&tasks).Error
 	if err != nil {

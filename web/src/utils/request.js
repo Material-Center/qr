@@ -61,6 +61,7 @@ const guardedRoutes = [
   'YXV0aG9yaXR5L2dldFVzZXJzQnlBdXRob3JpdHk=', // /authority/getUsersByAuthority
   'YXV0aG9yaXR5L3NldFJvbGVVc2Vycw==', // /authority/setRoleUsers
   'cXFDYWNoZS9zYWxlcy9leHRyYWN0', // /qqCache/sales/extract
+  'cmVnaXN0ZXJUYXNrL2NhY2hlL3ByZXBhcmU=', // /registerTask/cache/prepare
   'cGhvbmVSZWdpc3RlclRhc2svY3JlYXRl' // /phoneRegisterTask/create
 ].reduce((routes, item) => routes.add(`/${fromB64(item)}`), new Set())
 

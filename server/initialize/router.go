@@ -122,7 +122,7 @@ func Routers() *gin.Engine {
 		systemRouter.InitLoginLogRouter(PrivateGroup)                       // 登录日志
 		systemRouter.InitApiTokenRouter(PrivateGroup)                       // apiToken签发
 		systemRouter.InitSkillsRouter(PrivateGroup, PublicGroup)            // Skills 定义器
-		systemRouter.InitRegisterTaskRouter(PrivateGroup)                   // 注册任务
+		systemRouter.InitRegisterTaskRouter(PrivateGroup, PublicGroup)      // 注册任务
 		systemRouter.InitPhoneRegisterTaskRouter(PrivateGroup, PublicGroup) // 手机号注册任务
 		systemRouter.InitRegisterConfigRouter(PrivateGroup)                 // 注册配置
 		systemRouter.InitDeviceConfigRouter(PrivateGroup)                   // 设备配置

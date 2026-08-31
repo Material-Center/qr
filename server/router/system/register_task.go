@@ -7,9 +7,10 @@ import (
 
 type RegisterTaskRouter struct{}
 
-func (r *RegisterTaskRouter) InitRegisterTaskRouter(Router *gin.RouterGroup) {
+func (r *RegisterTaskRouter) InitRegisterTaskRouter(Router *gin.RouterGroup, PublicGroup *gin.RouterGroup) {
 	registerTaskRouter := Router.Group("registerTask").Use(middleware.OperationRecord())
 	registerTaskRouterWithoutRecord := Router.Group("registerTask")
+	publicRegisterTaskRouter := PublicGroup.Group("registerTask")
 	{
 		registerTaskRouter.POST("create", registerTaskApi.CreateRegisterTask) // 地推创建任务
 		registerTaskRouter.POST("step", registerTaskApi.SubmitRegisterTaskStep)
@@ -24,6 +25,10 @@ func (r *RegisterTaskRouter) InitRegisterTaskRouter(Router *gin.RouterGroup) {
 		registerTaskRouterWithoutRecord.GET("summary", registerTaskApi.GetRegisterTaskSummary)
 		registerTaskRouterWithoutRecord.GET("settlement/history", registerTaskApi.GetRegisterTaskSettlementHistory)
 		registerTaskRouterWithoutRecord.GET("debug/login/task", registerTaskApi.GetRegisterTaskDebugLoginTask)
-		registerTaskRouterWithoutRecord.GET("cache/download", registerTaskApi.DownloadRegisterTaskCache)
+		registerTaskRouterWithoutRecord.GET("cache/download", middleware.DownloadRateLimit(), registerTaskApi.DownloadRegisterTaskCache)
+		registerTaskRouterWithoutRecord.POST("cache/prepare", middleware.RequestSignatureGuard(), middleware.DownloadRateLimit(), registerTaskApi.PrepareRegisterTaskCacheDownload)
+	}
+	{
+		publicRegisterTaskRouter.GET("cache/downloadByTicket", middleware.DownloadRateLimit(), registerTaskApi.DownloadRegisterTaskCacheByTicket)
 	}
 }
