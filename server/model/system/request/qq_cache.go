@@ -89,5 +89,6 @@ type QQCacheExportAccountList struct {
 }
 
 type QQCacheSalesAllowedAccountTypes struct {
-	AccountTypes []string `json:"accountTypes" form:"accountTypes"`
+	AccountTypes        []string `json:"accountTypes" form:"accountTypes"`
+	AllowThreeHoursPlus *bool    `json:"allowThreeHoursPlus" form:"allowThreeHoursPlus"`
 }

@@ -58,11 +58,12 @@ type QQCacheBillingSettlementHistoryItem struct {
 }
 
 type QQCacheSalesSummary struct {
-	Available      int64 `json:"available"`
-	TodayExtracted int64 `json:"todayExtracted"`
-	TodayUnsettled int64 `json:"todayUnsettled"`
-	BillingSettled int64 `json:"billingSettled"`
-	BillingTotal   int64 `json:"billingTotal"`
+	Available           int64 `json:"available"`
+	TodayExtracted      int64 `json:"todayExtracted"`
+	TodayUnsettled      int64 `json:"todayUnsettled"`
+	BillingSettled      int64 `json:"billingSettled"`
+	BillingTotal        int64 `json:"billingTotal"`
+	AllowThreeHoursPlus bool  `json:"allowThreeHoursPlus"`
 }
 
 type QQCacheSalesHistoryItem struct {

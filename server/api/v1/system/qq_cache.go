@@ -465,7 +465,12 @@ func (a *QQCacheApi) GetSalesAllowedAccountTypes(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	response.OkWithDetailed(gin.H{"accountTypes": accountTypes}, "获取成功", c)
+	allowThreeHoursPlus, err := qqCacheService.GetSalesAllowThreeHoursPlus()
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{"accountTypes": accountTypes, "allowThreeHoursPlus": allowThreeHoursPlus}, "获取成功", c)
 }
 
 func (a *QQCacheApi) SaveSalesAllowedAccountTypes(c *gin.Context) {
@@ -478,7 +483,12 @@ func (a *QQCacheApi) SaveSalesAllowedAccountTypes(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	if err := qqCacheService.SaveSalesAllowedAccountTypes(req.AccountTypes); err != nil {
+	if req.AllowThreeHoursPlus != nil {
+		if err := qqCacheService.SaveSalesExportConfig(req.AccountTypes, *req.AllowThreeHoursPlus); err != nil {
+			response.FailWithMessage(err.Error(), c)
+			return
+		}
+	} else if err := qqCacheService.SaveSalesAllowedAccountTypes(req.AccountTypes); err != nil {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}

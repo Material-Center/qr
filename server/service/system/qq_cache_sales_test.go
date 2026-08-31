@@ -26,10 +26,44 @@ func setupQQCacheSalesTestDB(t *testing.T) {
 		&model.SysUser{},
 		&model.SysQQCacheRecord{},
 		&model.SysQQCacheExtractBatch{},
+		&model.SysPhoneRegisterTask{},
 		&model.SysParams{},
 	))
 	global.GVA_DB = db
 	require.NoError(t, (&QQCacheService{}).SaveSalesAllowedAccountTypes([]string{AccountTypeDefault, AccountTypePC}))
+}
+
+func TestQQCacheSalesThreeHoursPlusRequiresAdminConfig(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6001)
+	now := time.Now()
+	ini := "qqnum=10001\nguid=GUID001\n"
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-4 * time.Hour), UpdatedAt: now.Add(-4 * time.Hour)}, QQNum: "10001", INI: &ini},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-2 * time.Hour), UpdatedAt: now.Add(-2 * time.Hour)}, QQNum: "10002", INI: &ini},
+	}).Error)
+
+	summary, err := (&QQCacheService{}).GetSalesSummary(salesID, "")
+	require.NoError(t, err)
+	require.False(t, summary.AllowThreeHoursPlus)
+	_, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -180)
+	require.ErrorContains(t, err, "未开启三小时以上筛选")
+
+	require.NoError(t, (&QQCacheService{}).SaveSalesExportConfig([]string{AccountTypeDefault}, true))
+	summary, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -180)
+	require.NoError(t, err)
+	require.True(t, summary.AllowThreeHoursPlus)
+	require.EqualValues(t, 1, summary.Available)
+}
+
+func TestQQCacheSalesExportConfigIsAtomic(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	require.Error(t, (&QQCacheService{}).SaveSalesExportConfig([]string{"unsupported"}, true))
+	allow, err := (&QQCacheService{}).GetSalesAllowThreeHoursPlus()
+	require.NoError(t, err)
+	require.False(t, allow)
 }
 
 func clearQQCacheSalesAllowedAccountTypes(t *testing.T) {

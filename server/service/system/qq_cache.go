@@ -25,6 +25,8 @@ const (
 )
 
 const qqCacheSalesAllowedAccountTypesKey = "qq_cache_sales_allowed_account_types"
+const qqCacheSalesAllowThreeHoursPlusKey = "qq_cache_sales_allow_three_hours_plus"
+const qqCacheSalesThreeHoursPlusMinutes = -180
 
 const (
 	qqCacheServiceRoleSuperAdmin = uint(888)
@@ -457,30 +459,63 @@ func (s *QQCacheService) SaveSalesAllowedAccountTypes(values []string) error {
 		return err
 	}
 	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
-		var existingCount int64
-		if err := tx.Model(&system.SysParams{}).
-			Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).
-			Count(&existingCount).Error; err != nil {
+		return saveQQCacheParam(tx, qqCacheSalesAllowedAccountTypesKey, "QQ缓存销售可导出账号类型", string(raw), "销售提取QQ缓存时允许导出的账号类型")
+	})
+}
+
+func (s *QQCacheService) GetSalesAllowThreeHoursPlus() (bool, error) {
+	var param system.SysParams
+	err := global.GVA_DB.Where("`key` = ?", qqCacheSalesAllowThreeHoursPlusKey).Order("id desc").First(&param).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	value := strings.TrimSpace(param.Value)
+	return strings.EqualFold(value, "true") || value == "1", nil
+}
+
+func (s *QQCacheService) SaveSalesAllowThreeHoursPlus(enabled bool) error {
+	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		return saveQQCacheSalesAllowThreeHoursPlus(tx, enabled)
+	})
+}
+
+func (s *QQCacheService) SaveSalesExportConfig(values []string, allowThreeHoursPlus bool) error {
+	sanitized, err := SanitizeQQCacheAccountTypes(values)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(sanitized)
+	if err != nil {
+		return err
+	}
+	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		if err := saveQQCacheParam(tx, qqCacheSalesAllowedAccountTypesKey, "QQ缓存销售可导出账号类型", string(raw), "销售提取QQ缓存时允许导出的账号类型"); err != nil {
 			return err
 		}
-		updates := map[string]any{
-			"name":       "QQ缓存销售可导出账号类型",
-			"value":      string(raw),
-			"desc":       "销售提取QQ缓存时允许导出的账号类型",
-			"updated_at": time.Now(),
-		}
-		if existingCount > 0 {
-			return tx.Model(&system.SysParams{}).
-				Where("`key` = ?", qqCacheSalesAllowedAccountTypesKey).
-				Updates(updates).Error
-		}
-		return tx.Create(&system.SysParams{
-			Name:  "QQ缓存销售可导出账号类型",
-			Key:   qqCacheSalesAllowedAccountTypesKey,
-			Value: string(raw),
-			Desc:  "销售提取QQ缓存时允许导出的账号类型",
-		}).Error
+		return saveQQCacheSalesAllowThreeHoursPlus(tx, allowThreeHoursPlus)
 	})
+}
+
+func saveQQCacheSalesAllowThreeHoursPlus(tx *gorm.DB, enabled bool) error {
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	return saveQQCacheParam(tx, qqCacheSalesAllowThreeHoursPlusKey, "QQ缓存销售三小时以上筛选", value, "是否允许销售使用三小时以上筛选")
+}
+
+func saveQQCacheParam(tx *gorm.DB, key string, name string, value string, desc string) error {
+	var count int64
+	if err := tx.Model(&system.SysParams{}).Where("`key` = ?", key).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return tx.Model(&system.SysParams{}).Where("`key` = ?", key).Updates(map[string]any{"name": name, "value": value, "desc": desc, "updated_at": time.Now()}).Error
+	}
+	return tx.Create(&system.SysParams{Name: name, Key: key, Value: value, Desc: desc}).Error
 }
 
 func (s *QQCacheService) CountExtractStats() (pending int64, extracted int64, total int64, err error) {
@@ -856,6 +891,18 @@ func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count 
 	if count <= 0 {
 		return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("提取数量必须大于0")
 	}
+	if recentMinutes < 0 {
+		if recentMinutes != qqCacheSalesThreeHoursPlusMinutes {
+			return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("销售仅支持三小时以上筛选")
+		}
+		allow, err := s.GetSalesAllowThreeHoursPlus()
+		if err != nil {
+			return nil, 0, system.SysQQCacheExtractBatch{}, err
+		}
+		if !allow {
+			return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("销售未开启三小时以上筛选")
+		}
+	}
 	allowedTypes, err := s.GetSalesAllowedAccountTypes()
 	if err != nil {
 		return nil, 0, system.SysQQCacheExtractBatch{}, err
@@ -957,6 +1004,19 @@ func (s *QQCacheService) GetSalesSummary(extractorID uint, date string) (systemR
 
 func (s *QQCacheService) GetSalesSummaryWithRecentMinutes(extractorID uint, date string, recentMinutes int) (systemRes.QQCacheSalesSummary, error) {
 	var summary systemRes.QQCacheSalesSummary
+	allowThreeHoursPlus, err := s.GetSalesAllowThreeHoursPlus()
+	if err != nil {
+		return summary, err
+	}
+	if recentMinutes < 0 {
+		if recentMinutes != qqCacheSalesThreeHoursPlusMinutes {
+			return summary, errors.New("销售仅支持三小时以上筛选")
+		}
+		if !allowThreeHoursPlus {
+			return summary, errors.New("销售未开启三小时以上筛选")
+		}
+	}
+	summary.AllowThreeHoursPlus = allowThreeHoursPlus
 	allowedTypes, err := s.GetSalesAllowedAccountTypes()
 	if err != nil {
 		return summary, err

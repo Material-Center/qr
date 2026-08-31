@@ -25,7 +25,7 @@
             不限
           </el-button> -->
           <el-button
-            v-for="item in recentMinuteOptions"
+            v-for="item in visibleRecentMinuteOptions"
             :key="item.value"
             size="small"
             :type="extractRecentMinutesValue === item.value ? 'primary' : 'default'"
@@ -121,7 +121,8 @@ defineOptions({
 const summary = ref({
   available: 0,
   todayExtracted: 0,
-  todayUnsettled: 0
+  todayUnsettled: 0,
+  allowThreeHoursPlus: false
 })
 const extractCount = ref(1)
 const extractRecentMinutes = ref(15)
@@ -137,9 +138,12 @@ const recentMinuteOptions = [
   { label: '最近30分钟', shortLabel: '30分钟', value: 30 },
   { label: '最近1小时', shortLabel: '1小时', value: 60 },
   { label: '最近2小时', shortLabel: '2小时', value: 120 },
-  // 临时隐藏 3 小时以上筛选，保留配置便于恢复。
-  // { label: '3小时以上', shortLabel: '3小时以上', value: -180 }
+  { label: '3小时以上', shortLabel: '3小时以上', value: -180 }
 ]
+
+const visibleRecentMinuteOptions = computed(() => {
+  return recentMinuteOptions.filter((item) => item.value !== -180 || summary.value.allowThreeHoursPlus)
+})
 
 const normalizePositiveInteger = (value) => {
   if (value === undefined || value === null || value === '') return undefined
@@ -250,7 +254,8 @@ const fetchSummary = async () => {
   summary.value = {
     available: Number(data?.available) || 0,
     todayExtracted: Number(data?.todayExtracted) || 0,
-    todayUnsettled: Number(data?.todayUnsettled) || 0
+    todayUnsettled: Number(data?.todayUnsettled) || 0,
+    allowThreeHoursPlus: data?.allowThreeHoursPlus === true
   }
   if (extractMax.value > 0 && extractCount.value > extractMax.value) {
     extractCount.value = extractMax.value

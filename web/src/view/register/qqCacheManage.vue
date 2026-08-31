@@ -368,6 +368,8 @@
           {{ item.label }}
         </el-checkbox>
       </el-checkbox-group>
+      <el-divider content-position="left">提取范围</el-divider>
+      <el-checkbox v-model="salesAllowThreeHoursPlus">允许销售使用“3小时以上”筛选</el-checkbox>
       <el-alert
         v-if="!salesAllowedAccountTypes.length"
         class="sales-allowed-alert"
@@ -444,6 +446,7 @@ const salesSummaryExpandedKeys = ref([])
 const salesSummaryTimeFilter = ref('createdAt')
 const salesAllowedDialogVisible = ref(false)
 const salesAllowedAccountTypes = ref([])
+const salesAllowThreeHoursPlus = ref(false)
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
@@ -1105,6 +1108,7 @@ const openSalesAllowedDialog = async () => {
     }
     const { data } = await getQQCacheSalesAllowedAccountTypes()
     salesAllowedAccountTypes.value = data?.accountTypes || []
+    salesAllowThreeHoursPlus.value = data?.allowThreeHoursPlus === true
     salesAllowedDialogVisible.value = true
   } catch (e) {
     ElMessage.error(e?.message || '配置加载失败')
@@ -1113,7 +1117,8 @@ const openSalesAllowedDialog = async () => {
 
 const saveSalesAllowedTypes = async () => {
   await saveQQCacheSalesAllowedAccountTypes({
-    accountTypes: salesAllowedAccountTypes.value
+    accountTypes: salesAllowedAccountTypes.value,
+    allowThreeHoursPlus: salesAllowThreeHoursPlus.value
   })
   ElMessage.success('保存成功')
   salesAllowedDialogVisible.value = false
