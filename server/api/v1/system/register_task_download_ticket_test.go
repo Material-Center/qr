@@ -36,3 +36,7 @@ func TestRegisterTaskCacheDownloadTicketRejectsExpiredTicket(t *testing.T) {
 	_, exists := registerTaskCacheDownloadTickets.Load(ticket)
 	require.False(t, exists)
 }
+
+func TestPercentEncodeRFC3986ForSafariFilename(t *testing.T) {
+	require.Equal(t, "%E8%B4%A6%E5%8F%B7_2_20260901.zip", percentEncodeRFC3986("账号_2_20260901.zip"))
+}

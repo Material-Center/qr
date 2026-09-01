@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -574,10 +573,26 @@ func writeRegisterTaskCache(c *gin.Context, exporterID uint, taskIDs []uint, onl
 	}
 	fileTime := time.Now().Format("20060102_150405")
 	filename := fmt.Sprintf("账号_%d_%s.zip", len(taskOrder), fileTime)
-	escapedFilename := url.QueryEscape(filename)
-	c.Header("Content-Type", "application/octet-stream")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", filename, escapedFilename))
-	c.Data(200, "application/octet-stream", zipBuf.Bytes())
+	asciiFilename := fmt.Sprintf("register_task_cache_%d_%s.zip", len(taskOrder), fileTime)
+	escapedFilename := percentEncodeRFC3986(filename)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"; filename*=UTF-8''%s", asciiFilename, escapedFilename))
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(200, "application/zip", zipBuf.Bytes())
+}
+
+func percentEncodeRFC3986(value string) string {
+	const hexChars = "0123456789ABCDEF"
+	var result strings.Builder
+	for _, b := range []byte(value) {
+		if (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '-' || b == '.' || b == '_' || b == '~' {
+			result.WriteByte(b)
+			continue
+		}
+		result.WriteByte('%')
+		result.WriteByte(hexChars[b>>4])
+		result.WriteByte(hexChars[b&0x0f])
+	}
+	return result.String()
 }
 
 func parseDownloadTaskIDs(taskIDRaw string, taskIDsRaw string) []uint {

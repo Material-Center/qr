@@ -607,6 +607,9 @@ const openBatchDownloadDialog = () => {
 
 const confirmDownloadZip = async () => {
   if (!downloadTaskIds.value.length) return
+  // Safari only permits a download window created directly by the user's
+  // click. Keep its handle and navigate it after the signed ticket arrives.
+  const downloadWindow = window.open('about:blank', '_blank')
   try {
     const ids = Array.from(new Set(downloadTaskIds.value))
     const params = {
@@ -619,19 +622,23 @@ const confirmDownloadZip = async () => {
     const rsp = await prepareRegisterTaskCacheDownload(params)
     const payload = rsp?.data || rsp
     if (!payload?.ticket || !payload?.path) {
+      downloadWindow?.close()
       ElMessage.error(rsp?.msg || '生成下载链接失败')
       return
     }
     const baseURL = String(import.meta.env.VITE_BASE_API || window.location.origin).replace(/\/$/, '')
     const downloadURL = new URL(`${baseURL}${payload.path}`, window.location.origin)
     downloadURL.searchParams.set('ticket', payload.ticket)
-    // Navigate to a real attachment URL so iOS Safari and Android WebViews
-    // can hand the download to the browser/system download manager.
-    window.location.href = downloadURL.toString()
+    if (downloadWindow) {
+      downloadWindow.location.replace(downloadURL.toString())
+    } else {
+      window.location.href = downloadURL.toString()
+    }
     ElMessage.success('已开始下载')
     downloadDialogVisible.value = false
     await fetchList()
   } catch (e) {
+    downloadWindow?.close()
     ElMessage.error(e?.message || '下载失败')
   }
 }
