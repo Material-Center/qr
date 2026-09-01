@@ -2018,6 +2018,21 @@ func TestPhoneRegisterRiskUsesLeaderScopeAcrossPromoters(t *testing.T) {
 	require.EqualValues(t, 1, stat.RiskFailCount)
 }
 
+func TestPhoneRegisterRiskReducesRepeatPromoterProbability(t *testing.T) {
+	got := runPhoneRegisterRepeatRiskCase(t, 0.5)
+
+	require.Equal(t, modelSystem.PhoneRegisterStatusSucceeded, got.Status)
+	require.NotNil(t, got.StatusCode)
+	require.Equal(t, modelSystem.PhoneRegisterStatusCodeSucceeded, *got.StatusCode)
+}
+
+func TestPhoneRegisterRiskReductionStillAllowsRepeatHit(t *testing.T) {
+	got := runPhoneRegisterRepeatRiskCase(t, 0.1)
+
+	require.Equal(t, modelSystem.PhoneRegisterStatusFailed, got.Status)
+	require.True(t, isPhoneRegisterRiskStatusCode(got.StatusCode))
+}
+
 func TestPhoneRegisterRiskLeaderScopeCountsFallbackLeader(t *testing.T) {
 	setupPhoneRegisterTaskTestDB(t)
 	restore := stubPhoneRegisterRiskRandom(0)
@@ -2275,6 +2290,66 @@ func createPhoneRegisterRiskLeaderWithPromoters(t *testing.T, leaderID uint, rat
 			Enable:      1,
 		}).Error)
 	}
+}
+
+func runPhoneRegisterRepeatRiskCase(t *testing.T, randomValue float64) modelSystem.SysPhoneRegisterTask {
+	t.Helper()
+	setupPhoneRegisterTaskTestDB(t)
+	restore := stubPhoneRegisterRiskRandom(randomValue)
+	t.Cleanup(restore)
+
+	leaderID := uint(40)
+	promoterAID := uint(41)
+	promoterBID := uint(42)
+	createPhoneRegisterRiskLeaderWithPromoters(t, leaderID, 45, promoterAID, promoterBID)
+
+	now := time.Now()
+	yesterday := now.Add(-24 * time.Hour)
+	riskCode := modelSystem.PhoneRegisterStatusCodeRiskFace
+	recentRiskTask := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000301",
+		PromoterID:     promoterAID,
+		LeaderID:       &leaderID,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusFailed,
+		StatusCode:     &riskCode,
+		FinishedAt:     &yesterday,
+		ExpiresAt:      yesterday.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&recentRiskTask).Error)
+
+	successCode := modelSystem.PhoneRegisterStatusCodeSucceeded
+	for i := 0; i < phoneRegisterRiskWarmupSuccessCount; i++ {
+		require.NoError(t, global.GVA_DB.Create(&modelSystem.SysPhoneRegisterTask{
+			Phone:          "18800000302",
+			PromoterID:     promoterBID,
+			LeaderID:       &leaderID,
+			SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+			TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+			Status:         modelSystem.PhoneRegisterStatusSucceeded,
+			StatusCode:     &successCode,
+			FinishedAt:     &now,
+			ExpiresAt:      now.Add(time.Hour),
+		}).Error)
+	}
+
+	holderDeviceID := fmt.Sprintf("openapi-repeat-risk-device-%.1f", randomValue)
+	task := modelSystem.SysPhoneRegisterTask{
+		Phone:          "18800000303",
+		PromoterID:     promoterAID,
+		LeaderID:       &leaderID,
+		SMSReceiveMode: modelSystem.PhoneRegisterSMSModePlatformSend,
+		TaskSource:     modelSystem.PhoneRegisterTaskSourceOpenAPI,
+		Status:         modelSystem.PhoneRegisterStatusRunning,
+		HolderDeviceID: &holderDeviceID,
+		ExpiresAt:      now.Add(time.Hour),
+	}
+	require.NoError(t, global.GVA_DB.Create(&task).Error)
+
+	got, err := (&PhoneRegisterTaskService{}).OpenAPIReportSuccess(holderDeviceID, task.ID)
+	require.NoError(t, err)
+	return got
 }
 
 func stubPhoneRegisterRiskRandom(value float64) func() {

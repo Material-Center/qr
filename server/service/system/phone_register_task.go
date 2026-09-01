@@ -55,6 +55,7 @@ const phoneRegisterPendingClaimableTaskCountCacheKey = "phone_register:pending_c
 const (
 	phoneRegisterRiskWarmupSuccessCount = 10
 	phoneRegisterRiskMaxRatio           = 45
+	phoneRegisterRiskRepeatHitFactor    = 0.25
 	phoneRegisterRiskReasonFace         = "人脸"
 	phoneRegisterRiskReasonQuota        = "满额"
 )
@@ -1711,7 +1712,17 @@ func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm
 		minGap := phoneRegisterRiskMinGap(scope.Ratio, scope, stat.BizDate, seq)
 		if stat.LastRiskSuccessSeq == 0 || gap > minGap {
 			probability := phoneRegisterRiskHitProbability(scope.Ratio, seq, stat.RiskFailCount, targetRiskCount, gap)
-			shouldHit = phoneRegisterRiskRandomFloat(fmt.Sprintf("hit:%s:%d:%s:%d:%d", scope.Kind, scope.ID, stat.BizDate, seq, task.ID)) < probability
+			randomValue := phoneRegisterRiskRandomFloat(fmt.Sprintf("hit:%s:%d:%s:%d:%d", scope.Kind, scope.ID, stat.BizDate, seq, task.ID))
+			shouldHit = randomValue < probability
+			if shouldHit {
+				lastReportWasRisk, loadErr := promoterLastSuccessReportWasRiskTx(tx, task.PromoterID)
+				if loadErr != nil {
+					return phoneRegisterRiskDecision{}, loadErr
+				}
+				if lastReportWasRisk {
+					shouldHit = randomValue < probability*phoneRegisterRiskRepeatHitFactor
+				}
+			}
 			if shouldHit && stat.LastRiskGap > 0 && gap == stat.LastRiskGap && gap == stat.PreviousRiskGap {
 				shouldHit = false
 			}
@@ -1742,6 +1753,27 @@ func (s *PhoneRegisterTaskService) evaluatePhoneRegisterRiskOnSuccessTx(tx *gorm
 		return phoneRegisterRiskDecision{}, err
 	}
 	return decision, nil
+}
+
+func promoterLastSuccessReportWasRiskTx(tx *gorm.DB, promoterID uint) (bool, error) {
+	if promoterID == 0 {
+		return false, nil
+	}
+	var task system.SysPhoneRegisterTask
+	err := tx.Select("status_code").
+		Where("promoter_id = ?", promoterID).
+		Where("finished_at IS NOT NULL").
+		Where("status_code IN ?", phoneRegisterRiskSuccessStatusCodes()).
+		Order("finished_at DESC").
+		Order("id DESC").
+		First(&task).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return isPhoneRegisterRiskStatusCode(task.StatusCode), nil
 }
 
 func (s *PhoneRegisterTaskService) resolvePhoneRegisterRiskScopeTx(tx *gorm.DB, promoterID uint, taskLeaderID *uint) (phoneRegisterRiskScope, error) {
