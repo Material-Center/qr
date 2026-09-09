@@ -470,7 +470,12 @@ func (a *QQCacheApi) GetSalesAllowedAccountTypes(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	response.OkWithDetailed(gin.H{"accountTypes": accountTypes, "allowThreeHoursPlus": allowThreeHoursPlus}, "获取成功", c)
+	threeHoursPlusTodayOnly, err := qqCacheService.GetSalesThreeHoursPlusTodayOnly()
+	if err != nil {
+		response.FailWithMessage(err.Error(), c)
+		return
+	}
+	response.OkWithDetailed(gin.H{"accountTypes": accountTypes, "allowThreeHoursPlus": allowThreeHoursPlus, "threeHoursPlusTodayOnly": threeHoursPlusTodayOnly}, "获取成功", c)
 }
 
 func (a *QQCacheApi) SaveSalesAllowedAccountTypes(c *gin.Context) {
@@ -483,8 +488,30 @@ func (a *QQCacheApi) SaveSalesAllowedAccountTypes(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
-	if req.AllowThreeHoursPlus != nil {
-		if err := qqCacheService.SaveSalesExportConfig(req.AccountTypes, *req.AllowThreeHoursPlus); err != nil {
+	if req.AllowThreeHoursPlus != nil || req.ThreeHoursPlusTodayOnly != nil {
+		allow := false
+		if req.AllowThreeHoursPlus != nil {
+			allow = *req.AllowThreeHoursPlus
+		} else {
+			var err error
+			allow, err = qqCacheService.GetSalesAllowThreeHoursPlus()
+			if err != nil {
+				response.FailWithMessage(err.Error(), c)
+				return
+			}
+		}
+		todayOnly := false
+		if req.ThreeHoursPlusTodayOnly != nil {
+			todayOnly = *req.ThreeHoursPlusTodayOnly
+		} else {
+			var err error
+			todayOnly, err = qqCacheService.GetSalesThreeHoursPlusTodayOnly()
+			if err != nil {
+				response.FailWithMessage(err.Error(), c)
+				return
+			}
+		}
+		if err := qqCacheService.SaveSalesExportConfig(req.AccountTypes, allow, todayOnly); err != nil {
 			response.FailWithMessage(err.Error(), c)
 			return
 		}
@@ -710,7 +737,7 @@ func (a *QQCacheApi) GetSalesExtractBatches(c *gin.Context) {
 // @Security  ApiKeyAuth
 // @accept    application/json
 // @Produce   application/zip
-// @Param     data  body      systemReq.QQCacheSalesBatchDownload  true  "销售ID、批次ID和创建时间范围"
+// @Param     data  body      systemReq.QQCacheSalesBatchDownload  true  "销售ID和批次ID"
 // @Success   200   file      zip
 // @Router    /qqCache/sales/batch/download [post]
 func (a *QQCacheApi) DownloadSalesExtractBatch(c *gin.Context) {
@@ -728,8 +755,6 @@ func (a *QQCacheApi) DownloadSalesExtractBatch(c *gin.Context) {
 		role,
 		req.ExtractorID,
 		req.BatchID,
-		req.CreatedAtStart,
-		req.CreatedAtEnd,
 	)
 	if err != nil {
 		response.FailWithMessage(err.Error(), c)

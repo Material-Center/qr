@@ -70,10 +70,8 @@ type QQCacheSalesSettle struct {
 }
 
 type QQCacheSalesBatchDownload struct {
-	ExtractorID    uint   `json:"extractorId" form:"extractorId"`
-	BatchID        uint   `json:"batchId" form:"batchId"`
-	CreatedAtStart string `json:"createdAtStart" form:"createdAtStart"`
-	CreatedAtEnd   string `json:"createdAtEnd" form:"createdAtEnd"`
+	ExtractorID uint `json:"extractorId" form:"extractorId"`
+	BatchID     uint `json:"batchId" form:"batchId"`
 }
 
 type QQCacheExportAccountList struct {
@@ -89,6 +87,7 @@ type QQCacheExportAccountList struct {
 }
 
 type QQCacheSalesAllowedAccountTypes struct {
-	AccountTypes        []string `json:"accountTypes" form:"accountTypes"`
-	AllowThreeHoursPlus *bool    `json:"allowThreeHoursPlus" form:"allowThreeHoursPlus"`
+	AccountTypes            []string `json:"accountTypes" form:"accountTypes"`
+	AllowThreeHoursPlus     *bool    `json:"allowThreeHoursPlus" form:"allowThreeHoursPlus"`
+	ThreeHoursPlusTodayOnly *bool    `json:"threeHoursPlusTodayOnly" form:"threeHoursPlusTodayOnly"`
 }

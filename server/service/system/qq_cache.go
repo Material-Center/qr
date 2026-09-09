@@ -26,6 +26,7 @@ const (
 
 const qqCacheSalesAllowedAccountTypesKey = "qq_cache_sales_allowed_account_types"
 const qqCacheSalesAllowThreeHoursPlusKey = "qq_cache_sales_allow_three_hours_plus"
+const qqCacheSalesThreeHoursPlusTodayOnlyKey = "qq_cache_sales_three_hours_plus_today_only"
 const qqCacheSalesThreeHoursPlusMinutes = -180
 
 const (
@@ -482,7 +483,20 @@ func (s *QQCacheService) SaveSalesAllowThreeHoursPlus(enabled bool) error {
 	})
 }
 
-func (s *QQCacheService) SaveSalesExportConfig(values []string, allowThreeHoursPlus bool) error {
+func (s *QQCacheService) GetSalesThreeHoursPlusTodayOnly() (bool, error) {
+	var param system.SysParams
+	err := global.GVA_DB.Where("`key` = ?", qqCacheSalesThreeHoursPlusTodayOnlyKey).Order("id desc").First(&param).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	value := strings.TrimSpace(param.Value)
+	return strings.EqualFold(value, "true") || value == "1", nil
+}
+
+func (s *QQCacheService) SaveSalesExportConfig(values []string, allowThreeHoursPlus bool, threeHoursPlusTodayOnly bool) error {
 	sanitized, err := SanitizeQQCacheAccountTypes(values)
 	if err != nil {
 		return err
@@ -495,8 +509,19 @@ func (s *QQCacheService) SaveSalesExportConfig(values []string, allowThreeHoursP
 		if err := saveQQCacheParam(tx, qqCacheSalesAllowedAccountTypesKey, "QQ缓存销售可导出账号类型", string(raw), "销售提取QQ缓存时允许导出的账号类型"); err != nil {
 			return err
 		}
-		return saveQQCacheSalesAllowThreeHoursPlus(tx, allowThreeHoursPlus)
+		if err := saveQQCacheSalesAllowThreeHoursPlus(tx, allowThreeHoursPlus); err != nil {
+			return err
+		}
+		return saveQQCacheSalesThreeHoursPlusTodayOnly(tx, threeHoursPlusTodayOnly)
 	})
+}
+
+func saveQQCacheSalesThreeHoursPlusTodayOnly(tx *gorm.DB, enabled bool) error {
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	return saveQQCacheParam(tx, qqCacheSalesThreeHoursPlusTodayOnlyKey, "QQ缓存销售三小时以上限制当天", value, "是否将销售三小时以上筛选限制为当天上传的缓存")
 }
 
 func saveQQCacheSalesAllowThreeHoursPlus(tx *gorm.DB, enabled bool) error {
@@ -726,6 +751,25 @@ func applyQQCacheRecentMinutesFilter(db *gorm.DB, recentMinutes int) (*gorm.DB, 
 	return db.Where("created_at >= ? AND created_at <= ?", startAt, endAt), nil
 }
 
+// Sales' "3 hours plus" is limited to records uploaded today and at least
+// three hours ago; the generic administrator filter intentionally remains
+// history-wide for compatibility.
+func applyQQCacheSalesRecentMinutesFilter(db *gorm.DB, recentMinutes int, todayOnly bool) (*gorm.DB, error) {
+	if !todayOnly {
+		return applyQQCacheRecentMinutesFilter(db, recentMinutes)
+	}
+	return applyQQCacheSalesRecentMinutesFilterAt(db, recentMinutes, time.Now())
+}
+
+func applyQQCacheSalesRecentMinutesFilterAt(db *gorm.DB, recentMinutes int, now time.Time) (*gorm.DB, error) {
+	if recentMinutes != qqCacheSalesThreeHoursPlusMinutes {
+		return applyQQCacheRecentMinutesFilter(db, recentMinutes)
+	}
+	cutoffAt := now.Add(time.Duration(recentMinutes) * time.Minute)
+	startAt := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	return db.Where("created_at >= ? AND created_at <= ?", startAt, cutoffAt), nil
+}
+
 func (s *QQCacheService) ResetExtractByID(id uint) error {
 	if id == 0 {
 		return errors.New("记录id不能为空")
@@ -910,14 +954,18 @@ func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count 
 	if len(allowedTypes) == 0 {
 		return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("未配置可导出账号类型")
 	}
+	todayOnly, err := s.GetSalesThreeHoursPlusTodayOnly()
+	if err != nil {
+		return nil, 0, system.SysQQCacheExtractBatch{}, err
+	}
 	var records []system.SysQQCacheRecord
 	var batch system.SysQQCacheExtractBatch
 	err = global.GVA_DB.Transaction(func(tx *gorm.DB) error {
-		query, err := applyQQCacheRecentMinutesFilter(
+		query, err := applyQQCacheSalesRecentMinutesFilter(
 			tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 				Where("extractor IS NULL").
 				Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
-			recentMinutes,
+			recentMinutes, todayOnly,
 		)
 		if err != nil {
 			return err
@@ -1021,11 +1069,16 @@ func (s *QQCacheService) GetSalesSummaryWithRecentMinutes(extractorID uint, date
 	if err != nil {
 		return summary, err
 	}
-	availableDB, err := applyQQCacheRecentMinutesFilter(
+	todayOnly, err := s.GetSalesThreeHoursPlusTodayOnly()
+	if err != nil {
+		return summary, err
+	}
+	summary.ThreeHoursPlusTodayOnly = todayOnly
+	availableDB, err := applyQQCacheSalesRecentMinutesFilter(
 		global.GVA_DB.Model(&system.SysQQCacheRecord{}).
 			Where("extractor IS NULL").
 			Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
-		recentMinutes,
+		recentMinutes, todayOnly,
 	)
 	if err != nil {
 		return summary, err
@@ -1211,7 +1264,7 @@ func (s *QQCacheService) ListSalesExtractBatchesForAdmin(operatorRole uint, extr
 	return items, nil
 }
 
-func (s *QQCacheService) ExportSalesExtractBatchIniZipForAdmin(operatorRole uint, extractorID uint, batchID uint, createdAtStart string, createdAtEnd string) ([]byte, int, error) {
+func (s *QQCacheService) ExportSalesExtractBatchIniZipForAdmin(operatorRole uint, extractorID uint, batchID uint) ([]byte, int, error) {
 	if operatorRole != qqCacheServiceRoleSuperAdmin && operatorRole != qqCacheServiceRoleAdmin {
 		return nil, 0, errors.New("仅管理员可重新下载销售提取缓存")
 	}
@@ -1223,25 +1276,22 @@ func (s *QQCacheService) ExportSalesExtractBatchIniZipForAdmin(operatorRole uint
 	}
 	var batch system.SysQQCacheExtractBatch
 	if err := global.GVA_DB.Select("id, extractor_id").
-		Where("id = ? AND extractor_id = ?", batchID, extractorID).
+		Where("id = ? AND extractor_id = ? AND deleted_at IS NULL", batchID, extractorID).
 		First(&batch).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, 0, errors.New("提取批次不存在")
 		}
 		return nil, 0, err
 	}
-	db := applyQQCacheCreatedAtRangeFilter(
-		global.GVA_DB.Where("extractor = ? AND extract_record_id = ?", extractorID, batchID).
-			Where("ini IS NOT NULL AND TRIM(ini) <> ''"),
-		createdAtStart,
-		createdAtEnd,
-	)
+	db := global.GVA_DB.Where("extractor = ? AND extract_record_id = ?", extractorID, batchID).
+		Where("deleted_at IS NULL").
+		Where("ini IS NOT NULL AND TRIM(ini) <> ''")
 	var records []system.SysQQCacheRecord
 	if err := db.Order("created_at ASC").Order("id ASC").Find(&records).Error; err != nil {
 		return nil, 0, err
 	}
 	if len(records) == 0 {
-		return nil, 0, errors.New("当前时间范围内暂无可重新下载的缓存")
+		return nil, 0, errors.New("该提取批次暂无可重新下载的缓存")
 	}
 	return buildQQCacheIniZip(records)
 }

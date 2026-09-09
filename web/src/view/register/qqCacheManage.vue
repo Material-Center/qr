@@ -370,6 +370,9 @@
       </el-checkbox-group>
       <el-divider content-position="left">提取范围</el-divider>
       <el-checkbox v-model="salesAllowThreeHoursPlus">允许销售使用“3小时以上”筛选</el-checkbox>
+      <el-checkbox v-model="salesThreeHoursPlusTodayOnly" :disabled="!salesAllowThreeHoursPlus">
+        “3小时以上”仅限制当天上传
+      </el-checkbox>
       <el-alert
         v-if="!salesAllowedAccountTypes.length"
         class="sales-allowed-alert"
@@ -447,6 +450,7 @@ const salesSummaryTimeFilter = ref('createdAt')
 const salesAllowedDialogVisible = ref(false)
 const salesAllowedAccountTypes = ref([])
 const salesAllowThreeHoursPlus = ref(false)
+const salesThreeHoursPlusTodayOnly = ref(false)
 const searchInfo = ref({
   createdAtRange: [],
   qqNum: '',
@@ -991,8 +995,7 @@ const onDownloadSalesBatch = async (row, batch) => {
   try {
     const res = await downloadQQCacheSalesBatch({
       extractorId: row.extractorId,
-      batchId: batch.id,
-      ...buildCreatedAtRangeParams()
+      batchId: batch.id
     })
     await handleZipDownload(res, qqCacheExtractZipName(batch.extractCount))
   } catch (e) {
@@ -1109,6 +1112,7 @@ const openSalesAllowedDialog = async () => {
     const { data } = await getQQCacheSalesAllowedAccountTypes()
     salesAllowedAccountTypes.value = data?.accountTypes || []
     salesAllowThreeHoursPlus.value = data?.allowThreeHoursPlus === true
+    salesThreeHoursPlusTodayOnly.value = data?.threeHoursPlusTodayOnly === true
     salesAllowedDialogVisible.value = true
   } catch (e) {
     ElMessage.error(e?.message || '配置加载失败')
@@ -1118,7 +1122,8 @@ const openSalesAllowedDialog = async () => {
 const saveSalesAllowedTypes = async () => {
   await saveQQCacheSalesAllowedAccountTypes({
     accountTypes: salesAllowedAccountTypes.value,
-    allowThreeHoursPlus: salesAllowThreeHoursPlus.value
+    allowThreeHoursPlus: salesAllowThreeHoursPlus.value,
+    threeHoursPlusTodayOnly: salesThreeHoursPlusTodayOnly.value
   })
   ElMessage.success('保存成功')
   salesAllowedDialogVisible.value = false

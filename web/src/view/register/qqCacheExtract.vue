@@ -122,7 +122,8 @@ const summary = ref({
   available: 0,
   todayExtracted: 0,
   todayUnsettled: 0,
-  allowThreeHoursPlus: false
+  allowThreeHoursPlus: false,
+  threeHoursPlusTodayOnly: false
 })
 const extractCount = ref(1)
 const extractRecentMinutes = ref(15)
@@ -255,7 +256,8 @@ const fetchSummary = async () => {
     available: Number(data?.available) || 0,
     todayExtracted: Number(data?.todayExtracted) || 0,
     todayUnsettled: Number(data?.todayUnsettled) || 0,
-    allowThreeHoursPlus: data?.allowThreeHoursPlus === true
+    allowThreeHoursPlus: data?.allowThreeHoursPlus === true,
+    threeHoursPlusTodayOnly: data?.threeHoursPlusTodayOnly === true
   }
   if (extractMax.value > 0 && extractCount.value > extractMax.value) {
     extractCount.value = extractMax.value

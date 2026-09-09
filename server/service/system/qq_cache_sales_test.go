@@ -50,17 +50,42 @@ func TestQQCacheSalesThreeHoursPlusRequiresAdminConfig(t *testing.T) {
 	_, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -180)
 	require.ErrorContains(t, err, "未开启三小时以上筛选")
 
-	require.NoError(t, (&QQCacheService{}).SaveSalesExportConfig([]string{AccountTypeDefault}, true))
+	require.NoError(t, (&QQCacheService{}).SaveSalesExportConfig([]string{AccountTypeDefault}, true, false))
 	summary, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -180)
 	require.NoError(t, err)
 	require.True(t, summary.AllowThreeHoursPlus)
 	require.EqualValues(t, 1, summary.Available)
 }
 
+func TestQQCacheSalesThreeHoursPlusOnlyIncludesToday(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.Local)
+	ini := "qqnum=10001\nguid=GUID001\n"
+	records := []model.SysQQCacheRecord{
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-24 * time.Hour)}, QQNum: "10001", INI: &ini},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-4 * time.Hour)}, QQNum: "10002", INI: &ini},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-2 * time.Hour)}, QQNum: "10003", INI: &ini},
+	}
+	require.NoError(t, global.GVA_DB.Create(&records).Error)
+	require.NoError(t, (&QQCacheService{}).SaveSalesExportConfig([]string{AccountTypeDefault}, true, true))
+
+	db, err := applyQQCacheSalesRecentMinutesFilterAt(
+		global.GVA_DB.Model(&model.SysQQCacheRecord{}),
+		qqCacheSalesThreeHoursPlusMinutes,
+		now,
+	)
+	require.NoError(t, err)
+	var result []model.SysQQCacheRecord
+	require.NoError(t, db.Order("qq_num").Find(&result).Error)
+	require.Len(t, result, 1)
+	require.Equal(t, "10002", result[0].QQNum)
+}
+
 func TestQQCacheSalesExportConfigIsAtomic(t *testing.T) {
 	setupQQCacheSalesTestDB(t)
 
-	require.Error(t, (&QQCacheService{}).SaveSalesExportConfig([]string{"unsupported"}, true))
+	require.Error(t, (&QQCacheService{}).SaveSalesExportConfig([]string{"unsupported"}, true, false))
 	allow, err := (&QQCacheService{}).GetSalesAllowThreeHoursPlus()
 	require.NoError(t, err)
 	require.False(t, allow)
@@ -702,7 +727,7 @@ func TestQQCacheResetExtractRejectsSalesBatchRecord(t *testing.T) {
 	require.NotNil(t, stored.ExtractionAt)
 }
 
-func TestQQCacheSalesBatchRedownloadUsesCreatedAtRangeAndDoesNotMutateState(t *testing.T) {
+func TestQQCacheSalesBatchRedownloadExportsWholeBatchAndDoesNotMutateState(t *testing.T) {
 	setupQQCacheSalesTestDB(t)
 
 	salesID := uint(6006)
@@ -743,12 +768,10 @@ func TestQQCacheSalesBatchRedownloadUsesCreatedAtRangeAndDoesNotMutateState(t *t
 		100,
 		salesID,
 		batch.ID,
-		todayStart.Format("2006-01-02 15:04:05"),
-		todayEnd.Format("2006-01-02 15:04:05"),
 	)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, exportedCount)
-	requireQQCacheZipEntries(t, zipBytes, []string{"80002.ini", "账号.txt"})
+	require.EqualValues(t, 2, exportedCount)
+	requireQQCacheZipEntries(t, zipBytes, []string{"80001.ini", "80002.ini", "账号.txt"})
 
 	var storedBatch model.SysQQCacheExtractBatch
 	require.NoError(t, global.GVA_DB.First(&storedBatch, batch.ID).Error)
