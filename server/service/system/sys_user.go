@@ -15,6 +15,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/utils"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 //@author: [piexlmax](https://github.com/piexlmax)
@@ -594,31 +595,33 @@ func (userService *UserService) SetUserInfo(req system.SysUser) error {
 }
 
 func (userService *UserService) SetUserCacheSampleRatio(userID uint, ratio *int, configured bool) error {
-	var user system.SysUser
-	if err := global.GVA_DB.Select("id, origin_setting").Where("id = ?", userID).First(&user).Error; err != nil {
-		return err
-	}
-	setting := user.OriginSetting
-	if setting == nil {
-		setting = common.JSONMap{}
-	}
-	if configured {
-		if ratio == nil {
-			return errors.New("缓存抽检比例不能为空")
+	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		var user system.SysUser
+		if err := tx.Select("id, origin_setting").Where("id = ?", userID).Clauses(clause.Locking{Strength: "UPDATE"}).First(&user).Error; err != nil {
+			return err
 		}
-		if *ratio < 0 || *ratio > maxCacheSampleRatio {
-			return errors.New("缓存抽检比例必须在0-80之间")
+		setting := user.OriginSetting
+		if setting == nil {
+			setting = common.JSONMap{}
 		}
-		setting[cacheSampleRatioKey] = *ratio
-	} else {
-		delete(setting, cacheSampleRatioKey)
-	}
-	return global.GVA_DB.Model(&system.SysUser{}).
-		Where("id = ?", userID).
-		Updates(map[string]interface{}{
-			"updated_at":     time.Now(),
-			"origin_setting": setting,
-		}).Error
+		if configured {
+			if ratio == nil {
+				return errors.New("缓存抽检比例不能为空")
+			}
+			if *ratio < 0 || *ratio > maxCacheSampleRatio {
+				return errors.New("缓存抽检比例必须在0-80之间")
+			}
+			setting[cacheSampleRatioKey] = *ratio
+		} else {
+			delete(setting, cacheSampleRatioKey)
+		}
+		return tx.Model(&system.SysUser{}).
+			Where("id = ?", userID).
+			Updates(map[string]interface{}{
+				"updated_at":     time.Now(),
+				"origin_setting": setting,
+			}).Error
+	})
 }
 
 //@author: [piexlmax](https://github.com/piexlmax)
@@ -648,7 +651,22 @@ func (userService *UserService) SetSelfInfo(req system.SysUser) error {
 //@return: err error
 
 func (userService *UserService) SetSelfSetting(req common.JSONMap, uid uint) error {
-	return global.GVA_DB.Model(&system.SysUser{}).Where("id = ?", uid).Update("origin_setting", req).Error
+	return global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		var user system.SysUser
+		if err := tx.Select("id, origin_setting").Where("id = ?", uid).Clauses(clause.Locking{Strength: "UPDATE"}).First(&user).Error; err != nil {
+			return err
+		}
+		setting := common.JSONMap{}
+		for key, value := range user.OriginSetting {
+			setting[key] = value
+		}
+		for key, value := range req {
+			setting[key] = value
+		}
+		return tx.Model(&system.SysUser{}).Where("id = ?", uid).Updates(map[string]interface{}{
+			"updated_at": time.Now(), "origin_setting": setting,
+		}).Error
+	})
 }
 
 //@author: [piexlmax](https://github.com/piexlmax)
