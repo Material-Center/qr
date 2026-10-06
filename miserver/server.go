@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,14 @@ type ServerConfig struct {
 	Store  *Store
 
 	LogOutput io.Writer
+	EnvProxy  *EnvProxyConfig
+}
+
+type EnvProxyConfig struct {
+	BaseURL    string
+	Path       string
+	Key        string
+	HTTPClient *http.Client
 }
 
 type Server struct {
@@ -66,17 +76,82 @@ func (s *Server) UploadHandler() http.Handler {
 
 func (s *Server) EnvHandler() http.Handler {
 	mux := http.NewServeMux()
+	if s.cfg.EnvProxy != nil {
+		mux.HandleFunc("/", s.handleEnvProxy)
+		return s.accessLog(mux)
+	}
 	mux.HandleFunc("/add_env", s.handleAddEnv)
 	mux.HandleFunc("/get_env", s.handleGetEnv)
 	mux.HandleFunc("/query_env_list", s.handleQueryEnvList)
 	mux.HandleFunc("/query_env", s.handleQueryEnv)
 	mux.HandleFunc("/freeze_env", s.handleFreezeEnv)
 	mux.HandleFunc("/unfreeze_env", s.handleUnfreezeEnv)
+	mux.HandleFunc("/freeze_by_condition", s.handleFreezeByCondition)
+	mux.HandleFunc("/unfreeze_by_condition", s.handleUnfreezeByCondition)
 	mux.HandleFunc("/delete_env", s.handleDeleteEnv)
+	mux.HandleFunc("/delete_by_condition", s.handleDeleteByCondition)
 	mux.HandleFunc("/clean_env", s.handleCleanEnv)
 	mux.HandleFunc("/query_by_device", s.handleQueryByDevice)
+	mux.HandleFunc("/get_env_enhanced", s.handleGetEnvEnhanced)
+	mux.HandleFunc("/get_env_enhanced2", s.handleGetEnvEnhanced2)
+	mux.HandleFunc("/get_env_for_make", s.handleGetEnvForMake)
+	mux.HandleFunc("/make_success", s.handleMakeSuccess)
+	mux.HandleFunc("/increase_make_count", s.handleIncreaseMakeCount)
+	mux.HandleFunc("/decrease_make_count", s.handleDecreaseMakeCount)
+	mux.HandleFunc("/reset_make_count", s.handleResetMakeCount)
+	mux.HandleFunc("/stats_by_type", s.handleStatsByType)
+	mux.HandleFunc("/stats_make_progress", s.handleStatsMakeProgress)
+	mux.HandleFunc("/total", s.handleTotal)
+	mux.HandleFunc("/available", s.handleAvailable)
+	mux.HandleFunc("/frozen", s.handleFrozen)
+	mux.HandleFunc("/unused", s.handleUnused)
+	mux.HandleFunc("/get_env_fixed", s.handleGetEnvFixed)
 	mux.HandleFunc("/stats", s.handleEnvStats)
 	return s.accessLog(mux)
+}
+
+func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
+	proxy := s.cfg.EnvProxy
+	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" || strings.TrimSpace(proxy.Key) == "" {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("environment proxy is not configured"))
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("read environment request: %w", err))
+		return
+	}
+	path := proxy.Path
+	if path == "" {
+		path = "/internalTool/miEnv"
+	}
+	target := strings.TrimRight(proxy.BaseURL, "/") + "/" + strings.Trim(path, "/") + r.URL.Path
+	request, err := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(body))
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("build environment proxy request: %w", err))
+		return
+	}
+	request.Header.Set("X-MI-Internal-Key", proxy.Key)
+	if contentType := r.Header.Get("Content-Type"); contentType != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
+	client := proxy.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Errorf("environment proxy request failed: %w", err))
+		return
+	}
+	defer response.Body.Close()
+	for key, values := range response.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, response.Body)
 }
 
 func (s *Server) accessLog(next http.Handler) http.Handler {
@@ -158,11 +233,15 @@ func (s *Server) handleGetDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := s.cfg.Now().In(shanghaiLocation())
-	authorizedUntil := now.Add(30 * 24 * time.Hour)
+	// Local compatibility mode is intentionally stateless: every device gets
+	// a long-lived synthetic authorization response. The local SQLite license
+	// table remains available for older databases but is not consulted here.
+	startedAt := now
+	authorizedUntil := now.AddDate(100, 0, 0)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success": true,
 		"设备id":    req.DeviceID,
-		"开始时间":    now.Format("2006-01-02 15:04"),
+		"开始时间":    startedAt.Format("2006-01-02 15:04"),
 		"到期时间":    authorizedUntil.Format("2006-01-02 15:04:05"),
 		"天数":      int(authorizedUntil.Sub(now).Hours() / 24),
 	})
@@ -249,6 +328,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = plain
 	}
+	if s.cfg.Store != nil {
+		_, err := s.cfg.Store.SaveUpload(UploadRecord{Device: req["设备"], CurrentTime: req["当前时间"], Phone: req["手机号"], Account: req["账号"], Password: req["密码"]}, s.cfg.Now())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("save upload: %w", err))
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"消息": "设备 " + req["设备"] + " 已存在相同的账号密码，不会重复保存。",
@@ -281,7 +367,7 @@ func (s *Server) handleAddEnv(w http.ResponseWriter, r *http.Request) {
 		"密钥":      record.Key,
 	} {
 		if value == "" {
-			s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"success": false, "message": field + " is required"})
+			s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 1, "success": false, "msg": field + " is required", "message": field + " is required"})
 			return
 		}
 	}
@@ -291,6 +377,8 @@ func (s *Server) handleAddEnv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{
+		"code":    0,
+		"msg":     "添加成功",
 		"success": true,
 		"message": "添加成功",
 		"data": map[string]any{
@@ -313,13 +401,211 @@ func (s *Server) handleGetEnv(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if record == nil {
-		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"success": false, "message": "暂无可用环境"})
+		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 1, "success": false, "msg": "暂无可用环境", "message": "暂无可用环境"})
 		return
 	}
 	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{
+		"code":    0,
+		"msg":     "ok",
 		"success": true,
 		"data":    envData(record),
 	})
+}
+
+func (s *Server) handleGetEnvEnhanced(w http.ResponseWriter, r *http.Request) {
+	s.handleGetEnvWithFilter(w, r, false)
+}
+
+func (s *Server) handleGetEnvEnhanced2(w http.ResponseWriter, r *http.Request) {
+	s.handleGetEnvWithFilter(w, r, true)
+}
+
+func (s *Server) handleGetEnvWithFilter(w http.ResponseWriter, r *http.Request, enhanced2 bool) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
+		return
+	}
+	filter := envFilterFromPayload(payload, false)
+	if !enhanced2 {
+		filter.MinMadeCount = intFromAnyValue(payload["最小制作次数"])
+		filter.MaxMadeCount = intFromAnyValue(payload["最大制作次数"])
+	}
+	record, err := s.cfg.Store.ConsumeEnv(filter, s.cfg.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("get enhanced env: %w", err))
+		return
+	}
+	if record == nil {
+		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 1, "msg": "暂无可用环境", "success": false})
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "msg": "ok", "success": true, "data": envData(record)})
+}
+
+func (s *Server) handleGetEnvForMake(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
+		return
+	}
+	filter := envFilterFromPayload(payload, false)
+	filter.MaxMadeCount = intFromAnyValue(payload["已制作次数"])
+	filter.CooldownDays = intFromAnyValue(payload["冷却天数"])
+	record, err := s.cfg.Store.ListForMake(filter, s.cfg.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("get env for make: %w", err))
+		return
+	}
+	if record == nil {
+		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 1, "msg": "暂无可制作环境", "success": false})
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "msg": "ok", "success": true, "data": envData(record)})
+}
+
+func (s *Server) handleMakeSuccess(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
+		return
+	}
+	id, err := int64FromAny(payload["环境id"])
+	if err != nil || id <= 0 {
+		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 1, "success": false, "msg": "环境id is required"})
+		return
+	}
+	if err := s.cfg.Store.MarkMakeSuccess(id, s.cfg.Now()); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("make success: %w", err))
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "msg": "ok"})
+}
+
+func (s *Server) handleIncreaseMakeCount(w http.ResponseWriter, r *http.Request) {
+	s.handleAdjustMakeCount(w, r, 1, false)
+}
+func (s *Server) handleDecreaseMakeCount(w http.ResponseWriter, r *http.Request) {
+	s.handleAdjustMakeCount(w, r, -1, false)
+}
+func (s *Server) handleResetMakeCount(w http.ResponseWriter, r *http.Request) {
+	s.handleAdjustMakeCount(w, r, 0, true)
+}
+
+func (s *Server) handleAdjustMakeCount(w http.ResponseWriter, r *http.Request, delta int, reset bool) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
+		return
+	}
+	id, err := int64FromAny(payload["环境id"])
+	if err != nil || id <= 0 {
+		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 1, "success": false, "msg": "环境id is required"})
+		return
+	}
+	if err := s.cfg.Store.AdjustMadeCount(id, delta, reset, s.cfg.Now()); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("adjust make count: %w", err))
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "msg": "ok"})
+}
+
+func (s *Server) handleGetEnvFixed(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
+		return
+	}
+	deviceID := stringFromAny(payload["设备ID"])
+	if deviceID == "" {
+		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 1, "success": false, "msg": "设备ID is required"})
+		return
+	}
+	data := map[string]any{
+		"设备ID": deviceID, "使用本机设备": true, "环境类型": "QQ888",
+		"最大使用次数": 1, "天数限制": 0,
+		"最小制作次数": 1, "最大制作次数": 3,
+		"最小使用次数": 0, "开始日期": "", "结束日期": "",
+		"排序": "创建时间优先",
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "data": data})
+}
+
+func (s *Server) handleStatsByType(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	if _, ok := s.readEncryptedEnvPayload(w, r); !ok {
+		return
+	}
+	stats, err := s.cfg.Store.StatsByType()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "data": stats})
+}
+
+func (s *Server) handleStatsMakeProgress(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	if _, ok := s.readEncryptedEnvPayload(w, r); !ok {
+		return
+	}
+	stats, err := s.cfg.Store.StatsMakeProgress()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "data": stats})
+}
+
+func (s *Server) handleTotal(w http.ResponseWriter, r *http.Request) {
+	s.handleScalarStat(w, r, "总数")
+}
+func (s *Server) handleAvailable(w http.ResponseWriter, r *http.Request) {
+	s.handleScalarStat(w, r, "可用")
+}
+func (s *Server) handleFrozen(w http.ResponseWriter, r *http.Request) {
+	s.handleScalarStat(w, r, "冻结")
+}
+func (s *Server) handleUnused(w http.ResponseWriter, r *http.Request) {
+	s.handleScalarStat(w, r, "未使用")
+}
+
+func (s *Server) handleScalarStat(w http.ResponseWriter, r *http.Request, name string) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	if _, ok := s.readEncryptedEnvPayload(w, r); !ok {
+		return
+	}
+	stats, err := s.cfg.Store.EnvStats()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	value := stats.Total
+	switch name {
+	case "可用":
+		value = stats.Available
+	case "冻结":
+		value = stats.Frozen
+	case "未使用":
+		value = stats.Unused
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "data": map[string]any{name: value}})
 }
 
 func (s *Server) handleQueryEnvList(w http.ResponseWriter, r *http.Request) {
@@ -352,7 +638,16 @@ func (s *Server) handleQueryEnv(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := int64FromAny(payload["环境id"])
 	if err != nil || id <= 0 {
-		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"success": false, "message": "环境id is required"})
+		records, listErr := s.cfg.Store.ListEnvs(envFilterFromPayload(payload, true))
+		if listErr != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Errorf("query env list: %w", listErr))
+			return
+		}
+		items := make([]map[string]any, 0, len(records))
+		for i := range records {
+			items = append(items, envData(&records[i]))
+		}
+		s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "data": items})
 		return
 	}
 	record, err := s.cfg.Store.GetEnvByID(id)
@@ -373,6 +668,29 @@ func (s *Server) handleFreezeEnv(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUnfreezeEnv(w http.ResponseWriter, r *http.Request) {
 	s.handleSetEnvFrozen(w, r, false)
+}
+
+func (s *Server) handleFreezeByCondition(w http.ResponseWriter, r *http.Request) {
+	s.handleSetEnvFrozenByCondition(w, r, true)
+}
+func (s *Server) handleUnfreezeByCondition(w http.ResponseWriter, r *http.Request) {
+	s.handleSetEnvFrozenByCondition(w, r, false)
+}
+
+func (s *Server) handleSetEnvFrozenByCondition(w http.ResponseWriter, r *http.Request, frozen bool) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
+		return
+	}
+	changed, err := s.cfg.Store.SetEnvFrozenByFilter(envFilterFromPayload(payload, true), frozen, s.cfg.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("set env frozen by condition: %w", err))
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "data": map[string]any{"影响数量": changed}})
 }
 
 func (s *Server) handleSetEnvFrozen(w http.ResponseWriter, r *http.Request, frozen bool) {
@@ -415,6 +733,22 @@ func (s *Server) handleDeleteEnv(w http.ResponseWriter, r *http.Request) {
 	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"success": true})
 }
 
+func (s *Server) handleDeleteByCondition(w http.ResponseWriter, r *http.Request) {
+	if !s.requireEnvStore(w) {
+		return
+	}
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
+		return
+	}
+	changed, err := s.cfg.Store.DeleteEnvsByFilter(envFilterFromPayload(payload, true), s.cfg.Now())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("delete env by condition: %w", err))
+		return
+	}
+	s.writeEncryptedEnv(w, http.StatusOK, map[string]any{"code": 0, "success": true, "data": map[string]any{"删除数量": changed}})
+}
+
 func (s *Server) handleCleanEnv(w http.ResponseWriter, r *http.Request) {
 	if !s.requireEnvStore(w) {
 		return
@@ -422,10 +756,17 @@ func (s *Server) handleCleanEnv(w http.ResponseWriter, r *http.Request) {
 	if !requirePost(w, r) {
 		return
 	}
-	if _, ok := s.readEncryptedEnvPayload(w, r); !ok {
+	payload, ok := s.readEncryptedEnvPayload(w, r)
+	if !ok {
 		return
 	}
-	removed, err := s.cfg.Store.CleanEnv()
+	var removed int64
+	var err error
+	if days, ok := intFromAny(payload["超过天数"]); ok {
+		removed, err = s.cfg.Store.CleanEnvOlderThan(*days, s.cfg.Now())
+	} else {
+		removed, err = s.cfg.Store.CleanEnv()
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("clean env: %w", err))
 		return
@@ -542,6 +883,28 @@ func envFilterFromPayload(payload map[string]any, includeListFields bool) EnvFil
 	if maxUsage, ok := intFromAny(payload["最大使用次数"]); ok {
 		filter.MaxUsage = maxUsage
 	}
+	if minUsage, ok := intFromAny(payload["最小使用次数"]); ok {
+		filter.MinUsage = minUsage
+	}
+	if minMade, ok := intFromAny(payload["最小制作次数"]); ok {
+		filter.MinMadeCount = minMade
+	}
+	if maxMade, ok := intFromAny(payload["最大制作次数"]); ok {
+		filter.MaxMadeCount = maxMade
+	}
+	if made, ok := intFromAny(payload["已制作次数"]); ok {
+		filter.MinMadeCount = made
+	}
+	if minDays, ok := intFromAny(payload["最小天数"]); ok {
+		filter.MinDays = minDays
+	}
+	if maxDays, ok := intFromAny(payload["最大天数"]); ok {
+		filter.MaxDays = maxDays
+	}
+	if cooldown, ok := intFromAny(payload["冷却天数"]); ok {
+		filter.CooldownDays = cooldown
+	}
+	filter.Sort = stringFromAny(payload["排序"])
 	if olderThanDays, ok := intFromAny(payload["超过天数"]); ok {
 		filter.OlderThanDays = olderThanDays
 	}
@@ -561,6 +924,7 @@ func envFilterFromPayload(payload map[string]any, includeListFields bool) EnvFil
 
 func envData(record *EnvRecord) map[string]any {
 	data := map[string]any{
+		"id":         record.ID,
 		"环境id":       record.ID,
 		"设备代号":       record.DeviceCode,
 		"设备ID":       record.DeviceID,
@@ -571,14 +935,19 @@ func envData(record *EnvRecord) map[string]any {
 		"密钥":         record.Key,
 		"使用次数":       record.UsageCount,
 		"最大使用次数":     record.MaxUsage,
+		"已制作次数":      record.MadeCount,
 		"冻结":         boolInt(record.Frozen),
 		"created_at": record.CreatedAt.Format(time.RFC3339),
+		"创建时间":       record.CreatedAt.Format(time.RFC3339),
 	}
 	if record.ConsumedAt != nil {
 		data["consumed_at"] = record.ConsumedAt.Format(time.RFC3339)
 	}
 	if record.DeletedAt != nil {
 		data["deleted_at"] = record.DeletedAt.Format(time.RFC3339)
+	}
+	if record.LastUsedAt != nil {
+		data["最后使用时间"] = record.LastUsedAt.Format(time.RFC3339)
 	}
 	return data
 }
@@ -597,6 +966,13 @@ func boolInt(value bool) int {
 	return 0
 }
 
+func intFromAnyValue(value any) *int {
+	v, ok := intFromAny(value)
+	if !ok {
+		return nil
+	}
+	return v
+}
 func shanghaiLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {

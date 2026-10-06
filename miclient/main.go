@@ -37,7 +37,14 @@ func runWithOutput(args []string, stdout io.Writer) error {
 	envKey := fs.String("key", "", "environment userkey/secret")
 	envID := fs.Int("env-id", 0, "environment ID")
 	maxUsage := fs.Int("max-usage", -1, "maximum usage filter; -1 omits it")
+	minUsage := fs.Int("min-usage", -1, "minimum usage filter; -1 omits it")
+	minMade := fs.Int("min-made-count", -1, "minimum made count; -1 omits it")
+	maxMade := fs.Int("max-made-count", -1, "maximum made count; -1 omits it")
 	olderThanDays := fs.Int("older-than-days", -1, "older-than-days filter; -1 omits it")
+	minDays := fs.Int("min-days", -1, "minimum age window in days; -1 omits it")
+	maxDays := fs.Int("max-days", -1, "maximum age window in days; -1 omits it")
+	cooldownDays := fs.Int("cooldown-days", -1, "make cooldown in days; -1 omits it")
+	sortMode := fs.String("sort", "", "environment sort mode")
 	limit := fs.Int("limit", -1, "query limit; -1 omits it")
 	offset := fs.Int("offset", -1, "query offset; -1 omits it")
 	frozen := fs.Int("frozen", -1, "frozen filter: 0/1; -1 omits it")
@@ -98,9 +105,49 @@ func runWithOutput(args []string, stdout io.Writer) error {
 			Key:              *envKey,
 		})
 	case "get-env":
-		resp, err = envClient.GetEnv(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *olderThanDays))
+		resp, err = envClient.GetEnv(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
+	case "get-env-enhanced":
+		resp, err = envClient.GetEnvEnhanced(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
+	case "get-env-enhanced2":
+		resp, err = envClient.GetEnvEnhanced2(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
+	case "get-env-for-make":
+		resp, err = envClient.GetEnvForMake(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
+	case "make-success":
+		if *envID <= 0 {
+			return fmt.Errorf("-env-id is required")
+		}
+		resp, err = envClient.MakeSuccess(*envID)
+	case "increase-make-count", "decrease-make-count", "reset-make-count":
+		if *envID <= 0 {
+			return fmt.Errorf("-env-id is required")
+		}
+		switch fs.Arg(0) {
+		case "increase-make-count":
+			resp, err = envClient.IncreaseMakeCount(*envID)
+		case "decrease-make-count":
+			resp, err = envClient.DecreaseMakeCount(*envID)
+		default:
+			resp, err = envClient.ResetMakeCount(*envID)
+		}
+	case "get-env-fixed":
+		if *device == "" {
+			return fmt.Errorf("-device is required")
+		}
+		resp, err = envClient.GetEnvFixed(*device)
+	case "stats-by-type":
+		resp, err = envClient.StatsByType()
+	case "stats-make-progress":
+		resp, err = envClient.StatsMakeProgress()
+	case "total-env":
+		resp, err = envClient.Total()
+	case "available-env":
+		resp, err = envClient.Available()
+	case "frozen-env":
+		resp, err = envClient.Frozen()
+	case "unused-env":
+		resp, err = envClient.Unused()
 	case "query-env-list":
-		resp, err = envClient.QueryEnvList(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *olderThanDays))
+		resp, err = envClient.QueryEnvList(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
 	case "query-env":
 		if *envID <= 0 {
 			return fmt.Errorf("-env-id is required")
@@ -116,13 +163,23 @@ func runWithOutput(args []string, stdout io.Writer) error {
 			return fmt.Errorf("-env-id is required")
 		}
 		resp, err = envClient.UnfreezeEnv(*envID)
+	case "freeze-by-condition":
+		resp, err = envClient.FreezeByCondition(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
+	case "unfreeze-by-condition":
+		resp, err = envClient.UnfreezeByCondition(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
 	case "delete-env":
 		if *envID <= 0 {
 			return fmt.Errorf("-env-id is required")
 		}
 		resp, err = envClient.DeleteEnv(*envID)
+	case "delete-by-condition":
+		resp, err = envClient.DeleteByCondition(envFilterFromFlags(*envType, *deviceCode, *device, *serialBackupName, *androidID, *envKey, *frozen, *limit, *offset, *maxUsage, *minUsage, *olderThanDays, *minDays, *maxDays, *minMade, *maxMade, *cooldownDays, *sortMode))
 	case "clean-env":
-		resp, err = envClient.CleanEnv()
+		if *olderThanDays >= 0 {
+			resp, err = envClient.CleanEnvOlderThan(*olderThanDays)
+		} else {
+			resp, err = envClient.CleanEnv()
+		}
 	case "query-by-device":
 		if *device == "" {
 			return fmt.Errorf("-device is required")
@@ -142,7 +199,7 @@ func runWithOutput(args []string, stdout io.Writer) error {
 	return enc.Encode(resp)
 }
 
-func envFilterFromFlags(envType, deviceCode, device, serialBackupName, androidID, envKey string, frozen, limit, offset, maxUsage, olderThanDays int) EnvFilter {
+func envFilterFromFlags(envType, deviceCode, device, serialBackupName, androidID, envKey string, frozen, limit, offset, maxUsage, minUsage, olderThanDays, minDays, maxDays, minMade, maxMade, cooldownDays int, sort string) EnvFilter {
 	return EnvFilter{
 		Type:             envType,
 		DeviceCode:       deviceCode,
@@ -154,7 +211,14 @@ func envFilterFromFlags(envType, deviceCode, device, serialBackupName, androidID
 		Limit:            intPtrIfSet(limit),
 		Offset:           intPtrIfSet(offset),
 		MaxUsage:         intPtrIfSet(maxUsage),
+		MinUsage:         intPtrIfSet(minUsage),
+		MinMadeCount:     intPtrIfSet(minMade),
+		MaxMadeCount:     intPtrIfSet(maxMade),
 		OlderThanDays:    intPtrIfSet(olderThanDays),
+		MinDays:          intPtrIfSet(minDays),
+		MaxDays:          intPtrIfSet(maxDays),
+		CooldownDays:     intPtrIfSet(cooldownDays),
+		Sort:             sort,
 	}
 }
 
@@ -175,6 +239,9 @@ func usage() error {
 environment pool:
   miclient [flags] -device <id> -device-code <model> [-env-type QQ888] -serial-backup-name <name> -android-id <id> -key <key> add-env
   miclient [flags] [-env-type QQ888] [-device-code cepheus] [-device <id>] [-max-usage 1] [-older-than-days 3] get-env
+  miclient [flags] get-env-enhanced | get-env-enhanced2 | get-env-for-make
+  miclient [flags] -env-id <id> make-success
+  miclient [flags] -device <id> get-env-fixed
   miclient [flags] [filters] query-env-list
   miclient [flags] -env-id <id> query-env
   miclient [flags] -env-id <id> freeze-env

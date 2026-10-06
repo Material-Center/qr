@@ -265,6 +265,7 @@ excel:
 extra:
     extract-url: http://127.0.0.1:19091/extract
     upload-archive-dir: uploads/extra-cache-zips
+    mi-env-internal-key: cd5d1c1b4bd95fcb561d2a3f2b5407de82b9088d8b1f4eb3ebce9c28331ef42f
 
 # disk usage configuration
 disk-list:

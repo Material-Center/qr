@@ -73,6 +73,28 @@ func TestDeleteUserAllowsLeaderDeletingOwnPromoter(t *testing.T) {
 	require.Equal(t, int64(0), count)
 }
 
+func TestDeleteLeaderAlsoDeletesAllSubordinateAccounts(t *testing.T) {
+	setupUserAuthoritySecurityTestDB(t)
+
+	err := (&UserService{}).DeleteUser(11, 100, 30)
+	require.NoError(t, err)
+
+	var activeCount int64
+	require.NoError(t, global.GVA_DB.Model(&modelSystem.SysUser{}).
+		Where("id IN ?", []uint{20, 21, 22, 30}).Count(&activeCount).Error)
+	require.Zero(t, activeCount)
+
+	var authorityCount int64
+	require.NoError(t, global.GVA_DB.Model(&modelSystem.SysUserAuthority{}).
+		Where("sys_user_id IN ?", []uint{20, 21, 22, 30}).Count(&authorityCount).Error)
+	require.Zero(t, authorityCount)
+
+	var unrelatedCount int64
+	require.NoError(t, global.GVA_DB.Model(&modelSystem.SysUser{}).
+		Where("id = ?", 14).Count(&unrelatedCount).Error)
+	require.Equal(t, int64(1), unrelatedCount)
+}
+
 func TestGetUserInfoListLimitsLeaderToSelfAndOwnPromoters(t *testing.T) {
 	setupUserAuthoritySecurityTestDB(t)
 

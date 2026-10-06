@@ -81,6 +81,32 @@ func TestAddEnvPostsEncryptedDataEnvelope(t *testing.T) {
 	}
 }
 
+func TestAddEnvRetriesTransientHTTPFailures(t *testing.T) {
+	cfg := DefaultEnvConfig()
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			http.Error(w, "temporary", http.StatusBadGateway)
+			return
+		}
+		encrypted, err := encryptDynamicString(`{"code":0,"success":true}`, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"data": encrypted})
+	}))
+	defer server.Close()
+	client := NewEnvClient(server.URL, cfg)
+	resp, err := client.AddEnv(EnvRecord{DeviceCode: "cepheus", DeviceID: "device-a", Type: "QQ888", SerialBackupName: "backup-a", AndroidID: "android-a", Key: "key-a"})
+	if err != nil {
+		t.Fatalf("AddEnv: %v", err)
+	}
+	if attempts != 3 || resp["success"] != true {
+		t.Fatalf("attempts=%d resp=%#v", attempts, resp)
+	}
+}
+
 func TestGetEnvPostsFiltersAndUnwrapsDataObject(t *testing.T) {
 	cfg := DefaultEnvConfig()
 	var gotPath string

@@ -22,6 +22,13 @@ type Client struct {
 
 type APIResponse map[string]any
 
+type LicenseStatus struct {
+	DeviceID  string
+	ServerNow time.Time
+	ExpiresAt time.Time
+	Days      int
+}
+
 func NewClient(baseURL string, cfg CryptoConfig) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
@@ -37,6 +44,100 @@ func NewClient(baseURL string, cfg CryptoConfig) *Client {
 
 func (c *Client) SetTimeout(timeout time.Duration) {
 	c.httpClient.Timeout = timeout
+}
+
+// CheckLicense mirrors the current desktop authorization state machine:
+// obtain Shanghai time first, then query the device, and compare both values
+// as Asia/Shanghai timestamps. It retries transient failures with bounded
+// backoff and never falls back to the local clock for authorization.
+func (c *Client) CheckLicense(ctx context.Context, deviceID string) (LicenseStatus, error) {
+	if strings.TrimSpace(deviceID) == "" {
+		return LicenseStatus{}, fmt.Errorf("device_id is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		serverResp, err := c.doJSONContext(ctx, http.MethodPost, "/shanghaitime", nil)
+		if err == nil {
+			serverResp, err = c.decryptResponseFields(serverResp)
+		}
+		if err == nil {
+			serverNow, parseErr := parseShanghaiTime(serverResp["decrypted_data"])
+			if parseErr == nil {
+				deviceResp, deviceErr := c.doJSONContext(ctx, http.MethodPost, "/get_device", map[string]string{"device_id": deviceID})
+				if deviceErr == nil {
+					deviceResp, deviceErr = c.decryptResponseFields(deviceResp)
+				}
+				if deviceErr == nil {
+					expires, expiryErr := parseExpiry(deviceResp)
+					if expiryErr == nil {
+						status := LicenseStatus{DeviceID: deviceID, ServerNow: serverNow, ExpiresAt: expires, Days: int(expires.Sub(serverNow).Hours() / 24)}
+						if serverNow.After(expires) {
+							return status, fmt.Errorf("license expired at %s", expires.Format("2006-01-02 15:04:05"))
+						}
+						if deviceResp["success"] == false {
+							return status, fmt.Errorf("device is not authorized")
+						}
+						return status, nil
+					}
+					lastErr = expiryErr
+				} else {
+					lastErr = deviceErr
+				}
+			} else {
+				lastErr = parseErr
+			}
+		} else {
+			lastErr = err
+		}
+		if attempt < 4 {
+			delay := time.Duration(attempt+1) * 200 * time.Millisecond
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return LicenseStatus{}, ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("license check failed")
+	}
+	return LicenseStatus{}, lastErr
+}
+
+func parseShanghaiTime(value any) (time.Time, error) {
+	s, ok := value.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return time.Time{}, fmt.Errorf("missing Shanghai server time")
+	}
+	return time.ParseInLocation("2006-01-02 15:04:05", s, shanghaiLocation())
+}
+
+func parseExpiry(resp APIResponse) (time.Time, error) {
+	for _, key := range []string{"到期时间", "expires_at", "expiry", "data"} {
+		if value, ok := resp[key].(string); ok && strings.TrimSpace(value) != "" {
+			t, err := time.ParseInLocation("2006-01-02 15:04:05", value, shanghaiLocation())
+			if err == nil {
+				return t, nil
+			}
+			if t, err := time.ParseInLocation("2006-01-02 15:04", value, shanghaiLocation()); err == nil {
+				return t, nil
+			}
+		}
+	}
+	return time.Time{}, fmt.Errorf("missing or invalid license expiry")
+}
+
+func shanghaiLocation() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("Asia/Shanghai", 8*60*60)
+	}
+	return loc
 }
 
 func (c *Client) ShanghaiTime() (APIResponse, error) {
@@ -168,4 +269,12 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body any, out 
 	}
 
 	return nil
+}
+
+func (c *Client) doJSONContext(ctx context.Context, method, path string, body any) (APIResponse, error) {
+	var out APIResponse
+	if err := c.doJSON(ctx, method, path, body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

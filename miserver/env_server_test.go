@@ -34,9 +34,10 @@ func TestEnvAddAndGetConsumesOnce(t *testing.T) {
 	}
 
 	getResp := postEncryptedEnv(t, srv, cfg, now, "/get_env", map[string]any{
-		"类型":   "QQ888",
-		"设备代号": "cepheus",
-		"设备ID": "8bf9321c",
+		"类型":     "QQ888",
+		"设备代号":   "cepheus",
+		"设备ID":   "8bf9321c",
+		"最大使用次数": 0,
 	})
 	data, ok := getResp["data"].(map[string]any)
 	if !ok {
@@ -47,12 +48,67 @@ func TestEnvAddAndGetConsumesOnce(t *testing.T) {
 	}
 
 	secondResp := postEncryptedEnv(t, srv, cfg, now, "/get_env", map[string]any{
-		"类型":   "QQ888",
-		"设备代号": "cepheus",
-		"设备ID": "8bf9321c",
+		"类型":     "QQ888",
+		"设备代号":   "cepheus",
+		"设备ID":   "8bf9321c",
+		"最大使用次数": 0,
 	})
 	if secondResp["success"] != false {
 		t.Fatalf("second get response = %#v, want unavailable", secondResp)
+	}
+}
+
+func TestEnvUploadIsIdempotentAndUsageLimitComesFromRequest(t *testing.T) {
+	cfg := DefaultEnvConfig()
+	now := fixedLATime()
+	store := newTestStore(t)
+	srv := NewServer(ServerConfig{Crypto: cfg, Store: store, Now: func() time.Time { return now }})
+	payload := map[string]any{
+		"设备代号": "cepheus", "设备ID": "device-a", "类型": "QQ888",
+		"串码备份包名称": "same-backup", "安卓ID": "android-a", "密钥": "key-a",
+	}
+	first := postEncryptedEnv(t, srv, cfg, now, "/add_env", payload)
+	second := postEncryptedEnv(t, srv, cfg, now, "/add_env", payload)
+	if first["data"].(map[string]any)["环境id"] != second["data"].(map[string]any)["环境id"] {
+		t.Fatalf("duplicate upload ids differ: %#v %#v", first, second)
+	}
+
+	filter := map[string]any{"类型": "QQ888", "设备ID": "device-a", "最大使用次数": 1}
+	for wantUsage := 1; wantUsage <= 2; wantUsage++ {
+		resp := postEncryptedEnv(t, srv, cfg, now, "/get_env", filter)
+		if resp["success"] != true || resp["data"].(map[string]any)["使用次数"] != float64(wantUsage) {
+			t.Fatalf("usage %d response = %#v", wantUsage, resp)
+		}
+	}
+	third := postEncryptedEnv(t, srv, cfg, now, "/get_env", filter)
+	if third["success"] != false {
+		t.Fatalf("third response = %#v", third)
+	}
+}
+
+func TestEnvEnhanced2AppliesDateRangesAndSortOrder(t *testing.T) {
+	cfg := DefaultEnvConfig()
+	now := fixedLATime()
+	store := newTestStore(t)
+	for _, item := range []struct {
+		name string
+		age  int
+	}{{"older", 20}, {"newer", 10}} {
+		created := now.Add(-time.Duration(item.age) * 24 * time.Hour)
+		srv := NewServer(ServerConfig{Crypto: cfg, Store: store, Now: func() time.Time { return created }})
+		postEncryptedEnv(t, srv, cfg, created, "/add_env", map[string]any{
+			"设备代号": "cepheus", "设备ID": "device-a", "类型": "QQ888",
+			"串码备份包名称": item.name, "安卓ID": "android-" + item.name, "密钥": "key-" + item.name,
+		})
+	}
+	srv := NewServer(ServerConfig{Crypto: cfg, Store: store, Now: func() time.Time { return now }})
+	resp := postEncryptedEnv(t, srv, cfg, now, "/get_env_enhanced2", map[string]any{
+		"类型": "QQ888", "设备ID": "device-a", "最小使用次数": 0, "最大使用次数": 1,
+		"最小天数": 30, "最大天数": 7, "最小制作次数": 1, "最大制作次数": 3,
+		"排序": "创建时间优先",
+	})
+	if resp["data"].(map[string]any)["串码备份包名称"] != "older" {
+		t.Fatalf("enhanced2 response = %#v", resp)
 	}
 }
 
@@ -188,6 +244,62 @@ func TestEnvFreezeDeleteAndStats(t *testing.T) {
 	stats := getPlainJSON(t, srv, "/stats")
 	if stats["总数"] != float64(2) || stats["已消费"] != float64(1) || stats["已删除"] != float64(1) {
 		t.Fatalf("stats = %#v", stats)
+	}
+}
+
+func TestLatestEnvMakeLifecycleAndFixedConfig(t *testing.T) {
+	cfg := DefaultEnvConfig()
+	now := fixedLATime()
+	store := newTestStore(t)
+	srv := NewServer(ServerConfig{Crypto: cfg, Store: store, Now: func() time.Time { return now }})
+	add := postEncryptedEnv(t, srv, cfg, now, "/add_env", map[string]any{
+		"设备代号": "cepheus", "设备ID": "device-a", "类型": "QQ888",
+		"串码备份包名称": "backup-a", "安卓ID": "android-a", "密钥": "key-a",
+	})
+	id := int(add["data"].(map[string]any)["环境id"].(float64))
+
+	forMake := postEncryptedEnv(t, srv, cfg, now, "/get_env_for_make", map[string]any{
+		"类型": "QQ888", "设备代号": "cepheus", "设备ID": "device-a", "已制作次数": 3, "冷却天数": 1,
+	})
+	data := forMake["data"].(map[string]any)
+	if data["已制作次数"] != float64(1) {
+		t.Fatalf("for make data = %#v", data)
+	}
+	postEncryptedEnv(t, srv, cfg, now, "/make_success", map[string]any{"环境id": id})
+	query := postEncryptedEnv(t, srv, cfg, now, "/query_env", map[string]any{"环境id": id})
+	if query["data"].(map[string]any)["已制作次数"] != float64(2) {
+		t.Fatalf("query = %#v", query)
+	}
+
+	fixed := postEncryptedEnv(t, srv, cfg, now, "/get_env_fixed", map[string]any{"设备ID": "device-a"})
+	fixedData := fixed["data"].(map[string]any)
+	if fixedData["环境类型"] != "QQ888" || fixedData["排序"] != "创建时间优先" {
+		t.Fatalf("fixed = %#v", fixed)
+	}
+}
+
+func TestLatestEnvConditionManagement(t *testing.T) {
+	cfg := DefaultEnvConfig()
+	now := fixedLATime()
+	store := newTestStore(t)
+	srv := NewServer(ServerConfig{Crypto: cfg, Store: store, Now: func() time.Time { return now }})
+	for _, name := range []string{"backup-a", "backup-b"} {
+		postEncryptedEnv(t, srv, cfg, now, "/add_env", map[string]any{
+			"设备代号": "cepheus", "设备ID": "device-a", "类型": "QQ888",
+			"串码备份包名称": name, "安卓ID": "android-" + name, "密钥": "key-" + name,
+		})
+	}
+	frozen := postEncryptedEnv(t, srv, cfg, now, "/freeze_by_condition", map[string]any{"类型": "QQ888", "设备ID": "device-a"})
+	if frozen["data"].(map[string]any)["影响数量"] != float64(2) {
+		t.Fatalf("freeze = %#v", frozen)
+	}
+	count := postEncryptedEnv(t, srv, cfg, now, "/frozen", map[string]any{})
+	if count["data"].(map[string]any)["冻结"] != float64(2) {
+		t.Fatalf("frozen count = %#v", count)
+	}
+	deleted := postEncryptedEnv(t, srv, cfg, now, "/delete_by_condition", map[string]any{"串码备份包名称": "backup-a"})
+	if deleted["data"].(map[string]any)["删除数量"] != float64(1) {
+		t.Fatalf("delete = %#v", deleted)
 	}
 }
 

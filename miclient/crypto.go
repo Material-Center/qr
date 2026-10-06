@@ -28,7 +28,7 @@ func DefaultConfig() CryptoConfig {
 		Seed:               "python3806250511",
 		IV:                 "0625051106250511",
 		ResponseSeedPrefix: "python38x64",
-		ResponseSkew:       10,
+		ResponseSkew:       2,
 	}
 }
 
@@ -217,10 +217,18 @@ func responseSeeds(cfg CryptoConfig, now time.Time) []string {
 	}
 	center := now.In(loc)
 
+	// The desktop client checks the current minute first, then alternates
+	// backwards/forwards around it. Keep this order because a minute-boundary
+	// response can otherwise be accepted with a stale key too early.
 	seeds := make([]string, 0, skew*2+1)
-	for delta := -skew; delta <= skew; delta++ {
+	appendSeed := func(delta int) {
 		t := center.Add(time.Duration(delta) * time.Minute)
 		seeds = append(seeds, prefix+t.Format("1504"))
+	}
+	appendSeed(0)
+	for distance := 1; distance <= skew; distance++ {
+		appendSeed(-distance)
+		appendSeed(distance)
 	}
 	return seeds
 }

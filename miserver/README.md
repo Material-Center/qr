@@ -11,8 +11,15 @@ It listens locally on three ports by default:
 - `127.0.0.2:80` for upload APIs.
 - `127.0.0.2:8888` for environment pool APIs.
 
-Only env environment-pool state is stored in local SQLite. Authorization and
-upload endpoints are local mock/protocol-validation paths.
+Environment-pool state is stored by the main server. The local SQLite file is
+used only for deduplicated account uploads.
+`/get_device` is intentionally stateless in local mode: every valid device ID
+gets a long-lived compatibility response, and the legacy `licenses` table is
+kept only so older databases remain readable. Account-upload fields remain
+application-encrypted in the local database; the server does not write
+decrypted passwords. In local launcher mode, environment requests are
+forwarded to `http://210.16.170.132:1111/api/internalTool/miEnv/*` with the
+configured internal key.
 
 It exposes:
 
@@ -27,9 +34,26 @@ It exposes:
 - `POST /query_env`
 - `POST /freeze_env`
 - `POST /unfreeze_env`
+- `POST /freeze_by_condition`
+- `POST /unfreeze_by_condition`
 - `POST /delete_env`
+- `POST /delete_by_condition`
 - `POST /clean_env`
 - `POST /query_by_device`
+- `POST /get_env_enhanced`
+- `POST /get_env_enhanced2`
+- `POST /get_env_for_make`
+- `POST /make_success`
+- `POST /increase_make_count`
+- `POST /decrease_make_count`
+- `POST /reset_make_count`
+- `POST /get_env_fixed`
+- `POST /stats_by_type`
+- `POST /stats_make_progress`
+- `POST /total`
+- `POST /available`
+- `POST /frozen`
+- `POST /unused`
 - `GET /stats`
 
 `/shanghaitime` returns an encrypted `data` string. The encrypted value uses
@@ -47,8 +71,8 @@ the observed response wrapper:
   "success": true,
   "设备id": "1546c952",
   "开始时间": "2026-05-05 02:49",
-  "到期时间": "2026-06-04 02:49:00",
-  "天数": 30
+  "到期时间": "2126-05-24 15:26:30",
+  "天数": 36524
 }
 ```
 
@@ -64,8 +88,9 @@ the observed response wrapper:
 }
 ```
 
-Upload data is decrypted for protocol validation but is not written to SQLite.
-The mock response is:
+Upload data is decrypted for protocol validation. The original encrypted field
+values are deduplicated and stored in local SQLite; decrypted credentials are
+not persisted. The compatible response is:
 
 ```json
 {
@@ -86,6 +111,18 @@ The mock response is:
 go test ./...
 go run . -bind-ip 127.0.0.2 -db ./miserver.db
 ```
+
+For the bundled Windows client, copy `dist/miserver-windows-amd64.exe` and
+`启动中控-本地服务.bat` to the A_mi client root. Keep the original
+`启动中控.bat` unchanged; the two batch files are independent launch modes.
+Run the new local-mode batch file as
+Administrator. It starts all three listeners, keeps the database beside the
+client, maps `py.j8nda.xyz` to `127.0.0.2`, and creates local `/32` aliases for
+the compiled client's literal upload and environment addresses. The listeners
+therefore bind to `127.0.0.2:9999`, `120.77.84.13:80`, and
+`39.108.96.33:8888`, so the unmodified compiled client reaches only the local
+compatibility service; the environment service then forwards to the main
+server.
 
 Build a Windows binary:
 

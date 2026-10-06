@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	defaultEnvUpstreamURL = "http://210.16.170.132:1111/api"
+	defaultEnvInternalKey = "cd5d1c1b4bd95fcb561d2a3f2b5407de82b9088d8b1f4eb3ebce9c28331ef42f"
+)
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -21,6 +26,9 @@ func main() {
 func run(args []string) error {
 	fs := flag.NewFlagSet("miserver", flag.ContinueOnError)
 	bindIP := fs.String("bind-ip", "127.0.0.2", "local bind IP")
+	authBindIP := fs.String("auth-bind-ip", "", "authorization bind IP; defaults to -bind-ip")
+	uploadBindIP := fs.String("upload-bind-ip", "", "upload bind IP; defaults to -bind-ip")
+	envBindIP := fs.String("env-bind-ip", "", "environment pool bind IP; defaults to -bind-ip")
 	authPort := fs.Int("auth-port", 9999, "authorization API port")
 	uploadPort := fs.Int("upload-port", 80, "upload API port")
 	envPort := fs.Int("env-port", 8888, "environment pool API port")
@@ -29,6 +37,9 @@ func run(args []string) error {
 	iv := fs.String("iv", DefaultConfig().IV, "AES-CBC IV, 16 bytes")
 	responseSeedPrefix := fs.String("response-seed-prefix", DefaultConfig().ResponseSeedPrefix, "response seed prefix")
 	responseSkew := fs.Int("response-skew", DefaultConfig().ResponseSkew, "response decrypt skew in minutes")
+	envUpstreamURL := fs.String("env-upstream-url", defaultEnvUpstreamURL, "main server base URL for environment APIs")
+	envUpstreamPath := fs.String("env-upstream-path", "/internalTool/miEnv", "main server internal environment API path")
+	envInternalKey := fs.String("env-internal-key", defaultEnvInternalKey, "fixed key for main server environment APIs")
 	readHeaderTimeout := fs.Duration("read-header-timeout", 5*time.Second, "HTTP read header timeout")
 
 	if err := fs.Parse(args); err != nil {
@@ -44,7 +55,7 @@ func run(args []string) error {
 	}
 	defer store.Close()
 
-	srv := NewServer(ServerConfig{
+	serverConfig := ServerConfig{
 		Crypto: CryptoConfig{
 			Seed:               *seed,
 			IV:                 *iv,
@@ -52,8 +63,17 @@ func run(args []string) error {
 			ResponseSkew:       *responseSkew,
 		},
 		Store: store,
-	})
-	addrs := buildListenAddresses(*bindIP, *authPort, *uploadPort, *envPort)
+	}
+	if *envUpstreamURL != "" {
+		serverConfig.EnvProxy = &EnvProxyConfig{BaseURL: *envUpstreamURL, Path: *envUpstreamPath, Key: *envInternalKey}
+	}
+	srv := NewServer(serverConfig)
+	addrs := buildServiceListenAddresses(
+		fallbackBindIP(*authBindIP, *bindIP),
+		fallbackBindIP(*uploadBindIP, *bindIP),
+		fallbackBindIP(*envBindIP, *bindIP),
+		*authPort, *uploadPort, *envPort,
+	)
 	servers := []namedHTTPServer{
 		{name: "auth", server: &http.Server{Addr: addrs.Auth, Handler: srv.AuthHandler(), ReadHeaderTimeout: *readHeaderTimeout}},
 		{name: "upload", server: &http.Server{Addr: addrs.Upload, Handler: srv.UploadHandler(), ReadHeaderTimeout: *readHeaderTimeout}},
@@ -74,11 +94,22 @@ type namedHTTPServer struct {
 }
 
 func buildListenAddresses(bindIP string, authPort, uploadPort, envPort int) listenAddresses {
+	return buildServiceListenAddresses(bindIP, bindIP, bindIP, authPort, uploadPort, envPort)
+}
+
+func buildServiceListenAddresses(authIP, uploadIP, envIP string, authPort, uploadPort, envPort int) listenAddresses {
 	return listenAddresses{
-		Auth:   bindIP + ":" + strconv.Itoa(authPort),
-		Upload: bindIP + ":" + strconv.Itoa(uploadPort),
-		Env:    bindIP + ":" + strconv.Itoa(envPort),
+		Auth:   authIP + ":" + strconv.Itoa(authPort),
+		Upload: uploadIP + ":" + strconv.Itoa(uploadPort),
+		Env:    envIP + ":" + strconv.Itoa(envPort),
 	}
+}
+
+func fallbackBindIP(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func serveAll(servers []namedHTTPServer) error {

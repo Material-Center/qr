@@ -1,11 +1,43 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
+
+func TestCheckLicenseUsesServerTimeAndExpiry(t *testing.T) {
+	cfg := DefaultConfig()
+	serverNow := time.Now()
+	shanghai := serverNow.In(shanghaiLocation())
+	encryptedTime, err := encryptDynamicStringAt(shanghai.Format("2006-01-02 15:04:05"), cfg, serverNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires := shanghai.Add(48 * time.Hour).Format("2006-01-02 15:04:05")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/shanghaitime":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": encryptedTime})
+		case "/get_device":
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "到期时间": expires})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, cfg)
+	status, err := client.CheckLicense(context.Background(), "device-a")
+	if err != nil {
+		t.Fatalf("CheckLicense: %v", err)
+	}
+	if status.DeviceID != "device-a" || !status.ExpiresAt.After(status.ServerNow) {
+		t.Fatalf("status = %#v", status)
+	}
+}
 
 func TestShanghaiTimeUsesPost(t *testing.T) {
 	cfg := DefaultConfig()

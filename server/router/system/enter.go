@@ -28,6 +28,7 @@ type RouterGroup struct {
 	PhoneRegisterTaskRouter
 	RegisterConfigRouter
 	QQCacheRouter
+	MIEnvRouter
 	DeviceConfigRouter
 }
 
@@ -58,5 +59,6 @@ var (
 	phoneRegisterTaskApi = api.ApiGroupApp.SystemApiGroup.PhoneRegisterTaskApi
 	registerConfigApi    = api.ApiGroupApp.SystemApiGroup.RegisterConfigApi
 	qqCacheApi           = api.ApiGroupApp.SystemApiGroup.QQCacheApi
+	miEnvApi             = api.ApiGroupApp.SystemApiGroup.MIEnvApi
 	deviceConfigApi      = api.ApiGroupApp.SystemApiGroup.DeviceConfigApi
 )

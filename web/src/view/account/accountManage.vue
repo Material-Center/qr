@@ -753,10 +753,17 @@ const submitDrawer = async () => {
 }
 
 const deleteUserFunc = async (row) => {
-  await ElMessageBox.confirm('确定删除该账号吗?', '提示', {
+  const subordinateCount = (row.children || []).reduce(
+    (count, child) => count + 1 + (child.children?.length || 0),
+    0
+  )
+  const message = row.authorityId === ROLE_LEADER
+    ? `删除团长将同时删除其下全部 ${subordinateCount} 个账号，且无法恢复，确定继续吗？`
+    : '确定删除该账号吗?'
+  await ElMessageBox.confirm(message, '提示', {
     confirmButtonText: '确定',
     cancelButtonText: '取消',
-    type: 'warning'
+    type: row.authorityId === ROLE_LEADER ? 'error' : 'warning'
   })
   const res = await deleteUser({ id: row.ID })
   if (res.code === 0) {

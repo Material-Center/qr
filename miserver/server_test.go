@@ -80,14 +80,67 @@ func TestGetDeviceReturnsCurrentInterfacePlainPayload(t *testing.T) {
 	if resp["设备id"] != "1546c952" {
 		t.Fatalf("设备id = %v", resp["设备id"])
 	}
-	if resp["天数"] != float64(30) {
-		t.Fatalf("天数 = %v, want 30", resp["天数"])
+	if resp["天数"].(float64) < 36000 {
+		t.Fatalf("天数 = %v, want a long-lived license", resp["天数"])
 	}
 	if resp["开始时间"] != "2026-05-24 15:26" {
 		t.Fatalf("开始时间 = %v", resp["开始时间"])
 	}
-	if resp["到期时间"] != "2026-06-23 15:26:30" {
-		t.Fatalf("到期时间 = %v", resp["到期时间"])
+	if resp["到期时间"] == "" {
+		t.Fatalf("到期时间 is empty")
+	}
+}
+
+func TestGetDeviceReturnsLongLivedStatelessLicense(t *testing.T) {
+	store := newTestStore(t)
+	start := fixedLATime()
+	srv := NewServer(ServerConfig{Crypto: DefaultConfig(), Store: store, Now: func() time.Time { return start }})
+	body := bytes.NewBufferString(`{"device_id":"persisted-device"}`)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/get_device", body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("initial status = %d", rec.Code)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["success"] != true {
+		t.Fatalf("response = %#v", resp)
+	}
+	if resp["天数"].(float64) < 36000 {
+		t.Fatalf("license is not long-lived: %#v", resp)
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM licenses`).Scan(&count); err != nil {
+		t.Fatalf("count license rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("get_device should be stateless, licenses rows = %d", count)
+	}
+}
+
+func TestEnvHandlerForwardsToConfiguredMainServer(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/internalTool/miEnv/add_env" {
+			t.Fatalf("upstream path = %q", r.URL.Path)
+		}
+		if r.Header.Get("X-MI-Internal-Key") != "test-key" {
+			t.Fatalf("upstream key = %q", r.Header.Get("X-MI-Internal-Key"))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"data":"proxied"}`))
+	}))
+	defer upstream.Close()
+
+	srv := NewServer(ServerConfig{EnvProxy: &EnvProxyConfig{BaseURL: upstream.URL, Path: "/internalTool/miEnv", Key: "test-key"}})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/add_env", bytes.NewBufferString(`{"data":"payload"}`))
+	srv.EnvHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted || rec.Body.String() != `{"data":"proxied"}` {
+		t.Fatalf("proxy response = %d %q", rec.Code, rec.Body.String())
 	}
 }
 

@@ -31,6 +31,7 @@ type ApiGroup struct {
 	PhoneRegisterTaskApi
 	RegisterConfigApi
 	QQCacheApi
+	MIEnvApi
 	DeviceConfigApi
 }
 

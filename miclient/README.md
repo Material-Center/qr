@@ -8,6 +8,7 @@ and the observed endpoints:
 - `/shanghaitime`
 - `/get_device`
 - `/use_code`
+- `/stoptime` (server-side compatibility endpoint)
 - `/上传`
 - environment pool APIs under `http://39.108.96.33:8888`
 
@@ -106,6 +107,24 @@ Encrypted POST commands:
 Plain GET command:
 
 - `stats-env` -> `/stats`
+
+Latest environment lifecycle commands are also available:
+
+- `get-env-enhanced` -> `/get_env_enhanced`
+- `get-env-enhanced2` -> `/get_env_enhanced2`
+- `get-env-for-make` -> `/get_env_for_make`
+- `make-success` -> `/make_success`
+- `get-env-fixed` -> `/get_env_fixed`
+- `stats-by-type` -> `/stats_by_type`
+- `stats-make-progress` -> `/stats_make_progress`
+- `increase-make-count` / `decrease-make-count` / `reset-make-count`
+- `freeze-by-condition` / `unfreeze-by-condition` / `delete-by-condition`
+- `total-env` / `available-env` / `frozen-env` / `unused-env`
+
+`CheckLicense(ctx, deviceID)` follows the current authorization order: decrypt
+Shanghai server time, query `/get_device`, parse the second-level expiry in
+Asia/Shanghai, and reject missing/invalid/expired state without falling back
+to the local clock.
 
 For encrypted environment pool responses, the client expects a JSON wrapper with
 `data`, decrypts it with `env-seed`, parses the decrypted JSON, and prints the

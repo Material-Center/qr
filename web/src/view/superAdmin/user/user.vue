@@ -579,10 +579,13 @@
   }
 
   const deleteUserFunc = async (row) => {
-    ElMessageBox.confirm('确定要删除吗?', '提示', {
+    const message = row.authorityId === ROLE_LEADER
+      ? '删除团长将同时删除其下全部账号，且无法恢复，确定继续吗？'
+      : '确定要删除吗?'
+    ElMessageBox.confirm(message, '提示', {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
-      type: 'warning'
+      type: row.authorityId === ROLE_LEADER ? 'error' : 'warning'
     }).then(async () => {
       const res = await deleteUser({ id: row.ID })
       if (res.code === 0) {
