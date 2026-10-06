@@ -99,20 +99,11 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 	case "reset_make_count":
 		a.adjustID(c, cfg, now, payload, func(id uint) error { return svc.AdjustMadeCount(id, 0, true, now) })
 	case "query_env_list":
-		items, err := svc.List(miEnvFilter(payload, true))
-		if err != nil {
-			a.writeFailure(c, cfg, now, err.Error())
-			return
-		}
-		out := make([]map[string]any, 0, len(items))
-		for i := range items {
-			out = append(out, miEnvData(&items[i]))
-		}
-		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "data": out})
+		a.writeEnvList(c, cfg, now, miEnvFilter(payload, true))
 	case "query_env":
 		id, ok := uintValue(payload["环境id"])
 		if !ok {
-			a.writeFailure(c, cfg, now, "环境id is required")
+			a.writeEnvList(c, cfg, now, miEnvFilter(payload, true))
 			return
 		}
 		record, err := svc.Get(id)
@@ -132,7 +123,7 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 			return
 		}
 		filter := system.MIEnvFilter{DeviceID: deviceID, Limit: miEnvIntPtr(payload["limit"])}
-		items, err := svc.List(filter)
+		items, err := svc.List(filter, now)
 		if err != nil {
 			a.writeFailure(c, cfg, now, err.Error())
 			return
@@ -212,6 +203,19 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 	default:
 		a.writeFailure(c, cfg, now, "unsupported MI environment action: "+action)
 	}
+}
+
+func (a *MIEnvApi) writeEnvList(c *gin.Context, cfg miEnvCryptoConfig, now time.Time, filter system.MIEnvFilter) {
+	items, err := system.MIEnvServiceApp.List(filter, now)
+	if err != nil {
+		a.writeFailure(c, cfg, now, err.Error())
+		return
+	}
+	out := make([]map[string]any, 0, len(items))
+	for i := range items {
+		out = append(out, miEnvData(&items[i]))
+	}
+	a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "data": out})
 }
 
 func (a *MIEnvApi) writeStats(c *gin.Context, cfg miEnvCryptoConfig, now time.Time) {
@@ -297,7 +301,11 @@ func (a *MIEnvApi) writePlain(c *gin.Context, cfg miEnvCryptoConfig, now time.Ti
 }
 
 func miEnvFilter(payload map[string]any, includeList bool) system.MIEnvFilter {
-	return system.MIEnvFilter{Type: str(payload["类型"]), DeviceCode: str(payload["设备代号"]), DeviceID: str(payload["设备ID"]), SerialBackupName: str(payload["串码备份包名称"]), AndroidID: str(payload["安卓ID"]), Key: str(payload["密钥"]), Frozen: choosePtr(includeList, miEnvIntPtr(payload["冻结"])), Limit: choosePtr(includeList, miEnvIntPtr(payload["limit"])), Offset: choosePtr(includeList, miEnvIntPtr(payload["offset"])), MaxUsage: miEnvIntPtr(payload["最大使用次数"]), MinUsage: miEnvIntPtr(payload["最小使用次数"]), MinMadeCount: miEnvIntPtr(payload["最小制作次数"]), MaxMadeCount: miEnvIntPtr(payload["最大制作次数"]), OlderThanDays: miEnvIntPtr(payload["超过天数"]), MinDays: miEnvIntPtr(payload["最小天数"]), MaxDays: miEnvIntPtr(payload["最大天数"]), CooldownDays: miEnvIntPtr(payload["冷却天数"]), Sort: str(payload["排序"])}
+	filter := system.MIEnvFilter{Type: str(payload["类型"]), DeviceCode: str(payload["设备代号"]), DeviceID: str(payload["设备ID"]), SerialBackupName: str(payload["串码备份包名称"]), AndroidID: str(payload["安卓ID"]), Key: str(payload["密钥"]), Frozen: choosePtr(includeList, miEnvIntPtr(payload["冻结"])), Limit: choosePtr(includeList, miEnvIntPtr(payload["limit"])), Offset: choosePtr(includeList, miEnvIntPtr(payload["offset"])), MaxUsage: miEnvIntPtr(payload["最大使用次数"]), MinUsage: miEnvIntPtr(payload["最小使用次数"]), MinMadeCount: miEnvIntPtr(payload["最小制作次数"]), MaxMadeCount: miEnvIntPtr(payload["最大制作次数"]), OlderThanDays: miEnvIntPtr(payload["超过天数"]), MinDays: miEnvIntPtr(payload["最小天数"]), MaxDays: miEnvIntPtr(payload["最大天数"]), CooldownDays: miEnvIntPtr(payload["冷却天数"]), Sort: str(payload["排序"])}
+	if madeCount := miEnvIntPtr(payload["已制作次数"]); madeCount != nil {
+		filter.MinMadeCount = madeCount
+	}
+	return filter
 }
 
 func miEnvData(record *model.SysMIEnvRecord) map[string]any {

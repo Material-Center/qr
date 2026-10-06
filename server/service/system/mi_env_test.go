@@ -58,9 +58,34 @@ func TestMIEnvAddIsIdempotentOnlyForTheSameEnvironmentIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, firstID, secondID)
 
-	items, err := MIEnvServiceApp.List(MIEnvFilter{Type: "QQ888", DeviceID: "device-a", SerialBackupName: "backup-a"})
+	items, err := MIEnvServiceApp.List(MIEnvFilter{Type: "QQ888", DeviceID: "device-a", SerialBackupName: "backup-a"}, now)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
+}
+
+func TestMIEnvListAppliesAgeAndMadeCountFilters(t *testing.T) {
+	useMIEnvTestDB(t)
+	now := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
+	oldID, err := MIEnvServiceApp.Add(model.SysMIEnvRecord{
+		DeviceCode: "cepheus", DeviceID: "device-old", Type: "QQ111",
+		SerialBackupName: "backup-old", AndroidID: "android-old", Key: "key-old",
+	}, now.Add(-20*24*time.Hour))
+	require.NoError(t, err)
+	require.NoError(t, MIEnvServiceApp.AdjustMadeCount(oldID, 2, false, now.Add(-19*24*time.Hour)))
+
+	_, err = MIEnvServiceApp.Add(model.SysMIEnvRecord{
+		DeviceCode: "cepheus", DeviceID: "device-new", Type: "QQ111",
+		SerialBackupName: "backup-new", AndroidID: "android-new", Key: "key-new",
+	}, now.Add(-5*24*time.Hour))
+	require.NoError(t, err)
+
+	items, err := MIEnvServiceApp.List(MIEnvFilter{
+		Type: "QQ111", MinMadeCount: miEnvTestIntPtr(2),
+		MinDays: miEnvTestIntPtr(30), MaxDays: miEnvTestIntPtr(7),
+	}, now)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, oldID, items[0].ID)
 }
 
 func TestMIEnvListForMakeExcludesConsumedRecords(t *testing.T) {

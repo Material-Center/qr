@@ -133,9 +133,12 @@ func (s *MIEnvService) Consume(filter MIEnvFilter, now time.Time) (*model.SysMIE
 	return &record, nil
 }
 
-func (s *MIEnvService) List(filter MIEnvFilter) ([]model.SysMIEnvRecord, error) {
+func (s *MIEnvService) List(filter MIEnvFilter, now time.Time) ([]model.SysMIEnvRecord, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
 	var records []model.SysMIEnvRecord
-	query := applyMIEnvFilter(global.GVA_DB, filter, true, time.Time{}).Order(miEnvOrder(filter.Sort))
+	query := applyMIEnvFilter(global.GVA_DB, filter, true, now).Order(miEnvOrder(filter.Sort))
 	if filter.Limit != nil && *filter.Limit > 0 {
 		query = query.Limit(*filter.Limit)
 	}
