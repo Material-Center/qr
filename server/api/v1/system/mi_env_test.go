@@ -79,6 +79,12 @@ func TestMIEnvBackupProtocolResponses(t *testing.T) {
 	madeData := made["data"].(map[string]any)
 	require.EqualValues(t, id, madeData["id"])
 	require.EqualValues(t, 2, madeData["已制作次数"])
+
+	queried := dispatchMIEnvForTest(t, "query_env", map[string]any{"环境id": id}, now.Add(time.Hour))
+	require.EqualValues(t, 0, queried["code"])
+	queriedData := queried["data"].(map[string]any)
+	require.EqualValues(t, now.Unix(), queriedData["创建时间"])
+	require.EqualValues(t, now.Add(time.Hour).Unix(), queriedData["最后使用时间"])
 }
 
 func TestMIEnvMakeSuccessRejectsUnknownOrUnreservedID(t *testing.T) {
@@ -163,7 +169,11 @@ func TestMIEnvQueryEnvSupportsDeviceListLimit(t *testing.T) {
 		"设备ID": "selected-device", "limit": 10000,
 	}, now)
 	require.EqualValues(t, 0, clientRequest["code"])
-	require.Len(t, clientRequest["data"].([]any), 3)
+	clientItems := clientRequest["data"].([]any)
+	require.Len(t, clientItems, 3)
+	firstClientItem := clientItems[0].(map[string]any)
+	require.EqualValues(t, now.Add(time.Minute).Unix(), firstClientItem["创建时间"])
+	require.Equal(t, now.Add(time.Minute).Format(time.RFC3339), firstClientItem["created_at"])
 
 	var records []model.SysMIEnvRecord
 	require.NoError(t, db.Order("id").Find(&records).Error)

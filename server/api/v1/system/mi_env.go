@@ -309,7 +309,7 @@ func miEnvFilter(payload map[string]any, includeList bool) system.MIEnvFilter {
 }
 
 func miEnvData(record *model.SysMIEnvRecord) map[string]any {
-	data := map[string]any{"id": record.ID, "环境id": record.ID, "设备代号": record.DeviceCode, "设备ID": record.DeviceID, "类型": record.Type, "串码备份包名称": record.SerialBackupName, "备份名称": record.SerialBackupName, "安卓ID": record.AndroidID, "密钥": record.Key, "使用次数": record.UsageCount, "最大使用次数": record.MaxUsage, "已制作次数": record.MadeCount, "冻结": boolInt(record.Frozen), "created_at": record.CreatedAt.Format(time.RFC3339), "创建时间": record.CreatedAt.Format(time.RFC3339)}
+	data := map[string]any{"id": record.ID, "环境id": record.ID, "设备代号": record.DeviceCode, "设备ID": record.DeviceID, "类型": record.Type, "串码备份包名称": record.SerialBackupName, "备份名称": record.SerialBackupName, "安卓ID": record.AndroidID, "密钥": record.Key, "使用次数": record.UsageCount, "最大使用次数": record.MaxUsage, "已制作次数": record.MadeCount, "冻结": boolInt(record.Frozen), "created_at": record.CreatedAt.Format(time.RFC3339), "创建时间": record.CreatedAt.Unix()}
 	if record.ConsumedAt != nil {
 		data["consumed_at"] = record.ConsumedAt.Format(time.RFC3339)
 	}
@@ -317,7 +317,7 @@ func miEnvData(record *model.SysMIEnvRecord) map[string]any {
 		data["deleted_at"] = record.DeletedAt.Format(time.RFC3339)
 	}
 	if record.LastUsedAt != nil {
-		data["最后使用时间"] = record.LastUsedAt.Format(time.RFC3339)
+		data["最后使用时间"] = record.LastUsedAt.Unix()
 	}
 	if record.MakeReservedUntil != nil {
 		data["制作预约到期时间"] = record.MakeReservedUntil.Format(time.RFC3339)
