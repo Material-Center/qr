@@ -265,12 +265,9 @@ func (s *Server) handleShanghaiTime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	loc, err := time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		loc = time.FixedZone("Asia/Shanghai", 8*60*60)
-	}
-	plain := s.cfg.Now().In(loc).Format("2006-01-02 15:04:05")
-	encrypted, err := encryptResponseStringAt(plain, s.cfg.Crypto, s.cfg.Now(), s.cfg.Random)
+	now := s.cfg.Now()
+	plain := now.In(shanghaiLocation()).Format("2006-01-02 15:04:05")
+	encrypted, err := encryptResponseStringAt(plain, s.cfg.Crypto, now, s.cfg.Random)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -365,15 +362,31 @@ func (s *Server) handleStopTime(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("encrypted_device is required"))
 		return
 	}
-	deviceID, err := decryptString(req.EncryptedDevice, s.cfg.Crypto)
+	if req.EncryptedKey == "" {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("encrypted_key is required"))
+		return
+	}
+
+	now := s.cfg.Now()
+	_, err := decryptDynamicRequestStringAt(req.EncryptedDevice, s.cfg.Crypto, now)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("decrypt encrypted_device: %w", err))
 		return
 	}
+	if _, err := decryptDynamicRequestStringAt(req.EncryptedKey, s.cfg.Crypto, now); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("decrypt encrypted_key: %w", err))
+		return
+	}
+
+	expiresAt := now.In(shanghaiLocation()).AddDate(100, 0, 0).Format("2006-01-02 15:04:05")
+	encrypted, err := encryptResponseStringAt(expiresAt, s.cfg.Crypto, now, s.cfg.Random)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"stopped": false,
-		"设备id":    deviceID,
+		"code": 200,
+		"data": encrypted,
 	})
 }
 
@@ -1049,7 +1062,7 @@ func intFromAnyValue(value any) *int {
 func shanghaiLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
-		return time.FixedZone("Asia/Shanghai", 8*60*60)
+		panic(fmt.Errorf("load Asia/Shanghai timezone: %w", err))
 	}
 	return loc
 }

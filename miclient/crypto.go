@@ -11,6 +11,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	_ "time/tzdata"
 	"unicode/utf8"
 )
 
@@ -58,8 +59,7 @@ func encryptDynamicStringAt(plain string, cfg CryptoConfig, now time.Time) (stri
 	}
 	body := append(prefix, []byte(plain)...)
 	padded := pkcs7Pad(body, aesBlockSize)
-	seed := responseSeedAt(cfg, now)
-	encrypted, err := encryptCBC(padded, seed, cfg.IV)
+	encrypted, err := encryptCBC(padded, responseSeedAt(cfg, now), cfg.IV)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +74,7 @@ func responseSeedAt(cfg CryptoConfig, now time.Time) string {
 
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
-		loc = time.FixedZone("America/Los_Angeles", -8*60*60)
+		panic(fmt.Errorf("load America/Los_Angeles timezone: %w", err))
 	}
 	return prefix + now.In(loc).Format("1504")
 }
@@ -213,7 +213,7 @@ func responseSeeds(cfg CryptoConfig, now time.Time) []string {
 
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
-		loc = time.FixedZone("America/Los_Angeles", -8*60*60)
+		panic(fmt.Errorf("load America/Los_Angeles timezone: %w", err))
 	}
 	center := now.In(loc)
 

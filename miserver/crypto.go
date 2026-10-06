@@ -11,6 +11,7 @@ import (
 	"io"
 	"strings"
 	"time"
+	_ "time/tzdata"
 	"unicode/utf8"
 )
 
@@ -207,7 +208,7 @@ func responseSeedPrefix(cfg CryptoConfig) string {
 func responseLocation() *time.Location {
 	loc, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
-		return time.FixedZone("America/Los_Angeles", -8*60*60)
+		panic(fmt.Errorf("load America/Los_Angeles timezone: %w", err))
 	}
 	return loc
 }

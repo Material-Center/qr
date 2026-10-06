@@ -50,6 +50,42 @@ func TestShanghaiTimeReturnsDecryptableCurrentInterfaceResponse(t *testing.T) {
 	}
 }
 
+func TestShanghaiTimeUsesSingleClockSample(t *testing.T) {
+	cfg := DefaultConfig()
+	now := fixedLATime()
+	clockCalls := 0
+	srv := NewServer(ServerConfig{
+		Crypto: cfg,
+		Now: func() time.Time {
+			clockCalls++
+			return now.Add(time.Duration(clockCalls-1) * time.Minute)
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/shanghaitime", nil)
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if clockCalls != 1 {
+		t.Fatalf("clock calls = %d, want 1", clockCalls)
+	}
+
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	plain, err := decryptResponseStringAt(resp["data"].(string), cfg, now)
+	if err != nil {
+		t.Fatalf("decrypt response: %v", err)
+	}
+	if plain != "2026-05-24 15:26:30" {
+		t.Fatalf("plain = %q", plain)
+	}
+}
+
 func TestGetDeviceReturnsCurrentInterfacePlainPayload(t *testing.T) {
 	cfg := DefaultConfig()
 	now := fixedLATime()
@@ -159,13 +195,11 @@ func TestStopTimeReturnsDefaultMockState(t *testing.T) {
 		Now:    func() time.Time { return now },
 	})
 
-	encryptedDevice, err := encryptUploadFixtureString("1546c952", cfg)
-	if err != nil {
-		t.Fatalf("encrypt device: %v", err)
-	}
+	encryptedDevice := encryptEnvRequestFixture(t, "1546c952", cfg, now)
+	encryptedKey := encryptEnvRequestFixture(t, "diagnostic-key", cfg, now)
 	body, err := json.Marshal(map[string]string{
 		"encrypted_device": encryptedDevice,
-		"encrypted_key":    "ignored",
+		"encrypted_key":    encryptedKey,
 	})
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
@@ -182,8 +216,19 @@ func TestStopTimeReturnsDefaultMockState(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp["success"] != true || resp["stopped"] != false {
+	if resp["code"] != float64(200) {
 		t.Fatalf("response = %#v", resp)
+	}
+	encryptedData, ok := resp["data"].(string)
+	if !ok || encryptedData == "" {
+		t.Fatalf("encrypted data missing in %#v", resp)
+	}
+	plain, err := decryptResponseStringAt(encryptedData, cfg, now)
+	if err != nil {
+		t.Fatalf("decrypt response: %v", err)
+	}
+	if plain != now.In(shanghaiLocation()).AddDate(100, 0, 0).Format("2006-01-02 15:04:05") {
+		t.Fatalf("expiry = %q", plain)
 	}
 }
 

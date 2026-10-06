@@ -118,13 +118,14 @@ func parseShanghaiTime(value any) (time.Time, error) {
 }
 
 func parseExpiry(resp APIResponse) (time.Time, error) {
+	loc := shanghaiLocation()
 	for _, key := range []string{"到期时间", "expires_at", "expiry", "data"} {
 		if value, ok := resp[key].(string); ok && strings.TrimSpace(value) != "" {
-			t, err := time.ParseInLocation("2006-01-02 15:04:05", value, shanghaiLocation())
+			t, err := time.ParseInLocation("2006-01-02 15:04:05", value, loc)
 			if err == nil {
 				return t, nil
 			}
-			if t, err := time.ParseInLocation("2006-01-02 15:04", value, shanghaiLocation()); err == nil {
+			if t, err := time.ParseInLocation("2006-01-02 15:04", value, loc); err == nil {
 				return t, nil
 			}
 		}
@@ -135,7 +136,7 @@ func parseExpiry(resp APIResponse) (time.Time, error) {
 func shanghaiLocation() *time.Location {
 	loc, err := time.LoadLocation("Asia/Shanghai")
 	if err != nil {
-		return time.FixedZone("Asia/Shanghai", 8*60*60)
+		panic(fmt.Errorf("load Asia/Shanghai timezone: %w", err))
 	}
 	return loc
 }

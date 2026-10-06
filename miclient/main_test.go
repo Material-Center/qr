@@ -43,10 +43,7 @@ func TestRunAddEnvCommand(t *testing.T) {
 	if gotPath != "/add_env" {
 		t.Fatalf("path = %q, want /add_env", gotPath)
 	}
-	plain, err := decryptResponseString(gotEnvelope["data"], cfg)
-	if err != nil {
-		t.Fatalf("decrypt request envelope: %v", err)
-	}
+	plain := decryptDynamicEnvelopeForTest(t, gotEnvelope["data"], cfg)
 	var gotPlain map[string]string
 	if err := json.Unmarshal([]byte(plain), &gotPlain); err != nil {
 		t.Fatalf("decode decrypted request: %v", err)

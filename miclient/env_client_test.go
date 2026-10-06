@@ -55,10 +55,7 @@ func TestAddEnvPostsEncryptedDataEnvelope(t *testing.T) {
 		t.Fatalf("request used static encryption, decrypted to %q", staticPlain)
 	}
 
-	plain, err := decryptResponseString(gotEnvelope["data"], cfg)
-	if err != nil {
-		t.Fatalf("decrypt request envelope: %v", err)
-	}
+	plain := decryptDynamicEnvelopeForTest(t, gotEnvelope["data"], cfg)
 	var gotPlain map[string]string
 	if err := json.Unmarshal([]byte(plain), &gotPlain); err != nil {
 		t.Fatalf("decode decrypted request: %v", err)
@@ -143,10 +140,7 @@ func TestGetEnvPostsFiltersAndUnwrapsDataObject(t *testing.T) {
 	if gotPath != "/get_env" {
 		t.Fatalf("path = %q, want /get_env", gotPath)
 	}
-	plain, err := decryptResponseString(gotEnvelope["data"], cfg)
-	if err != nil {
-		t.Fatalf("decrypt request envelope: %v", err)
-	}
+	plain := decryptDynamicEnvelopeForTest(t, gotEnvelope["data"], cfg)
 	var gotPlain map[string]any
 	if err := json.Unmarshal([]byte(plain), &gotPlain); err != nil {
 		t.Fatalf("decode decrypted request: %v", err)
@@ -198,7 +192,8 @@ func TestStatsUsesPlainGET(t *testing.T) {
 
 func TestEnvClientUnwrapsObfuscatedErrorResponse(t *testing.T) {
 	cfg := DefaultEnvConfig()
-	seed := responseSeeds(cfg, time.Now())[cfg.ResponseSkew]
+	seeds := responseSeeds(cfg, time.Now())
+	seed := seeds[cfg.ResponseSkew]
 	encrypted := encryptObfuscatedFixture("解密失败: 解密失败", seed, cfg)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +227,8 @@ func TestEnvClientUnwrapsObfuscatedErrorResponse(t *testing.T) {
 
 func TestEnvClientUnwrapsDynamicResponseWithoutWirePrefix(t *testing.T) {
 	cfg := DefaultEnvConfig()
-	seed := responseSeeds(cfg, time.Now())[cfg.ResponseSkew]
+	seeds := responseSeeds(cfg, time.Now())
+	seed := seeds[cfg.ResponseSkew]
 	encrypted := encryptDynamicFixtureWithoutWirePrefix("解密失败: 解密失败", seed, cfg)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +255,19 @@ func TestEnvClientUnwrapsDynamicResponseWithoutWirePrefix(t *testing.T) {
 	if resp["decrypted_data"] != "解密失败: 解密失败" {
 		t.Fatalf("decrypted_data = %#v, want decrypted server error in %#v", resp["decrypted_data"], resp)
 	}
+}
+
+func decryptDynamicEnvelopeForTest(t *testing.T, encoded string, cfg CryptoConfig) string {
+	t.Helper()
+	ciphertext, err := decodeBase64(encoded)
+	if err != nil {
+		t.Fatalf("decode dynamic envelope: %v", err)
+	}
+	plain, err := decryptDynamicResponseCiphertext(ciphertext, cfg, time.Now())
+	if err != nil {
+		t.Fatalf("decrypt dynamic envelope: %v", err)
+	}
+	return plain
 }
 
 func intPtr(v int) *int {
