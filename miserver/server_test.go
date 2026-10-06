@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -184,6 +185,40 @@ func TestEnvHandlerForwardsToConfiguredMainServer(t *testing.T) {
 	srv.EnvHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusAccepted || rec.Body.String() != `{"data":"proxied"}` {
 		t.Fatalf("proxy response = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestEnvProxyLogsDecryptedRequestPlaintext(t *testing.T) {
+	cfg := DefaultEnvConfig()
+	now := fixedLATime()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":"proxied"}`))
+	}))
+	defer upstream.Close()
+
+	plain := `{"设备ID":"f54dbf77","limit":10000}`
+	encrypted := encryptEnvRequestFixture(t, plain, cfg, now)
+	body, err := json.Marshal(map[string]string{"data": encrypted})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	var logs bytes.Buffer
+	srv := NewServer(ServerConfig{
+		Crypto:    cfg,
+		Now:       func() time.Time { return now },
+		LogOutput: &logs,
+		EnvProxy:  &EnvProxyConfig{BaseURL: upstream.URL, Path: "/internalTool/miEnv", Key: "test-key"},
+	})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/query_env", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	srv.EnvHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(logs.String(), `env_request service=env method=POST path="/query_env" plaintext=`+plain) {
+		t.Fatalf("decrypted request log missing from %q", logs.String())
 	}
 }
 

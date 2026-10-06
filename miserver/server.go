@@ -124,6 +124,7 @@ func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("read environment request: %w", err))
 		return
 	}
+	s.logEnvProxyRequest(r, body)
 	path := proxy.Path
 	if path == "" {
 		path = "/internalTool/miEnv"
@@ -176,6 +177,29 @@ func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
 		copyError = copyErr.Error()
 	}
 	s.logf("proxy service=env method=%s path=%q upstream_status=%d upstream_bytes=%d duration=%s error=%q", r.Method, r.URL.RequestURI(), response.StatusCode, bytesWritten, time.Since(upstreamStarted).Round(time.Microsecond), copyError)
+}
+
+func (s *Server) logEnvProxyRequest(r *http.Request, body []byte) {
+	if r.Method != http.MethodPost || len(body) == 0 {
+		return
+	}
+	var envelope struct {
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		s.logf("env_request service=env method=%s path=%q decrypt_error=%q", r.Method, r.URL.RequestURI(), "decode request envelope: "+err.Error())
+		return
+	}
+	if envelope.Data == "" {
+		s.logf("env_request service=env method=%s path=%q decrypt_error=%q", r.Method, r.URL.RequestURI(), "data is required")
+		return
+	}
+	plain, err := decryptDynamicRequestStringAt(envelope.Data, s.cfg.Crypto, s.cfg.Now())
+	if err != nil {
+		s.logf("env_request service=env method=%s path=%q decrypt_error=%q", r.Method, r.URL.RequestURI(), err.Error())
+		return
+	}
+	s.logf("env_request service=env method=%s path=%q plaintext=%s", r.Method, r.URL.RequestURI(), plain)
 }
 
 func (s *Server) accessLog(service string, next http.Handler) http.Handler {
