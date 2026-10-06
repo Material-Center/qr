@@ -115,7 +115,7 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 			a.writeFailure(c, cfg, now, "环境不存在")
 			return
 		}
-		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "data": miEnvData(record)})
+		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "msg": "ok", "data": miEnvData(record)})
 	case "query_by_device":
 		deviceID := str(payload["设备ID"])
 		if deviceID == "" {
@@ -132,7 +132,7 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 		for i := range items {
 			out = append(out, miEnvData(&items[i]))
 		}
-		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "data": out})
+		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "msg": "ok", "data": out})
 	case "freeze_env", "unfreeze_env":
 		id, ok := uintValue(payload["环境id"])
 		if !ok {
@@ -215,7 +215,7 @@ func (a *MIEnvApi) writeEnvList(c *gin.Context, cfg miEnvCryptoConfig, now time.
 	for i := range items {
 		out = append(out, miEnvData(&items[i]))
 	}
-	a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "data": out})
+	a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "msg": "ok", "data": out})
 }
 
 func (a *MIEnvApi) writeStats(c *gin.Context, cfg miEnvCryptoConfig, now time.Time) {

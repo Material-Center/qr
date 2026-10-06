@@ -163,12 +163,14 @@ func TestMIEnvQueryEnvSupportsDeviceListLimit(t *testing.T) {
 		"设备ID": "selected-device", "limit": 2,
 	}, now)
 	require.EqualValues(t, 0, limited["code"])
+	require.Equal(t, "ok", limited["msg"])
 	require.Len(t, limited["data"].([]any), 2)
 
 	clientRequest := dispatchMIEnvForTest(t, "query_env", map[string]any{
 		"设备ID": "selected-device", "limit": 10000,
 	}, now)
 	require.EqualValues(t, 0, clientRequest["code"])
+	require.Equal(t, "ok", clientRequest["msg"])
 	clientItems := clientRequest["data"].([]any)
 	require.Len(t, clientItems, 3)
 	firstClientItem := clientItems[0].(map[string]any)
