@@ -54,7 +54,7 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 			a.writeFailure(c, cfg, now, err.Error())
 			return
 		}
-		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "添加成功", "success": true, "message": "添加成功", "data": map[string]any{"环境id": id}})
+		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "添加成功", "success": true, "message": "添加成功", "data": map[string]any{"id": id, "环境id": id}})
 	case "get_env", "get_env_enhanced", "get_env_enhanced2":
 		record, err := svc.Consume(miEnvFilter(payload, false), now)
 		if err != nil {
@@ -81,7 +81,17 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 		}
 		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "ok", "success": true, "data": miEnvData(record)})
 	case "make_success":
-		a.adjustID(c, cfg, now, payload, func(id uint) error { return svc.MarkMakeSuccess(id, now) })
+		id, ok := uintValue(payload["环境id"])
+		if !ok {
+			a.writeFailure(c, cfg, now, "环境id is required")
+			return
+		}
+		record, err := svc.MarkMakeSuccess(id, now)
+		if err != nil {
+			a.writeFailure(c, cfg, now, err.Error())
+			return
+		}
+		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "制作成功", "success": true, "data": map[string]any{"id": record.ID, "环境id": record.ID, "已制作次数": record.MadeCount}})
 	case "increase_make_count":
 		a.adjustID(c, cfg, now, payload, func(id uint) error { return svc.AdjustMadeCount(id, 1, false, now) })
 	case "decrease_make_count":
@@ -300,6 +310,9 @@ func miEnvData(record *model.SysMIEnvRecord) map[string]any {
 	}
 	if record.LastUsedAt != nil {
 		data["最后使用时间"] = record.LastUsedAt.Format(time.RFC3339)
+	}
+	if record.MakeReservedUntil != nil {
+		data["制作预约到期时间"] = record.MakeReservedUntil.Format(time.RFC3339)
 	}
 	return data
 }

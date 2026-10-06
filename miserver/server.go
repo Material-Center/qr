@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,7 +32,8 @@ type EnvProxyConfig struct {
 }
 
 type Server struct {
-	cfg ServerConfig
+	cfg   ServerConfig
+	logMu sync.Mutex
 }
 
 func NewServer(cfg ServerConfig) *Server {
@@ -56,7 +59,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/use_code", s.handleUseCode)
 	mux.HandleFunc("/stoptime", s.handleStopTime)
 	mux.HandleFunc("/上传", s.handleUpload)
-	return s.accessLog(mux)
+	return s.accessLog("all", mux)
 }
 
 func (s *Server) AuthHandler() http.Handler {
@@ -65,20 +68,20 @@ func (s *Server) AuthHandler() http.Handler {
 	mux.HandleFunc("/get_device", s.handleGetDevice)
 	mux.HandleFunc("/use_code", s.handleUseCode)
 	mux.HandleFunc("/stoptime", s.handleStopTime)
-	return s.accessLog(mux)
+	return s.accessLog("auth", mux)
 }
 
 func (s *Server) UploadHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/上传", s.handleUpload)
-	return s.accessLog(mux)
+	return s.accessLog("upload", mux)
 }
 
 func (s *Server) EnvHandler() http.Handler {
 	mux := http.NewServeMux()
 	if s.cfg.EnvProxy != nil {
 		mux.HandleFunc("/", s.handleEnvProxy)
-		return s.accessLog(mux)
+		return s.accessLog("env", mux)
 	}
 	mux.HandleFunc("/add_env", s.handleAddEnv)
 	mux.HandleFunc("/get_env", s.handleGetEnv)
@@ -107,7 +110,7 @@ func (s *Server) EnvHandler() http.Handler {
 	mux.HandleFunc("/unused", s.handleUnused)
 	mux.HandleFunc("/get_env_fixed", s.handleGetEnvFixed)
 	mux.HandleFunc("/stats", s.handleEnvStats)
-	return s.accessLog(mux)
+	return s.accessLog("env", mux)
 }
 
 func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
@@ -125,36 +128,57 @@ func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/internalTool/miEnv"
 	}
-	target := strings.TrimRight(proxy.BaseURL, "/") + "/" + strings.Trim(path, "/") + r.URL.Path
+	targetPath := r.URL.EscapedPath()
+	if targetPath == "" {
+		targetPath = "/"
+	}
+	target := strings.TrimRight(proxy.BaseURL, "/") + "/" + strings.Trim(path, "/") + targetPath
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
 	request, err := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(body))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Errorf("build environment proxy request: %w", err))
 		return
 	}
+	copyRequestHeaders(request.Header, r.Header)
 	request.Header.Set("X-MI-Internal-Key", proxy.Key)
-	if contentType := r.Header.Get("Content-Type"); contentType != "" {
-		request.Header.Set("Content-Type", contentType)
-	}
+	// Avoid transparent gzip negotiation: the compiled client expects to parse
+	// the JSON envelope directly, and identity makes byte counts/logs reliable.
+	request.Header.Set("Accept-Encoding", "identity")
 	client := proxy.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	upstreamStarted := time.Now()
 	response, err := client.Do(request)
 	if err != nil {
+		s.logf("proxy service=env method=%s path=%q upstream=%q error=%q duration=%s", r.Method, r.URL.RequestURI(), target, err, time.Since(upstreamStarted).Round(time.Microsecond))
 		writeError(w, http.StatusBadGateway, fmt.Errorf("environment proxy request failed: %w", err))
 		return
 	}
 	defer response.Body.Close()
 	for key, values := range response.Header {
+		if isHopByHopHeader(key) || strings.EqualFold(key, "Content-Length") {
+			continue
+		}
 		for _, value := range values {
 			w.Header().Add(key, value)
 		}
 	}
+	if response.ContentLength >= 0 {
+		w.Header().Set("Content-Length", strconv.FormatInt(response.ContentLength, 10))
+	}
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	bytesWritten, copyErr := io.Copy(w, response.Body)
+	copyError := "-"
+	if copyErr != nil {
+		copyError = copyErr.Error()
+	}
+	s.logf("proxy service=env method=%s path=%q upstream_status=%d upstream_bytes=%d duration=%s error=%q", r.Method, r.URL.RequestURI(), response.StatusCode, bytesWritten, time.Since(upstreamStarted).Round(time.Microsecond), copyError)
 }
 
-func (s *Server) accessLog(next http.Handler) http.Handler {
+func (s *Server) accessLog(service string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		lw := &loggingResponseWriter{
@@ -164,37 +188,80 @@ func (s *Server) accessLog(next http.Handler) http.Handler {
 
 		next.ServeHTTP(lw, r)
 
-		fmt.Fprintf(
-			s.cfg.LogOutput,
-			"%s %s %d %dB %s\n",
-			r.Method,
-			r.URL.RequestURI(),
-			lw.status,
-			lw.bytes,
-			time.Since(start).Round(time.Microsecond),
-		)
+		s.logf("request service=%s method=%s path=%q status=%d bytes=%d duration=%s remote=%q content_length=%d user_agent=%q", service, r.Method, r.URL.RequestURI(), lw.status, lw.bytes, time.Since(start).Round(time.Microsecond), r.RemoteAddr, r.ContentLength, r.UserAgent())
 	})
+}
+
+func (s *Server) logf(format string, args ...any) {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	fmt.Fprintf(s.cfg.LogOutput, "time=%s "+format+"\n", append([]any{time.Now().Format(time.RFC3339Nano)}, args...)...)
+}
+
+func copyRequestHeaders(dst, src http.Header) {
+	for key, values := range src {
+		if isHopByHopHeader(key) || strings.EqualFold(key, "Host") || strings.EqualFold(key, "Content-Length") {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func isHopByHopHeader(key string) bool {
+	switch strings.ToLower(key) {
+	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
 }
 
 type loggingResponseWriter struct {
 	http.ResponseWriter
-	status int
-	bytes  int
+	status      int
+	bytes       int
+	wroteHeader bool
 }
 
 func (w *loggingResponseWriter) WriteHeader(status int) {
+	if w.wroteHeader {
+		return
+	}
 	w.status = status
+	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(status)
 }
 
 func (w *loggingResponseWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.ResponseWriter.WriteHeader(http.StatusOK)
+		w.wroteHeader = true
+	}
 	n, err := w.ResponseWriter.Write(p)
 	w.bytes += n
 	return n, err
 }
 
+func (w *loggingResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (w *loggingResponseWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		if !w.wroteHeader {
+			w.ResponseWriter.WriteHeader(http.StatusOK)
+			w.wroteHeader = true
+		}
+		f.Flush()
+	}
+}
+
 func (s *Server) handleShanghaiTime(w http.ResponseWriter, r *http.Request) {
-	if !requirePost(w, r) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, POST")
+		writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method %s is not allowed", r.Method))
 		return
 	}
 
@@ -216,16 +283,22 @@ func (s *Server) handleShanghaiTime(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetDevice(w http.ResponseWriter, r *http.Request) {
-	if !requirePost(w, r) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		w.Header().Set("Allow", "GET, POST")
+		writeError(w, http.StatusMethodNotAllowed, fmt.Errorf("method %s is not allowed", r.Method))
 		return
 	}
 
 	var req struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("decode json: %w", err))
-		return
+	if r.Method == http.MethodGet {
+		req.DeviceID = r.URL.Query().Get("device_id")
+	} else {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("decode json: %w", err))
+			return
+		}
 	}
 	if req.DeviceID == "" {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("device_id is required"))

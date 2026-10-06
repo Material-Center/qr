@@ -1,8 +1,9 @@
 @echo off
-setlocal EnableExtensions
+chcp 936 >nul
+setlocal EnableExtensions EnableDelayedExpansion
 
 rem A_mi 3.0-2 local MI service launcher.
-rem Keep the original å¯åŠ¨ä¸­æŽ§.bat unchanged. Run this file for local mode.
+rem Keep the original Æô¶¯ÖÐ¿Ø.bat unchanged. Run this file for local mode.
 
 set "CLIENT_ROOT=%~dp0"
 set "MISERVER_EXE=%CLIENT_ROOT%miserver-windows-amd64.exe"
@@ -14,45 +15,49 @@ set "UPLOAD_IP=120.77.84.13"
 set "ENV_IP=39.108.96.33"
 set "ENV_UPSTREAM_URL=http://210.16.170.132:1111/api"
 set "ENV_INTERNAL_KEY=cd5d1c1b4bd95fcb561d2a3f2b5407de82b9088d8b1f4eb3ebce9c28331ef42f"
+set "HOSTS_FILE=%SystemRoot%\System32\drivers\etc\hosts"
+set "CLIENT_EXIT=0"
 
 if not exist "%MISERVER_EXE%" (
-    echo [ERROR] æ‰¾ä¸åˆ° %MISERVER_EXE%
-    echo è¯·æŠŠ miserver-windows-amd64.exe å¤åˆ¶åˆ°å½“å‰å®¢æˆ·ç«¯ç›®å½•ã€‚
+    echo [ERROR] ÕÒ²»µ½ %MISERVER_EXE%
+    echo Çë°Ñ miserver-windows-amd64.exe ¸´ÖÆµ½µ±Ç°¿Í»§¶ËÄ¿Â¼¡£
     pause
     exit /b 2
 )
 
 net session >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] è¯·å³é”®é€‰æ‹©â€œä»¥ç®¡ç†å‘˜èº«ä»½è¿è¡Œâ€ã€‚æœ¬åœ° 80 ç«¯å£ã€hosts å’Œæ•°å­— IP æŽ¥ç®¡éƒ½éœ€è¦ç®¡ç†å‘˜æƒé™ã€‚
+    echo [ERROR] ÇëÓÒ¼üÑ¡Ôñ¡°ÒÔ¹ÜÀíÔ±Éí·ÝÔËÐÐ¡±¡£±¾µØ 80 ¶Ë¿Ú¡¢hosts ºÍÊý×Ö IP ½Ó¹Ü¶¼ÐèÒª¹ÜÀíÔ±È¨ÏÞ¡£
     pause
     exit /b 5
 )
 
 rem The compiled client uses literal public IPs for upload and env traffic.
-rem Add /32 aliases so those destinations are owned by this Windows host.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $cfg=Get-NetIPConfiguration ^| Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq 'Up' } ^| Select-Object -First 1; if($null -eq $cfg){throw 'No active IPv4 interface'}; foreach($ip in @('%UPLOAD_IP%','%ENV_IP%')) { if(-not (Get-NetIPAddress -AddressFamily IPv4 -IPAddress $ip -ErrorAction SilentlyContinue)) { New-NetIPAddress -InterfaceIndex $cfg.InterfaceIndex -IPAddress $ip -PrefixLength 32 -SkipAsSource $true ^| Out-Null } }"
+rem Add /32 aliases only to the Windows Loopback interface; never modify the
+rem physical/VPN adapter that carries the machine's default internet route.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; foreach($ip in @('%UPLOAD_IP%','%ENV_IP%')) { Get-NetIPAddress -AddressFamily IPv4 -IPAddress $ip -ErrorAction SilentlyContinue | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue }; $loopback=Get-NetIPInterface -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -match 'Loopback|»Ø»·|»·»Ø' } | Sort-Object InterfaceMetric | Select-Object -First 1; if($null -eq $loopback){throw 'No IPv4 loopback interface'}; foreach($ip in @('%UPLOAD_IP%','%ENV_IP%')) { New-NetIPAddress -InterfaceIndex $loopback.ifIndex -IPAddress $ip -PrefixLength 32 -SkipAsSource $true -PolicyStore ActiveStore | Out-Null }"
 if errorlevel 1 (
-    echo [ERROR] æ— æ³•åˆ›å»ºæœ¬åœ°æ•°å­— IP åˆ«åï¼Œæœªå¯åŠ¨ä¸­æŽ§ã€‚
-    pause
-    exit /b 6
+    echo [ERROR] ÎÞ·¨´´½¨±¾µØÊý×Ö IP ±ðÃû£¬Î´Æô¶¯ÖÐ¿Ø¡£
+    set "CLIENT_EXIT=6"
+    goto cleanup
 )
 
-set "HOSTS_FILE=%SystemRoot%\System32\drivers\etc\hosts"
-findstr /C:"# A_MI_LOCAL_MISERVER" "%HOSTS_FILE%" >nul 2>&1
+rem Write hosts through PowerShell instead of cmd redirection. This handles
+rem hosts files with non-ANSI encoding and reports permission failures clearly.
+attrib -R "%HOSTS_FILE%" >nul 2>&1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $path='%HOSTS_FILE%'; if(-not (Test-Path -LiteralPath $path)){throw 'hosts file not found'}; $raw=[System.IO.File]::ReadAllText($path); if($raw -notmatch '(?m)# A_MI_LOCAL_MISERVER'){ $line='%LOCAL_HOST% %AUTH_HOST% # A_MI_LOCAL_MISERVER' + [Environment]::NewLine; [System.IO.File]::AppendAllText($path,$line,[System.Text.Encoding]::ASCII) }"
 if errorlevel 1 (
-    >>"%HOSTS_FILE%" echo %LOCAL_HOST% %AUTH_HOST% # A_MI_LOCAL_MISERVER
-    if errorlevel 1 (
-        echo [ERROR] æ— æ³•å†™å…¥ hostsï¼Œæœªå¯åŠ¨ä¸­æŽ§ã€‚
-        pause
-        exit /b 7
-    )
+    echo [ERROR] ÎÞ·¨Ð´Èë hosts£¬Î´Æô¶¯ÖÐ¿Ø¡£ÇëÈ·ÈÏÒÑ¹ÜÀíÔ±ÔËÐÐ£¬²¢¼ì²é°²È«Èí¼þÊÇ·ñÀ¹½Ø hosts ÐÞ¸Ä¡£
+    set "CLIENT_EXIT=7"
+    goto cleanup
 )
 
 taskkill /IM miserver-windows-amd64.exe /F >nul 2>&1
-echo [INFO] å¯åŠ¨æœ¬åœ° miserver: %LOCAL_HOST%:9999, %UPLOAD_IP%:80, %ENV_IP%:8888
-echo [INFO] çŽ¯å¢ƒæ± è½¬å‘åˆ°: %ENV_UPSTREAM_URL%/internalTool/miEnv
-start "A_mi miserver" /b "%MISERVER_EXE%" ^
+echo [INFO] Æô¶¯±¾µØ miserver: %LOCAL_HOST%:9999, %UPLOAD_IP%:80, %ENV_IP%:8888
+echo [INFO] »·¾³³Ø×ª·¢µ½: %ENV_UPSTREAM_URL%/internalTool/miEnv
+echo [INFO] miserver ÎÄ¼þ: "%MISERVER_EXE%"
+rem The empty title is required by START when the executable path is quoted.
+start "" /b "%MISERVER_EXE%" ^
     -auth-bind-ip %LOCAL_HOST% ^
     -upload-bind-ip %UPLOAD_IP% ^
     -env-bind-ip %ENV_IP% ^
@@ -60,6 +65,9 @@ start "A_mi miserver" /b "%MISERVER_EXE%" ^
     -upload-port 80 ^
     -env-port 8888 ^
     -db "%MISERVER_DB%" ^
+    -seed python3806250511 ^
+    -iv 0625051106250511 ^
+    -response-seed-prefix python38x64 ^
     -env-upstream-url "%ENV_UPSTREAM_URL%" ^
     -env-upstream-path "/internalTool/miEnv" ^
     -env-internal-key "%ENV_INTERNAL_KEY%" ^
@@ -69,9 +77,9 @@ timeout /t 1 /nobreak >nul
 set "MISERVER_PID="
 for /f "tokens=2" %%P in ('tasklist /FI "IMAGENAME eq miserver-windows-amd64.exe" /FO LIST ^| findstr /B /C:"PID:"') do set "MISERVER_PID=%%P"
 if not defined MISERVER_PID (
-    echo [ERROR] miserver æœªèƒ½å¯åŠ¨ï¼Œè¯·æ£€æŸ¥ %MISERVER_LOG%
-    pause
-    exit /b 3
+    echo [ERROR] miserver Î´ÄÜÆô¶¯£¬Çë¼ì²é %MISERVER_LOG%
+    set "CLIENT_EXIT=3"
+    goto cleanup
 )
 
 if exist "%CLIENT_ROOT%python38\python.exe" (
@@ -79,11 +87,31 @@ if exist "%CLIENT_ROOT%python38\python.exe" (
 ) else if exist "%CLIENT_ROOT%Python38\python.exe" (
     "%CLIENT_ROOT%Python38\python.exe" "%CLIENT_ROOT%main.py"
 ) else (
-    echo [ERROR] æ‰¾ä¸åˆ° Python38\python.exe
-    pause
-    exit /b 4
+    echo [ERROR] ÕÒ²»µ½ Python38\python.exe
+    set "CLIENT_EXIT=4"
+    goto cleanup
 )
 
 set "CLIENT_EXIT=%ERRORLEVEL%"
-echo [INFO] æœ¬åœ°æ¨¡å¼ä¸­æŽ§é€€å‡ºï¼Œmiserver è¿›ç¨‹ PID %MISERVER_PID% ä»åœ¨è¿è¡Œã€‚
-exit /b %CLIENT_EXIT%
+goto cleanup
+
+:cleanup
+echo [INFO] ÕýÔÚÍË³ö±¾µØÄ£Ê½£¬ÇåÀí miserver¡¢IP ±ðÃûºÍ hosts ½Ó¹ÜÅäÖÃ¡£
+if defined MISERVER_PID (
+    taskkill /PID !MISERVER_PID! /F >nul 2>&1
+    set "MISERVER_PID="
+)
+
+rem These two /32 addresses are reserved by this local-mode launcher.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='SilentlyContinue'; foreach($ip in @('%UPLOAD_IP%','%ENV_IP%')) { Get-NetIPAddress -AddressFamily IPv4 -IPAddress $ip | Remove-NetIPAddress -Confirm:$false }" >nul 2>&1
+
+rem Remove only the hosts line written by this launcher.
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $path='%HOSTS_FILE%'; if(Test-Path -LiteralPath $path){ $raw=[System.IO.File]::ReadAllText($path); $clean=[regex]::Replace($raw,'(?m)^[^\r\n]*# A_MI_LOCAL_MISERVER[^\r\n]*(?:\r?\n|$)',''); [System.IO.File]::WriteAllText($path,$clean,[System.Text.Encoding]::ASCII) }" >nul 2>&1
+
+echo [INFO] ±¾µØÍøÂç½Ó¹ÜÒÑ»Ö¸´¡£
+if not "!CLIENT_EXIT!"=="0" (
+    echo [ERROR] ±¾µØÄ£Ê½Æô¶¯»ò¿Í»§¶ËÔËÐÐÊ§°Ü£¬ÍË³öÂë !CLIENT_EXIT!¡£
+    echo [ERROR] Çë²é¿´ÈÕÖ¾: !MISERVER_LOG!
+    pause
+)
+exit /b !CLIENT_EXIT!

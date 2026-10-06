@@ -117,12 +117,16 @@ For the bundled Windows client, copy `dist/miserver-windows-amd64.exe` and
 `启动中控.bat` unchanged; the two batch files are independent launch modes.
 Run the new local-mode batch file as
 Administrator. It starts all three listeners, keeps the database beside the
-client, maps `py.j8nda.xyz` to `127.0.0.2`, and creates local `/32` aliases for
-the compiled client's literal upload and environment addresses. The listeners
+client, maps `py.j8nda.xyz` to `127.0.0.2`, and creates `/32` aliases on the
+Windows Loopback interface for the compiled client's literal upload and
+environment addresses. The physical network adapter is not modified. The listeners
 therefore bind to `127.0.0.2:9999`, `120.77.84.13:80`, and
 `39.108.96.33:8888`, so the unmodified compiled client reaches only the local
 compatibility service; the environment service then forwards to the main
-server.
+server. When the client exits normally, the batch file stops the `miserver`
+process and removes the two IP aliases and its marked hosts entry. If the
+console window is forcibly closed, run `停止中控-本地服务.bat` as Administrator
+to perform the same cleanup manually.
 
 Build a Windows binary:
 

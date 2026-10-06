@@ -123,11 +123,17 @@ func TestGetDeviceReturnsLongLivedStatelessLicense(t *testing.T) {
 
 func TestEnvHandlerForwardsToConfiguredMainServer(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/internalTool/miEnv/add_env" {
-			t.Fatalf("upstream path = %q", r.URL.Path)
+		if r.URL.Path != "/internalTool/miEnv/add_env" || r.URL.RawQuery != "trace=1" {
+			t.Fatalf("upstream URL = %q", r.URL.RequestURI())
 		}
 		if r.Header.Get("X-MI-Internal-Key") != "test-key" {
 			t.Fatalf("upstream key = %q", r.Header.Get("X-MI-Internal-Key"))
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("upstream content type = %q", r.Header.Get("Content-Type"))
+		}
+		if r.Header.Get("Accept-Encoding") != "identity" {
+			t.Fatalf("upstream accept encoding = %q", r.Header.Get("Accept-Encoding"))
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
@@ -137,7 +143,8 @@ func TestEnvHandlerForwardsToConfiguredMainServer(t *testing.T) {
 
 	srv := NewServer(ServerConfig{EnvProxy: &EnvProxyConfig{BaseURL: upstream.URL, Path: "/internalTool/miEnv", Key: "test-key"}})
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/add_env", bytes.NewBufferString(`{"data":"payload"}`))
+	req := httptest.NewRequest(http.MethodPost, "/add_env?trace=1", bytes.NewBufferString(`{"data":"payload"}`))
+	req.Header.Set("Content-Type", "application/json")
 	srv.EnvHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusAccepted || rec.Body.String() != `{"data":"proxied"}` {
 		t.Fatalf("proxy response = %d %q", rec.Code, rec.Body.String())
@@ -266,16 +273,13 @@ func TestAccessLogIncludesSuccessfulRequests(t *testing.T) {
 
 	logLine := logs.String()
 	for _, want := range []string{
-		"POST /get_device?debug=1 200 ",
-		"B ",
+		"service=all method=POST path=\"/get_device?debug=1\" status=200",
+		"bytes=",
+		"remote=\"127.0.0.1:54321\"",
+		"user_agent=\"miserver-test\"",
 	} {
 		if !bytes.Contains([]byte(logLine), []byte(want)) {
 			t.Fatalf("log %q does not contain %q", logLine, want)
-		}
-	}
-	for _, unwanted := range []string{"remote=", "proto=", "user_agent=", "path=", "method=", "status="} {
-		if bytes.Contains([]byte(logLine), []byte(unwanted)) {
-			t.Fatalf("log %q should not contain verbose field %q", logLine, unwanted)
 		}
 	}
 }
@@ -297,8 +301,8 @@ func TestAccessLogIncludesNotFoundRequests(t *testing.T) {
 
 	logLine := logs.String()
 	for _, want := range []string{
-		"POST /missing/path 404 ",
-		"B ",
+		"service=all method=POST path=\"/missing/path\" status=404",
+		"bytes=",
 	} {
 		if !bytes.Contains([]byte(logLine), []byte(want)) {
 			t.Fatalf("log %q does not contain %q", logLine, want)
@@ -309,13 +313,32 @@ func TestAccessLogIncludesNotFoundRequests(t *testing.T) {
 func TestEndpointsRejectNonPostMethods(t *testing.T) {
 	srv := NewServer(ServerConfig{Crypto: DefaultConfig()})
 
-	for _, path := range []string{"/shanghaitime", "/get_device", "/use_code", "/stoptime", "/上传"} {
+	for _, path := range []string{"/use_code", "/stoptime", "/上传"} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		srv.Handler().ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("%s status = %d, want 405", path, rec.Code)
+		}
+	}
+}
+
+func TestAuthCompatibilityAcceptsGetForTimeAndDevice(t *testing.T) {
+	srv := NewServer(ServerConfig{Crypto: DefaultConfig(), Now: func() time.Time { return fixedLATime() }})
+
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{path: "/shanghaitime", want: http.StatusOK},
+		{path: "/get_device?device_id=1546c952", want: http.StatusOK},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		srv.AuthHandler().ServeHTTP(rec, req)
+		if rec.Code != tc.want {
+			t.Fatalf("GET %s status = %d, want %d; body=%s", tc.path, rec.Code, tc.want, rec.Body.String())
 		}
 	}
 }

@@ -45,6 +45,13 @@ type MIEnvService struct{}
 
 var MIEnvServiceApp = new(MIEnvService)
 
+var ErrMIEnvUnavailable = errors.New("环境不存在或状态不可用")
+
+// A make reservation prevents two device threads from restoring and modifying
+// the same environment concurrently. It expires automatically because the
+// compiled client has no explicit cancellation callback when device work fails.
+const miEnvMakeReservationTTL = 2 * time.Hour
+
 func (s *MIEnvService) Add(record model.SysMIEnvRecord, now time.Time) (uint, error) {
 	if record.MaxUsage <= 0 {
 		record.MaxUsage = 1
@@ -58,17 +65,16 @@ func (s *MIEnvService) Add(record model.SysMIEnvRecord, now time.Time) (uint, er
 	record.CreatedAt = now
 	record.UpdatedAt = now
 	var existing model.SysMIEnvRecord
-	err := global.GVA_DB.Where("type = ? AND device_id = ? AND serial_backup_name = ? AND deleted_at IS NULL", record.Type, record.DeviceID, record.SerialBackupName).First(&existing).Error
+	err := global.GVA_DB.Where(
+		"device_code = ? AND device_id = ? AND type = ? AND serial_backup_name = ? AND android_id = ? AND env_key = ? AND deleted_at IS NULL",
+		record.DeviceCode,
+		record.DeviceID,
+		record.Type,
+		record.SerialBackupName,
+		record.AndroidID,
+		record.Key,
+	).First(&existing).Error
 	if err == nil {
-		if err := global.GVA_DB.Model(&existing).Updates(map[string]any{
-			"device_code": record.DeviceCode,
-			"device_id":   record.DeviceID,
-			"android_id":  record.AndroidID,
-			"env_key":     record.Key,
-			"updated_at":  now,
-		}).Error; err != nil {
-			return 0, err
-		}
 		return existing.ID, nil
 	}
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -94,9 +100,10 @@ func (s *MIEnvService) Consume(filter MIEnvFilter, now time.Time) (*model.SysMIE
 			return err
 		}
 		updates := map[string]any{
-			"usage_count":  record.UsageCount + 1,
-			"last_used_at": now,
-			"updated_at":   now,
+			"usage_count":         record.UsageCount + 1,
+			"last_used_at":        now,
+			"make_reserved_until": nil,
+			"updated_at":          now,
 		}
 		if record.UsageCount+1 >= record.MaxUsage {
 			updates["consumed_at"] = now
@@ -111,6 +118,7 @@ func (s *MIEnvService) Consume(filter MIEnvFilter, now time.Time) (*model.SysMIE
 		}
 		record.UsageCount++
 		record.LastUsedAt = timePtr(now)
+		record.MakeReservedUntil = nil
 		if record.UsageCount >= record.MaxUsage {
 			record.ConsumedAt = timePtr(now)
 		}
@@ -149,16 +157,49 @@ func (s *MIEnvService) Get(id uint) (*model.SysMIEnvRecord, error) {
 }
 
 func (s *MIEnvService) SetFrozen(id uint, frozen bool, now time.Time) error {
-	return global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]any{"frozen": frozen, "updated_at": now}).Error
+	updates := map[string]any{"frozen": frozen, "updated_at": now}
+	if frozen {
+		updates["make_reserved_until"] = nil
+	}
+	result := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Updates(updates)
+	return activeMIEnvMutationError(result, id)
 }
 
 func (s *MIEnvService) SetFrozenByFilter(filter MIEnvFilter, frozen bool, now time.Time) (int64, error) {
-	result := applyMIEnvFilter(global.GVA_DB.Model(&model.SysMIEnvRecord{}), filter, true, now).Where("deleted_at IS NULL").Updates(map[string]any{"frozen": frozen, "updated_at": now})
+	updates := map[string]any{"frozen": frozen, "updated_at": now}
+	if frozen {
+		updates["make_reserved_until"] = nil
+	}
+	result := applyMIEnvFilter(global.GVA_DB.Model(&model.SysMIEnvRecord{}), filter, true, now).Where("deleted_at IS NULL").Updates(updates)
 	return result.RowsAffected, result.Error
 }
 
-func (s *MIEnvService) MarkMakeSuccess(id uint, now time.Time) error {
-	return global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]any{"made_count": gorm.Expr("made_count + ?", 1), "last_used_at": now, "updated_at": now}).Error
+func (s *MIEnvService) MarkMakeSuccess(id uint, now time.Time) (*model.SysMIEnvRecord, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	var record model.SysMIEnvRecord
+	err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.SysMIEnvRecord{}).
+			Where("id = ? AND deleted_at IS NULL AND frozen = ? AND usage_count = 0 AND make_reserved_until IS NOT NULL AND make_reserved_until > ?", id, false, now).
+			Updates(map[string]any{
+				"made_count":          gorm.Expr("made_count + ?", 1),
+				"last_used_at":        now,
+				"make_reserved_until": nil,
+				"updated_at":          now,
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrMIEnvUnavailable
+		}
+		return tx.Where("id = ?", id).First(&record).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &record, nil
 }
 
 func (s *MIEnvService) AdjustMadeCount(id uint, delta int, reset bool, now time.Time) error {
@@ -168,34 +209,75 @@ func (s *MIEnvService) AdjustMadeCount(id uint, delta int, reset bool, now time.
 	} else {
 		updates["made_count"] = gorm.Expr("CASE WHEN made_count + ? < 0 THEN 0 ELSE made_count + ? END", delta, delta)
 	}
-	return global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Updates(updates).Error
+	result := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Updates(updates)
+	return activeMIEnvMutationError(result, id)
 }
 
 func (s *MIEnvService) ListForMake(filter MIEnvFilter, now time.Time) (*model.SysMIEnvRecord, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
 	target := intValue(filter.MaxMadeCount, 3)
 	cooldown := intValue(filter.CooldownDays, 1)
+	if cooldown < 0 {
+		cooldown = 0
+	}
 	filter.MinMadeCount = nil
 	filter.MaxMadeCount = nil
-	var record model.SysMIEnvRecord
-	query := applyMIEnvFilter(global.GVA_DB, filter, true, now).
-		Where("deleted_at IS NULL AND frozen = ?", false).
-		Where("made_count < ? AND (last_used_at IS NULL OR last_used_at <= ?)", target, now.Add(-time.Duration(cooldown)*24*time.Hour)).
-		Order("created_at ASC, made_count DESC, usage_count ASC, id ASC")
-	if err := query.First(&record).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+	reservedUntil := now.Add(miEnvMakeReservationTTL)
+	for attempt := 0; attempt < 3; attempt++ {
+		var record model.SysMIEnvRecord
+		reserved := false
+		err := global.GVA_DB.Transaction(func(tx *gorm.DB) error {
+			query := applyMIEnvFilter(tx, filter, true, now).
+				Where("deleted_at IS NULL AND frozen = ? AND usage_count = 0", false).
+				Where("made_count < ? AND (last_used_at IS NULL OR last_used_at <= ?)", target, now.Add(-time.Duration(cooldown)*24*time.Hour)).
+				Where("make_reserved_until IS NULL OR make_reserved_until <= ?", now).
+				Order("created_at ASC, made_count DESC, usage_count ASC, id ASC").
+				Clauses(clause.Locking{Strength: "UPDATE"})
+			if err := query.First(&record).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					record = model.SysMIEnvRecord{}
+					return nil
+				}
+				return err
+			}
+			result := tx.Model(&model.SysMIEnvRecord{}).
+				Where("id = ? AND deleted_at IS NULL AND frozen = ? AND usage_count = 0 AND (make_reserved_until IS NULL OR make_reserved_until <= ?)", record.ID, false, now).
+				Update("make_reserved_until", reservedUntil)
+			if result.Error != nil {
+				return result.Error
+			}
+			reserved = result.RowsAffected == 1
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		if record.ID == 0 {
 			return nil, nil
 		}
-		return nil, err
+		if reserved {
+			record.MakeReservedUntil = timePtr(reservedUntil)
+			return &record, nil
+		}
 	}
-	return &record, nil
+	return nil, nil
 }
 
 func (s *MIEnvService) Delete(id uint, now time.Time) error {
-	return global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]any{"deleted_at": now, "updated_at": now}).Error
+	result := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Updates(map[string]any{"deleted_at": now, "make_reserved_until": nil, "updated_at": now})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrMIEnvUnavailable
+	}
+	return nil
 }
 
 func (s *MIEnvService) DeleteByFilter(filter MIEnvFilter, now time.Time) (int64, error) {
-	result := applyMIEnvFilter(global.GVA_DB.Model(&model.SysMIEnvRecord{}), filter, true, now).Where("deleted_at IS NULL").Updates(map[string]any{"deleted_at": now, "updated_at": now})
+	result := applyMIEnvFilter(global.GVA_DB.Model(&model.SysMIEnvRecord{}), filter, true, now).Where("deleted_at IS NULL").Updates(map[string]any{"deleted_at": now, "make_reserved_until": nil, "updated_at": now})
 	return result.RowsAffected, result.Error
 }
 
@@ -208,19 +290,20 @@ func (s *MIEnvService) Clean(olderThan *int, now time.Time) (int64, error) {
 	if days < 0 {
 		days = 0
 	}
-	result := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("deleted_at IS NULL AND created_at <= ?", now.Add(-time.Duration(days)*24*time.Hour)).Updates(map[string]any{"deleted_at": now, "updated_at": now})
+	result := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("deleted_at IS NULL AND created_at <= ?", now.Add(-time.Duration(days)*24*time.Hour)).Updates(map[string]any{"deleted_at": now, "make_reserved_until": nil, "updated_at": now})
 	return result.RowsAffected, result.Error
 }
 
 func (s *MIEnvService) Stats() (MIEnvStats, error) {
 	var out MIEnvStats
+	now := time.Now()
 	queries := []struct {
 		where string
 		args  []any
 		dest  *int64
 	}{
 		{"1 = 1", nil, &out.Total},
-		{"deleted_at IS NULL AND frozen = ?", []any{false}, &out.Available},
+		{"deleted_at IS NULL AND frozen = ? AND usage_count < max_usage AND (make_reserved_until IS NULL OR make_reserved_until <= ?)", []any{false, now}, &out.Available},
 		{"deleted_at IS NULL AND usage_count > 0", nil, &out.Consumed},
 		{"deleted_at IS NULL AND frozen = ?", []any{true}, &out.Frozen},
 		{"deleted_at IS NOT NULL", nil, &out.Deleted},
@@ -301,8 +384,28 @@ func applyMIEnvFilter(db *gorm.DB, filter MIEnvFilter, includeState bool, now ti
 		}
 	} else {
 		db = db.Where("deleted_at IS NULL AND frozen = ? AND usage_count < max_usage", false)
+		if !now.IsZero() {
+			db = db.Where("make_reserved_until IS NULL OR make_reserved_until <= ?", now)
+		}
 	}
 	return db
+}
+
+func activeMIEnvMutationError(result *gorm.DB, id uint) error {
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected > 0 {
+		return nil
+	}
+	var count int64
+	if err := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ? AND deleted_at IS NULL", id).Count(&count).Error; err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrMIEnvUnavailable
+	}
+	return nil
 }
 
 func miEnvOrder(sortMode string) string {
