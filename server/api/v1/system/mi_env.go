@@ -297,7 +297,10 @@ func (a *MIEnvApi) writePlain(c *gin.Context, cfg miEnvCryptoConfig, now time.Ti
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": encrypted})
+	// The compiled client checks the transport envelope code before decrypting
+	// the business payload. A missing code is treated as a failed response and
+	// its query helpers replace the decrypted data with nil.
+	c.JSON(http.StatusOK, gin.H{"code": 0, "data": encrypted})
 }
 
 func miEnvFilter(payload map[string]any, includeList bool) system.MIEnvFilter {

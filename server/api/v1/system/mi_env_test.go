@@ -197,9 +197,11 @@ func decodeMIEnvResponseForTest(t *testing.T, recorder *httptest.ResponseRecorde
 	require.Equal(t, 200, recorder.Code)
 
 	var envelope struct {
+		Code int    `json:"code"`
 		Data string `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+	require.Equal(t, 0, envelope.Code)
 	require.Greater(t, len(envelope.Data), 6)
 	ciphertext, err := decodeMIEnvBase64(envelope.Data[6:])
 	require.NoError(t, err)
