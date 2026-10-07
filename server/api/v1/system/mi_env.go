@@ -68,6 +68,36 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 			return
 		}
 		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "导入成功", "success": true, "data": map[string]any{"id": id, "环境id": id, "inserted": inserted}})
+	case "import_env_batch":
+		rawRecords, ok := payload["records"].([]any)
+		if !ok {
+			a.writeFailure(c, cfg, now, "records is required")
+			return
+		}
+		inserted, updated := 0, 0
+		for index, raw := range rawRecords {
+			recordPayload, ok := raw.(map[string]any)
+			if !ok {
+				a.writeFailure(c, cfg, now, fmt.Sprintf("records[%d] must be an object", index))
+				return
+			}
+			record, err := miEnvImportRecord(recordPayload)
+			if err != nil {
+				a.writeFailure(c, cfg, now, fmt.Sprintf("records[%d]: %s", index, err))
+				return
+			}
+			_, wasInserted, err := svc.Import(record, now)
+			if err != nil {
+				a.writeFailure(c, cfg, now, fmt.Sprintf("records[%d]: %s", index, err))
+				return
+			}
+			if wasInserted {
+				inserted++
+			} else {
+				updated++
+			}
+		}
+		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "批量导入成功", "success": true, "data": map[string]any{"count": len(rawRecords), "inserted": inserted, "updated": updated}})
 	case "get_env", "get_env_enhanced", "get_env_enhanced2":
 		record, err := svc.Consume(miEnvFilter(payload, false), now)
 		if err != nil {
@@ -338,9 +368,6 @@ func miEnvImportRecord(payload map[string]any) (model.SysMIEnvRecord, error) {
 		MaxUsage:         miEnvInt(payload["最大使用次数"]),
 		MadeCount:        miEnvInt(payload["已制作次数"]),
 		Frozen:           miEnvInt(payload["冻结"]) != 0,
-	}
-	if record.Type == "QQ888" {
-		record.Type = "QQ111"
 	}
 	if missing := firstMissing(map[string]string{"设备代号": record.DeviceCode, "设备ID": record.DeviceID, "类型": record.Type, "串码备份包名称": record.SerialBackupName, "安卓ID": record.AndroidID, "密钥": record.Key}); missing != "" {
 		return model.SysMIEnvRecord{}, fmt.Errorf("%s is required", missing)

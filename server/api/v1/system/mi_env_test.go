@@ -44,7 +44,7 @@ func TestMIEnvHandleAcceptsCompiledClientEncryption(t *testing.T) {
 	require.Equal(t, "添加成功", response["msg"])
 }
 
-func TestMIEnvImportPreservesSourceFieldsAndMapsQQ888(t *testing.T) {
+func TestMIEnvImportPreservesSourceFieldsAndType(t *testing.T) {
 	db := useMIEnvAPITestDB(t)
 	gin.SetMode(gin.TestMode)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -60,10 +60,10 @@ func TestMIEnvImportPreservesSourceFieldsAndMapsQQ888(t *testing.T) {
 	require.EqualValues(t, 0, response["code"])
 	require.Equal(t, true, response["data"].(map[string]any)["inserted"])
 	limit := 10
-	items, err := serviceSystem.MIEnvServiceApp.List(serviceSystem.MIEnvFilter{DeviceID: "f54dbf77", Type: "QQ111", Limit: &limit}, now)
+	items, err := serviceSystem.MIEnvServiceApp.List(serviceSystem.MIEnvFilter{DeviceID: "f54dbf77", Type: "QQ888", Limit: &limit}, now)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	require.Equal(t, "QQ111", items[0].Type)
+	require.Equal(t, "QQ888", items[0].Type)
 	require.Equal(t, created, items[0].CreatedAt.Unix())
 	require.NotNil(t, items[0].LastUsedAt)
 	require.Equal(t, lastUsed, items[0].LastUsedAt.Unix())
