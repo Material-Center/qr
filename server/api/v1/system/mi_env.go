@@ -19,12 +19,13 @@ func (a *MIEnvApi) Handle(c *gin.Context) {
 	action := strings.Trim(strings.TrimSpace(c.Param("action")), "/")
 	cfg := defaultMIEnvCrypto()
 	now := time.Now()
-	if c.Request.Method == http.MethodGet {
-		if action != "stats" {
-			a.writeFailure(c, cfg, now, "unsupported MI environment GET action")
+	if action == "stats" {
+		if c.Request.Method != http.MethodGet {
+			c.Header("Allow", http.MethodGet)
+			c.JSON(http.StatusMethodNotAllowed, gin.H{"code": http.StatusMethodNotAllowed, "msg": "method not allowed"})
 			return
 		}
-		a.writeStats(c, cfg, now)
+		a.writeStats(c)
 		return
 	}
 	if c.Request.Method != http.MethodPost {
@@ -55,6 +56,18 @@ func (a *MIEnvApi) dispatch(c *gin.Context, action string, payload map[string]an
 			return
 		}
 		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "添加成功", "success": true, "message": "添加成功", "data": map[string]any{"id": id, "环境id": id}})
+	case "import_env":
+		record, err := miEnvImportRecord(payload)
+		if err != nil {
+			a.writeFailure(c, cfg, now, err.Error())
+			return
+		}
+		id, inserted, err := svc.Import(record, now)
+		if err != nil {
+			a.writeFailure(c, cfg, now, err.Error())
+			return
+		}
+		a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "msg": "导入成功", "success": true, "data": map[string]any{"id": id, "环境id": id, "inserted": inserted}})
 	case "get_env", "get_env_enhanced", "get_env_enhanced2":
 		record, err := svc.Consume(miEnvFilter(payload, false), now)
 		if err != nil {
@@ -218,13 +231,15 @@ func (a *MIEnvApi) writeEnvList(c *gin.Context, cfg miEnvCryptoConfig, now time.
 	a.writeSuccess(c, cfg, now, map[string]any{"code": 0, "success": true, "msg": "ok", "data": out})
 }
 
-func (a *MIEnvApi) writeStats(c *gin.Context, cfg miEnvCryptoConfig, now time.Time) {
+func (a *MIEnvApi) writeStats(c *gin.Context) {
 	stats, err := system.MIEnvServiceApp.Stats()
 	if err != nil {
-		a.writeFailure(c, cfg, now, err.Error())
+		c.JSON(http.StatusInternalServerError, gin.H{"code": http.StatusInternalServerError, "msg": err.Error()})
 		return
 	}
-	a.writePlain(c, cfg, now, map[string]any{"总数": stats.Total, "可用": stats.Available, "已消费": stats.Consumed, "冻结": stats.Frozen, "已删除": stats.Deleted})
+	// /stats is the only legacy environment endpoint whose compiled-client
+	// implementation reads response.json() directly instead of decrypting data.
+	c.JSON(http.StatusOK, gin.H{"总数": stats.Total, "可用": stats.Available, "已消费": stats.Consumed, "冻结": stats.Frozen, "已删除": stats.Deleted})
 }
 
 func (a *MIEnvApi) writeScalar(c *gin.Context, cfg miEnvCryptoConfig, now time.Time, action string) {
@@ -311,16 +326,116 @@ func miEnvFilter(payload map[string]any, includeList bool) system.MIEnvFilter {
 	return filter
 }
 
+func miEnvImportRecord(payload map[string]any) (model.SysMIEnvRecord, error) {
+	record := model.SysMIEnvRecord{
+		DeviceCode:       str(payload["设备代号"]),
+		DeviceID:         str(payload["设备ID"]),
+		Type:             str(payload["类型"]),
+		SerialBackupName: strFirst(payload, "串码备份包名称", "备份名称"),
+		AndroidID:        str(payload["安卓ID"]),
+		Key:              str(payload["密钥"]),
+		UsageCount:       miEnvInt(payload["使用次数"]),
+		MaxUsage:         miEnvInt(payload["最大使用次数"]),
+		MadeCount:        miEnvInt(payload["已制作次数"]),
+		Frozen:           miEnvInt(payload["冻结"]) != 0,
+	}
+	if record.Type == "QQ888" {
+		record.Type = "QQ111"
+	}
+	if missing := firstMissing(map[string]string{"设备代号": record.DeviceCode, "设备ID": record.DeviceID, "类型": record.Type, "串码备份包名称": record.SerialBackupName, "安卓ID": record.AndroidID, "密钥": record.Key}); missing != "" {
+		return model.SysMIEnvRecord{}, fmt.Errorf("%s is required", missing)
+	}
+	createdAt, ok := miEnvSourceTime(payload, "创建时间", "created_at")
+	if !ok {
+		return model.SysMIEnvRecord{}, fmt.Errorf("创建时间 is required or invalid")
+	}
+	record.CreatedAt = createdAt
+	if lastUsed, ok := miEnvSourceTime(payload, "最后使用时间", "last_used_at"); ok && lastUsed.Unix() > 0 {
+		record.LastUsedAt = &lastUsed
+	}
+	if record.MaxUsage <= 0 {
+		record.MaxUsage = 1
+	}
+	if record.MadeCount < 0 {
+		record.MadeCount = 0
+	}
+	if record.UsageCount < 0 {
+		record.UsageCount = 0
+	}
+	return record, nil
+}
+
+func strFirst(payload map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := str(payload[key]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func miEnvInt(value any) int {
+	if p := miEnvIntPtr(value); p != nil {
+		return *p
+	}
+	if s, ok := value.(string); ok {
+		n, _ := strconv.Atoi(strings.TrimSpace(s))
+		return n
+	}
+	return 0
+}
+
+func miEnvSourceTime(payload map[string]any, keys ...string) (time.Time, bool) {
+	for _, key := range keys {
+		value, exists := payload[key]
+		if !exists || value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case float64:
+			if v > 0 {
+				return time.Unix(int64(v), 0), true
+			}
+		case int:
+			if v > 0 {
+				return time.Unix(int64(v), 0), true
+			}
+		case int64:
+			if v > 0 {
+				return time.Unix(v, 0), true
+			}
+		case json.Number:
+			if n, err := strconv.ParseInt(string(v), 10, 64); err == nil && n > 0 {
+				return time.Unix(n, 0), true
+			}
+		case string:
+			s := strings.TrimSpace(v)
+			if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
+				return time.Unix(n, 0), true
+			}
+			if parsed, err := time.Parse(time.RFC3339, s); err == nil {
+				return parsed, true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
 func miEnvData(record *model.SysMIEnvRecord) map[string]any {
-	data := map[string]any{"id": record.ID, "环境id": record.ID, "设备代号": record.DeviceCode, "设备ID": record.DeviceID, "类型": record.Type, "串码备份包名称": record.SerialBackupName, "备份名称": record.SerialBackupName, "安卓ID": record.AndroidID, "密钥": record.Key, "使用次数": record.UsageCount, "最大使用次数": record.MaxUsage, "已制作次数": record.MadeCount, "冻结": boolInt(record.Frozen), "created_at": record.CreatedAt.Format(time.RFC3339), "创建时间": record.CreatedAt.Unix()}
+	// The compiled statistics window reads 最后使用时间 while walking every
+	// returned record.  Keep the field present for never-used environments;
+	// zero is the client's established "从未使用" sentinel and avoids a
+	// missing-key/type error that can discard an otherwise non-empty result.
+	lastUsedUnix := int64(0)
+	if record.LastUsedAt != nil {
+		lastUsedUnix = record.LastUsedAt.Unix()
+	}
+	data := map[string]any{"id": record.ID, "环境id": record.ID, "设备代号": record.DeviceCode, "设备ID": record.DeviceID, "类型": record.Type, "串码备份包名称": record.SerialBackupName, "备份名称": record.SerialBackupName, "安卓ID": record.AndroidID, "密钥": record.Key, "使用次数": record.UsageCount, "最大使用次数": record.MaxUsage, "已制作次数": record.MadeCount, "冻结": boolInt(record.Frozen), "created_at": record.CreatedAt.Format(time.RFC3339), "创建时间": record.CreatedAt.Unix(), "最后使用时间": lastUsedUnix}
 	if record.ConsumedAt != nil {
 		data["consumed_at"] = record.ConsumedAt.Format(time.RFC3339)
 	}
 	if record.DeletedAt != nil {
 		data["deleted_at"] = record.DeletedAt.Format(time.RFC3339)
-	}
-	if record.LastUsedAt != nil {
-		data["最后使用时间"] = record.LastUsedAt.Unix()
 	}
 	if record.MakeReservedUntil != nil {
 		data["制作预约到期时间"] = record.MakeReservedUntil.Format(time.RFC3339)

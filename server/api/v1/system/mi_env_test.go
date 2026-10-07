@@ -44,6 +44,38 @@ func TestMIEnvHandleAcceptsCompiledClientEncryption(t *testing.T) {
 	require.Equal(t, "添加成功", response["msg"])
 }
 
+func TestMIEnvImportPreservesSourceFieldsAndMapsQQ888(t *testing.T) {
+	db := useMIEnvAPITestDB(t)
+	gin.SetMode(gin.TestMode)
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	created := int64(1791344655)
+	lastUsed := int64(1791344000)
+	payload := map[string]any{
+		"设备代号": "cepheus", "设备ID": "f54dbf77", "类型": "QQ888",
+		"串码备份包名称": "f54dbf77_20260611_014917.dat", "安卓ID": "android-a",
+		"密钥": "key-a", "使用次数": 0, "最大使用次数": 1, "已制作次数": 1,
+		"冻结": 0, "创建时间": created, "最后使用时间": lastUsed,
+	}
+	response := dispatchMIEnvForTest(t, "import_env", payload, now)
+	require.EqualValues(t, 0, response["code"])
+	require.Equal(t, true, response["data"].(map[string]any)["inserted"])
+	limit := 10
+	items, err := serviceSystem.MIEnvServiceApp.List(serviceSystem.MIEnvFilter{DeviceID: "f54dbf77", Type: "QQ111", Limit: &limit}, now)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.Equal(t, "QQ111", items[0].Type)
+	require.Equal(t, created, items[0].CreatedAt.Unix())
+	require.NotNil(t, items[0].LastUsedAt)
+	require.Equal(t, lastUsed, items[0].LastUsedAt.Unix())
+
+	response = dispatchMIEnvForTest(t, "import_env", payload, now.Add(time.Minute))
+	require.EqualValues(t, 0, response["code"])
+	require.Equal(t, false, response["data"].(map[string]any)["inserted"])
+	var count int64
+	require.NoError(t, db.Model(&model.SysMIEnvRecord{}).Count(&count).Error)
+	require.EqualValues(t, 1, count)
+}
+
 func TestMIEnvBackupProtocolResponses(t *testing.T) {
 	useMIEnvAPITestDB(t)
 	gin.SetMode(gin.TestMode)
@@ -183,6 +215,105 @@ func TestMIEnvQueryEnvSupportsDeviceListLimit(t *testing.T) {
 	for _, record := range records {
 		require.Equal(t, 0, record.UsageCount)
 	}
+}
+
+func TestMIEnvQueryEnvEncryptedClientContract(t *testing.T) {
+	useMIEnvAPITestDB(t)
+	gin.SetMode(gin.TestMode)
+	now := time.Now()
+
+	added := dispatchMIEnvForTest(t, "add_env", map[string]any{
+		"设备代号": "cepheus", "设备ID": "f54dbf77", "类型": "QQ111",
+		"串码备份包名称": "backup-a.dat", "安卓ID": "android-a", "密钥": "key-a",
+	}, now)
+	require.EqualValues(t, 0, added["code"])
+
+	payload, err := json.Marshal(map[string]any{"设备ID": "f54dbf77", "limit": 10000})
+	require.NoError(t, err)
+	envelope, err := json.Marshal(map[string]string{"data": encryptMIEnvRequestForTest(t, payload, defaultMIEnvCrypto(), now)})
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "action", Value: "/query_env"}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/query_env", bytes.NewReader(envelope))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).Handle(ctx)
+
+	response := decodeMIEnvResponseForTest(t, recorder, defaultMIEnvCrypto(), now)
+	require.EqualValues(t, 0, response["code"])
+	require.Equal(t, true, response["success"])
+	require.Equal(t, "ok", response["msg"])
+
+	items, ok := response["data"].([]any)
+	require.True(t, ok, "query_env list data must be a JSON array")
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "f54dbf77", item["设备ID"])
+	require.Equal(t, "cepheus", item["设备代号"])
+	require.Equal(t, "QQ111", item["类型"])
+	require.Equal(t, "backup-a.dat", item["串码备份包名称"])
+	require.Equal(t, item["串码备份包名称"], item["备份名称"])
+	require.Equal(t, "android-a", item["安卓ID"])
+	require.Equal(t, "key-a", item["密钥"])
+	for _, key := range []string{"id", "环境id", "使用次数", "最大使用次数", "已制作次数", "冻结", "创建时间"} {
+		require.IsType(t, float64(0), item[key], "%s must be a JSON number", key)
+	}
+	require.EqualValues(t, now.Unix(), item["创建时间"])
+	require.EqualValues(t, 0, item["最后使用时间"], "never-used records must expose the client sentinel")
+	require.IsType(t, "", item["created_at"])
+
+	emptyPayload, err := json.Marshal(map[string]any{"设备ID": "missing-device", "limit": 10000})
+	require.NoError(t, err)
+	emptyEnvelope, err := json.Marshal(map[string]string{"data": encryptMIEnvRequestForTest(t, emptyPayload, defaultMIEnvCrypto(), now)})
+	require.NoError(t, err)
+	emptyRecorder := httptest.NewRecorder()
+	emptyCtx, _ := gin.CreateTestContext(emptyRecorder)
+	emptyCtx.Params = gin.Params{{Key: "action", Value: "/query_env"}}
+	emptyCtx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/query_env", bytes.NewReader(emptyEnvelope))
+	emptyCtx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).Handle(emptyCtx)
+	emptyResponse := decodeMIEnvResponseForTest(t, emptyRecorder, defaultMIEnvCrypto(), now)
+	emptyItems, ok := emptyResponse["data"].([]any)
+	require.True(t, ok, "empty query_env list data must be [] rather than null or an object")
+	require.Empty(t, emptyItems)
+}
+
+func TestMIEnvStatsUsesLegacyPlainJSONContract(t *testing.T) {
+	useMIEnvAPITestDB(t)
+	gin.SetMode(gin.TestMode)
+	now := time.Date(2026, 10, 7, 4, 30, 0, 0, time.UTC)
+	_, err := serviceSystem.MIEnvServiceApp.Add(model.SysMIEnvRecord{
+		DeviceCode: "cepheus", DeviceID: "device-a", Type: "QQ111",
+		SerialBackupName: "backup-a.dat", AndroidID: "android-a", Key: "key-a",
+	}, now)
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "action", Value: "/stats"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/internalTool/miEnv/stats", nil)
+	(&MIEnvApi{}).Handle(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.EqualValues(t, 1, response["总数"])
+	require.EqualValues(t, 1, response["可用"])
+	require.EqualValues(t, 0, response["已消费"])
+	require.EqualValues(t, 0, response["冻结"])
+	require.EqualValues(t, 0, response["已删除"])
+	require.NotContains(t, response, "data")
+	require.NotContains(t, response, "code")
+
+	postRecorder := httptest.NewRecorder()
+	postCtx, _ := gin.CreateTestContext(postRecorder)
+	postCtx.Params = gin.Params{{Key: "action", Value: "/stats"}}
+	postCtx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/stats", bytes.NewBufferString(`{}`))
+	(&MIEnvApi{}).Handle(postCtx)
+	require.Equal(t, http.StatusMethodNotAllowed, postRecorder.Code)
+	require.Equal(t, http.MethodGet, postRecorder.Header().Get("Allow"))
 }
 
 func dispatchMIEnvForTest(t *testing.T, action string, payload map[string]any, now time.Time) map[string]any {

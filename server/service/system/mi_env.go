@@ -86,6 +86,61 @@ func (s *MIEnvService) Add(record model.SysMIEnvRecord, now time.Time) (uint, er
 	return record.ID, nil
 }
 
+// Import inserts a record while preserving the source system's historical
+// timestamps and counters. It is intentionally separate from Add: client
+// uploads should continue to use the current-time semantics of Add, whereas
+// migration tools must be able to replay old records safely.
+func (s *MIEnvService) Import(record model.SysMIEnvRecord, now time.Time) (uint, bool, error) {
+	if record.DeviceCode == "" || record.DeviceID == "" || record.Type == "" || record.SerialBackupName == "" || record.AndroidID == "" || record.Key == "" {
+		return 0, false, errors.New("environment identity fields are required")
+	}
+	if record.CreatedAt.IsZero() {
+		return 0, false, errors.New("created_at is required")
+	}
+	if record.MaxUsage <= 0 {
+		record.MaxUsage = 1
+	}
+	if record.MadeCount < 0 {
+		record.MadeCount = 0
+	}
+	if record.UsageCount < 0 {
+		record.UsageCount = 0
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	record.UpdatedAt = now
+	record.DeletedAt = nil
+	record.MakeReservedUntil = nil
+
+	var existing model.SysMIEnvRecord
+	err := global.GVA_DB.Where(
+		"device_code = ? AND device_id = ? AND type = ? AND serial_backup_name = ? AND android_id = ? AND env_key = ? AND deleted_at IS NULL",
+		record.DeviceCode, record.DeviceID, record.Type, record.SerialBackupName, record.AndroidID, record.Key,
+	).First(&existing).Error
+	if err == nil {
+		// Keep imports idempotent. Refresh only fields owned by the source
+		// record; do not change the target primary key.
+		updates := map[string]any{
+			"usage_count": record.UsageCount, "max_usage": record.MaxUsage,
+			"made_count": record.MadeCount, "frozen": record.Frozen,
+			"consumed_at": record.ConsumedAt, "last_used_at": record.LastUsedAt,
+			"created_at": record.CreatedAt, "updated_at": now,
+		}
+		if updateErr := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where("id = ?", existing.ID).Updates(updates).Error; updateErr != nil {
+			return 0, false, updateErr
+		}
+		return existing.ID, false, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, err
+	}
+	if err := global.GVA_DB.Create(&record).Error; err != nil {
+		return 0, false, err
+	}
+	return record.ID, true, nil
+}
+
 func (s *MIEnvService) Consume(filter MIEnvFilter, now time.Time) (*model.SysMIEnvRecord, error) {
 	if now.IsZero() {
 		now = time.Now()
