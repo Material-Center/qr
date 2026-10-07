@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,7 +82,10 @@ func (s *Server) EnvHandler() http.Handler {
 	mux := http.NewServeMux()
 	if s.cfg.EnvProxy != nil {
 		mux.HandleFunc("/", s.handleEnvProxy)
-		return s.accessLog("env", mux)
+		// handleEnvProxy emits one combined env_exchange record containing the
+		// decrypted request and the plain response before client re-encryption.
+		// Do not add a second generic access-log line for the same exchange.
+		return mux
 	}
 	mux.HandleFunc("/add_env", s.handleAddEnv)
 	mux.HandleFunc("/get_env", s.handleGetEnv)
@@ -124,7 +128,12 @@ func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("read environment request: %w", err))
 		return
 	}
-	s.logEnvProxyRequest(r, body)
+	requestPlain, requestErr := s.decryptEnvProxyRequest(r, body)
+	if r.Method == http.MethodPost && requestErr != nil {
+		s.logEnvProxyExchange(r, http.StatusBadRequest, 0, 0, "decrypt request: "+requestErr.Error(), "", requestErr, "missing", "", nil)
+		writeError(w, http.StatusBadRequest, fmt.Errorf("decrypt environment request: %w", requestErr))
+		return
+	}
 	path := proxy.Path
 	if path == "" {
 		path = "/internalTool/miEnv"
@@ -137,13 +146,21 @@ func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
-	request, err := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(body))
+	upstreamBody := body
+	plainHop := r.Method == http.MethodPost && requestPlain != ""
+	if plainHop {
+		upstreamBody = []byte(requestPlain)
+	}
+	request, err := http.NewRequestWithContext(r.Context(), r.Method, target, bytes.NewReader(upstreamBody))
 	if err != nil {
 		writeError(w, http.StatusBadGateway, fmt.Errorf("build environment proxy request: %w", err))
 		return
 	}
 	copyRequestHeaders(request.Header, r.Header)
 	request.Header.Set("X-MI-Internal-Key", proxy.Key)
+	if plainHop {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	// Avoid transparent gzip negotiation: the compiled client expects to parse
 	// the JSON envelope directly, and identity makes byte counts/logs reliable.
 	request.Header.Set("Accept-Encoding", "identity")
@@ -154,11 +171,42 @@ func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
 	upstreamStarted := time.Now()
 	response, err := client.Do(request)
 	if err != nil {
-		s.logf("proxy service=env method=%s path=%q upstream=%q error=%q duration=%s", r.Method, r.URL.RequestURI(), target, err, time.Since(upstreamStarted).Round(time.Microsecond))
+		s.logEnvProxyExchange(r, 0, 0, time.Since(upstreamStarted).Round(time.Microsecond), "upstream="+target, requestPlain, requestErr, "missing", "", err)
 		writeError(w, http.StatusBadGateway, fmt.Errorf("environment proxy request failed: %w", err))
 		return
 	}
 	defer response.Body.Close()
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		s.logEnvProxyExchange(r, response.StatusCode, 0, time.Since(upstreamStarted).Round(time.Microsecond), "read upstream response: "+err.Error(), requestPlain, requestErr, "missing", "", err)
+		writeError(w, http.StatusBadGateway, fmt.Errorf("read environment proxy response: %w", err))
+		return
+	}
+	responsePlain, outerCode := string(responseBody), "plain"
+	clientResponseBody := responseBody
+	var responseErr error
+	if r.Method == http.MethodPost {
+		if !plainHop {
+			writeError(w, http.StatusBadRequest, errors.New("environment requests must be encrypted client requests"))
+			return
+		}
+		// The compiled client checks the transport envelope's code before
+		// decrypting data. For environment POSTs the source protocol uses 0 for
+		// transport success; HTTP 200 remains the actual HTTP status.
+		outerCode = "0"
+		clientPlain, formatErr := formatEnvClientResponse(responseBody)
+		if formatErr != nil {
+			responseErr = formatErr
+		} else {
+			responsePlain = string(clientPlain)
+			clientResponseBody, responseErr = s.encryptEnvClientResponse(clientPlain)
+		}
+		if responseErr != nil {
+			s.logEnvProxyExchange(r, response.StatusCode, 0, time.Since(upstreamStarted).Round(time.Microsecond), "encrypt client response: "+responseErr.Error(), requestPlain, requestErr, outerCode, responsePlain, responseErr)
+			writeError(w, http.StatusBadGateway, fmt.Errorf("encrypt environment response: %w", responseErr))
+			return
+		}
+	}
 	for key, values := range response.Header {
 		if isHopByHopHeader(key) || strings.EqualFold(key, "Content-Length") {
 			continue
@@ -167,39 +215,140 @@ func (s *Server) handleEnvProxy(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add(key, value)
 		}
 	}
-	if response.ContentLength >= 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(response.ContentLength, 10))
-	}
+	w.Header().Set("Content-Length", strconv.Itoa(len(clientResponseBody)))
 	w.WriteHeader(response.StatusCode)
-	bytesWritten, copyErr := io.Copy(w, response.Body)
+	bytesWritten, copyErr := w.Write(clientResponseBody)
 	copyError := "-"
 	if copyErr != nil {
 		copyError = copyErr.Error()
 	}
-	s.logf("proxy service=env method=%s path=%q upstream_status=%d upstream_bytes=%d duration=%s error=%q", r.Method, r.URL.RequestURI(), response.StatusCode, bytesWritten, time.Since(upstreamStarted).Round(time.Microsecond), copyError)
+	s.logEnvProxyExchange(r, response.StatusCode, bytesWritten, time.Since(upstreamStarted).Round(time.Microsecond), copyError, requestPlain, requestErr, outerCode, responsePlain, responseErr)
 }
 
-func (s *Server) logEnvProxyRequest(r *http.Request, body []byte) {
+// encryptEnvClientResponse converts the main server's plain business JSON to
+// the exact transport envelope consumed by the compiled desktop client.
+func (s *Server) encryptEnvClientResponse(plain []byte) ([]byte, error) {
+	if !json.Valid(plain) {
+		return nil, fmt.Errorf("main server returned invalid JSON")
+	}
+	encrypted, err := encryptEnvResponseStringAt(string(plain), s.cfg.Crypto, s.cfg.Now(), s.cfg.Random)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{"code": 0, "data": encrypted})
+}
+
+// formatEnvClientResponse keeps the internal server contract independent from
+// the compiled client's historical field names. The main server returns the
+// business result in plain JSON; this adapter fills only compatibility aliases
+// that the client reads while preserving all server fields and array shape.
+func formatEnvClientResponse(plain []byte) ([]byte, error) {
+	var envelope map[string]any
+	if err := json.Unmarshal(plain, &envelope); err != nil {
+		return nil, fmt.Errorf("decode main server response: %w", err)
+	}
+	data, exists := envelope["data"]
+	if !exists {
+		return plain, nil
+	}
+	switch value := data.(type) {
+	case []any:
+		// The live source list response also carries a top-level total. Keep
+		// the internal server contract unchanged while restoring that client
+		// observable field for list consumers.
+		if _, ok := envelope["总数"]; !ok {
+			envelope["总数"] = len(value)
+		}
+		for i := range value {
+			if item, ok := value[i].(map[string]any); ok && isEnvClientRecord(item) {
+				normalizeEnvClientRecord(item)
+			}
+		}
+	case map[string]any:
+		if isEnvClientRecord(value) {
+			normalizeEnvClientRecord(value)
+		}
+	}
+	formatted, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, fmt.Errorf("encode client environment response: %w", err)
+	}
+	return formatted, nil
+}
+
+func isEnvClientRecord(item map[string]any) bool {
+	if _, hasID := item["id"]; !hasID {
+		if _, hasEnvID := item["环境id"]; !hasEnvID {
+			return false
+		}
+	}
+	for _, key := range []string{"设备代号", "设备ID", "类型", "串码备份包名称", "备份名称", "安卓ID", "密钥"} {
+		if _, ok := item[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeEnvClientRecord(item map[string]any) {
+	if _, ok := item["环境id"]; !ok {
+		if id, exists := item["id"]; exists {
+			item["环境id"] = id
+		}
+	}
+	if _, ok := item["备份名称"]; !ok {
+		if name, exists := item["串码备份包名称"]; exists {
+			item["备份名称"] = name
+		}
+	}
+	if _, ok := item["最大使用次数"]; !ok {
+		item["最大使用次数"] = 1
+	}
+	if _, ok := item["最后使用时间"]; !ok {
+		item["最后使用时间"] = 0
+	}
+}
+
+func (s *Server) decryptEnvProxyRequest(r *http.Request, body []byte) (string, error) {
 	if r.Method != http.MethodPost || len(body) == 0 {
-		return
+		return "", nil
 	}
 	var envelope struct {
 		Data string `json:"data"`
 	}
 	if err := json.Unmarshal(body, &envelope); err != nil {
-		s.logf("env_request service=env method=%s path=%q decrypt_error=%q", r.Method, r.URL.RequestURI(), "decode request envelope: "+err.Error())
-		return
+		return "", fmt.Errorf("decode request envelope: %w", err)
 	}
 	if envelope.Data == "" {
-		s.logf("env_request service=env method=%s path=%q decrypt_error=%q", r.Method, r.URL.RequestURI(), "data is required")
-		return
+		return "", errors.New("data is required")
 	}
 	plain, err := decryptDynamicRequestStringAt(envelope.Data, s.cfg.Crypto, s.cfg.Now())
 	if err != nil {
-		s.logf("env_request service=env method=%s path=%q decrypt_error=%q", r.Method, r.URL.RequestURI(), err.Error())
-		return
+		return "", err
 	}
-	s.logf("env_request service=env method=%s path=%q plaintext=%s", r.Method, r.URL.RequestURI(), plain)
+	return plain, nil
+}
+
+func (s *Server) logEnvProxyExchange(r *http.Request, status, bytesWritten int, duration time.Duration, copyError, requestPlain string, requestErr error, outerCode, responsePlain string, responseErr error) {
+	parts := []any{r.Method, r.URL.RequestURI(), status, bytesWritten, duration, copyError}
+	format := "env_exchange service=env method=%s path=%q upstream_status=%d upstream_bytes=%d duration=%s error=%q"
+	if requestErr != nil {
+		format += " request_decrypt_error=%q"
+		parts = append(parts, requestErr.Error())
+	} else if requestPlain != "" {
+		format += " request_plaintext=%s"
+		parts = append(parts, requestPlain)
+	}
+	format += " response_outer_code=%s"
+	parts = append(parts, outerCode)
+	if responseErr != nil {
+		format += " response_decrypt_error=%q"
+		parts = append(parts, responseErr.Error())
+	} else if responsePlain != "" {
+		format += " response_plaintext=%s"
+		parts = append(parts, responsePlain)
+	}
+	s.logf(format, parts...)
 }
 
 func (s *Server) accessLog(service string, next http.Handler) http.Handler {
@@ -973,12 +1122,15 @@ func (s *Server) writeEncryptedEnv(w http.ResponseWriter, status int, body map[s
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("marshal env response: %w", err))
 		return
 	}
-	encrypted, err := encryptResponseStringAt(string(raw), s.cfg.Crypto, s.cfg.Now(), s.cfg.Random)
+	encrypted, err := encryptEnvResponseStringAt(string(raw), s.cfg.Crypto, s.cfg.Now(), s.cfg.Random)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("encrypt env response: %w", err))
 		return
 	}
-	writeJSON(w, status, map[string]any{"data": encrypted})
+	// Match the live source environment service's transport envelope. Its outer
+	// transport success code is 0; business success/failure remains inside the
+	// encrypted payload and HTTP status remains separate.
+	writeJSON(w, status, map[string]any{"code": 0, "data": encrypted})
 }
 
 func envFilterFromPayload(payload map[string]any, includeListFields bool) EnvFilter {
@@ -1033,6 +1185,10 @@ func envFilterFromPayload(payload map[string]any, includeListFields bool) EnvFil
 }
 
 func envData(record *EnvRecord) map[string]any {
+	lastUsedUnix := int64(0)
+	if record.LastUsedAt != nil {
+		lastUsedUnix = record.LastUsedAt.Unix()
+	}
 	data := map[string]any{
 		"id":         record.ID,
 		"环境id":       record.ID,
@@ -1048,16 +1204,14 @@ func envData(record *EnvRecord) map[string]any {
 		"已制作次数":      record.MadeCount,
 		"冻结":         boolInt(record.Frozen),
 		"created_at": record.CreatedAt.Format(time.RFC3339),
-		"创建时间":       record.CreatedAt.Format(time.RFC3339),
+		"创建时间":       record.CreatedAt.Unix(),
+		"最后使用时间":     lastUsedUnix,
 	}
 	if record.ConsumedAt != nil {
 		data["consumed_at"] = record.ConsumedAt.Format(time.RFC3339)
 	}
 	if record.DeletedAt != nil {
 		data["deleted_at"] = record.DeletedAt.Format(time.RFC3339)
-	}
-	if record.LastUsedAt != nil {
-		data["最后使用时间"] = record.LastUsedAt.Format(time.RFC3339)
 	}
 	return data
 }

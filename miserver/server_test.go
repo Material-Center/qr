@@ -159,6 +159,8 @@ func TestGetDeviceReturnsLongLivedStatelessLicense(t *testing.T) {
 }
 
 func TestEnvHandlerForwardsToConfiguredMainServer(t *testing.T) {
+	cfg := DefaultEnvConfig()
+	now := fixedLATime()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/internalTool/miEnv/add_env" || r.URL.RawQuery != "trace=1" {
 			t.Fatalf("upstream URL = %q", r.URL.RequestURI())
@@ -172,28 +174,66 @@ func TestEnvHandlerForwardsToConfiguredMainServer(t *testing.T) {
 		if r.Header.Get("Accept-Encoding") != "identity" {
 			t.Fatalf("upstream accept encoding = %q", r.Header.Get("Accept-Encoding"))
 		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream body: %v", err)
+		}
+		if payload["设备ID"] != "device-a" {
+			t.Fatalf("upstream payload = %#v", payload)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_, _ = w.Write([]byte(`{"data":"proxied"}`))
+		_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[]}`))
 	}))
 	defer upstream.Close()
 
-	srv := NewServer(ServerConfig{EnvProxy: &EnvProxyConfig{BaseURL: upstream.URL, Path: "/internalTool/miEnv", Key: "test-key"}})
+	srv := NewServer(ServerConfig{Crypto: cfg, Now: func() time.Time { return now }, EnvProxy: &EnvProxyConfig{BaseURL: upstream.URL, Path: "/internalTool/miEnv", Key: "test-key"}})
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/add_env?trace=1", bytes.NewBufferString(`{"data":"payload"}`))
+	encrypted := encryptEnvRequestFixture(t, `{"设备ID":"device-a"}`, cfg, now)
+	body, err := json.Marshal(map[string]string{"data": encrypted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/add_env?trace=1", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	srv.EnvHandler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusAccepted || rec.Body.String() != `{"data":"proxied"}` {
+	if rec.Code != http.StatusAccepted {
 		t.Fatalf("proxy response = %d %q", rec.Code, rec.Body.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope["code"] != float64(0) || envelope["data"] == nil {
+		t.Fatalf("proxy response envelope = %#v", envelope)
+	}
+	encoded := envelope["data"].(string)
+	if len(encoded)%4 != 0 {
+		t.Fatalf("environment response must be direct Base64 without wire prefix, len=%d", len(encoded))
+	}
+	if _, err := base64.StdEncoding.DecodeString(encoded); err != nil {
+		t.Fatalf("environment response is not direct Base64: %v", err)
+	}
+	plain, err := decryptResponseStringAt(encoded, cfg, now)
+	if err != nil {
+		t.Fatalf("decrypt client response: %v", err)
+	}
+	var clientBody map[string]any
+	if err := json.Unmarshal([]byte(plain), &clientBody); err != nil {
+		t.Fatalf("decode client response plaintext: %v", err)
+	}
+	if clientBody["code"] != float64(0) || clientBody["success"] != true {
+		t.Fatalf("client response plaintext = %q", plain)
 	}
 }
 
 func TestEnvProxyLogsDecryptedRequestPlaintext(t *testing.T) {
 	cfg := DefaultEnvConfig()
 	now := fixedLATime()
+	responsePlain := `{"code":0,"success":true,"msg":"ok","data":[{"设备ID":"f54dbf77","创建时间":1791259200}]}`
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":"proxied"}`))
+		_, _ = w.Write([]byte(responsePlain))
 	}))
 	defer upstream.Close()
 
@@ -217,8 +257,62 @@ func TestEnvProxyLogsDecryptedRequestPlaintext(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(logs.String(), `env_request service=env method=POST path="/query_env" plaintext=`+plain) {
-		t.Fatalf("decrypted request log missing from %q", logs.String())
+	logLine := logs.String()
+	if !strings.Contains(logLine, `env_exchange service=env method=POST path="/query_env" upstream_status=200`) {
+		t.Fatalf("combined environment log missing from %q", logLine)
+	}
+	if !strings.Contains(logLine, `request_plaintext=`+plain) {
+		t.Fatalf("decrypted request plaintext missing from %q", logLine)
+	}
+	formatted, err := formatEnvClientResponse([]byte(responsePlain))
+	if err != nil {
+		t.Fatalf("format response: %v", err)
+	}
+	if !strings.Contains(logLine, `response_outer_code=0 response_plaintext=`+string(formatted)) {
+		t.Fatalf("decrypted response plaintext missing from %q", logLine)
+	}
+	if strings.Count(logLine, "env_exchange service=env") != 1 {
+		t.Fatalf("expected one combined environment log line, got %q", logLine)
+	}
+}
+
+func TestFormatEnvClientResponseOnlyNormalizesEnvironmentRecords(t *testing.T) {
+	recordResponse := []byte(`{"code":0,"data":{"id":7,"设备ID":"device-a","串码备份包名称":"backup-a.dat"}}`)
+	formattedRecord, err := formatEnvClientResponse(recordResponse)
+	if err != nil {
+		t.Fatalf("format record response: %v", err)
+	}
+	var recordEnvelope map[string]any
+	if err := json.Unmarshal(formattedRecord, &recordEnvelope); err != nil {
+		t.Fatalf("decode formatted record: %v", err)
+	}
+	record := recordEnvelope["data"].(map[string]any)
+	if record["环境id"] != float64(7) || record["备份名称"] != "backup-a.dat" || record["最大使用次数"] != float64(1) || record["最后使用时间"] != float64(0) {
+		t.Fatalf("record aliases missing from %#v", record)
+	}
+
+	for name, response := range map[string][]byte{
+		"scalar":       []byte(`{"code":0,"data":{"总数":9}}`),
+		"type stats":   []byte(`{"code":0,"data":{"QQ111":9}}`),
+		"mutation":     []byte(`{"code":0,"data":{"id":7,"环境id":7,"已制作次数":2}}`),
+		"batch result": []byte(`{"code":0,"data":{"影响数量":3}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			formatted, err := formatEnvClientResponse(response)
+			if err != nil {
+				t.Fatalf("format response: %v", err)
+			}
+			var envelope map[string]any
+			if err := json.Unmarshal(formatted, &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			data := envelope["data"].(map[string]any)
+			for _, unexpected := range []string{"最大使用次数", "最后使用时间", "备份名称"} {
+				if _, ok := data[unexpected]; ok {
+					t.Fatalf("non-record response gained %q: %#v", unexpected, data)
+				}
+			}
+		})
 	}
 }
 

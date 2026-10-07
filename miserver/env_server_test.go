@@ -189,6 +189,16 @@ func TestEnvQueryListDoesNotConsume(t *testing.T) {
 	if !ok || len(items) != 1 {
 		t.Fatalf("query data = %#v in %#v", queryResp["data"], queryResp)
 	}
+	item, ok := items[0].(map[string]any)
+	if !ok {
+		t.Fatalf("query item = %#v", items[0])
+	}
+	if _, ok := item["创建时间"].(float64); !ok {
+		t.Fatalf("创建时间 must be a Unix-second JSON number: %#v", item["创建时间"])
+	}
+	if got, ok := item["最后使用时间"].(float64); !ok || got != 0 {
+		t.Fatalf("最后使用时间 must use the never-used sentinel 0: %#v", item["最后使用时间"])
+	}
 
 	getResp := postEncryptedEnv(t, srv, cfg, now, "/get_env", map[string]any{
 		"类型":   "QQ888",
@@ -326,6 +336,9 @@ func postEncryptedEnv(t *testing.T, srv *Server, cfg CryptoConfig, now time.Time
 	var envelope map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode envelope: %v", err)
+	}
+	if envelope["code"] != float64(0) {
+		t.Fatalf("response envelope code = %v, want 0", envelope["code"])
 	}
 	encryptedResp, ok := envelope["data"].(string)
 	if !ok || encryptedResp == "" {

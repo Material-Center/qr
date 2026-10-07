@@ -27,8 +27,15 @@ const (
 )
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "compare" {
+		h := &http.Client{Timeout: 60 * time.Second}
+		if err := compareDevice(h, strings.TrimSpace(os.Args[2])); err != nil {
+			panic(err)
+		}
+		return
+	}
 	if len(os.Args) != 2 || strings.TrimSpace(os.Args[1]) == "" {
-		fmt.Fprintln(os.Stderr, "usage: go run ./miserver/import_env_tool.go <deviceid>")
+		fmt.Fprintln(os.Stderr, "usage: go run . <deviceid> | go run . compare <deviceid>")
 		os.Exit(2)
 	}
 	device := strings.TrimSpace(os.Args[1])
@@ -65,6 +72,84 @@ func main() {
 	fmt.Printf("completed source=%d inserted=%d updated=%d\n", total, inserted, updated)
 }
 
+func compareDevice(h *http.Client, device string) error {
+	source := make([]map[string]any, 0)
+	for offset := 0; ; offset += page {
+		items, err := sourcePage(h, device, offset)
+		if err != nil {
+			return err
+		}
+		source = append(source, items...)
+		if len(items) < page {
+			break
+		}
+	}
+	targetPayload := map[string]any{"设备ID": device, "limit": 10000, "offset": 0, "排序": "id DESC"}
+	targetRaw, err := requestPlainInternal(h, "http://210.16.170.132:1111/api/internalTool/miEnv/query_env", targetPayload, key)
+	if err != nil {
+		return err
+	}
+	var targetBody struct {
+		Code int              `json:"code"`
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(targetRaw, &targetBody); err != nil {
+		return err
+	}
+	if targetBody.Code != 0 {
+		return fmt.Errorf("target code=%d", targetBody.Code)
+	}
+	target := targetBody.Data
+	byKey := map[string]map[string]any{}
+	for _, item := range target {
+		byKey[identityKey(item)] = item
+	}
+	missing, mismatched := 0, 0
+	diffs := map[string]int{}
+	firstDiff := map[string]string{}
+	for _, item := range source {
+		other, ok := byKey[identityKey(item)]
+		if !ok {
+			missing++
+			continue
+		}
+		recordMismatch := false
+		for _, field := range []string{"设备ID", "设备代号", "类型", "串码备份包名称", "备份名称", "安卓ID", "使用次数", "最大使用次数", "已制作次数", "冻结", "创建时间", "最后使用时间", "created_at"} {
+			if !sameComparable(field, item[field], other[field]) {
+				diffs[field]++
+				if _, exists := firstDiff[field]; !exists {
+					firstDiff[field] = fmt.Sprintf("%v != %v", item[field], other[field])
+				}
+				recordMismatch = true
+			}
+		}
+		if recordMismatch {
+			mismatched++
+		}
+		delete(byKey, identityKey(item))
+	}
+	types := map[string]int{}
+	for _, item := range source {
+		types[str(item["类型"])]++
+	}
+	fmt.Printf("device=%s source=%d target=%d types=%v missing=%d extra=%d mismatched=%d diffs=%v first_diff=%v\n", device, len(source), len(target), types, missing, len(byKey), mismatched, diffs, firstDiff)
+	return nil
+}
+
+func identityKey(item map[string]any) string {
+	return strings.Join([]string{str(item["类型"]), str(item["串码备份包名称"]), str(item["安卓ID"]), str(item["密钥"])}, "\x00")
+}
+
+func sameComparable(field string, a, b any) bool {
+	if field == "最大使用次数" && a == nil {
+		return fmt.Sprint(b) == "1" || fmt.Sprint(b) == "1.0"
+	}
+	if field == "最后使用时间" && a == nil {
+		return fmt.Sprint(b) == "0" || fmt.Sprint(b) == "0.0"
+	}
+	return fmt.Sprint(a) == fmt.Sprint(b)
+}
+
 func sourcePage(h *http.Client, device string, offset int) ([]map[string]any, error) {
 	now := time.Now()
 	payload := map[string]any{"设备ID": device, "limit": page, "offset": offset, "排序": "id DESC", "key": encrypt([]byte("06250511"), now)}
@@ -87,7 +172,7 @@ func sourcePage(h *http.Client, device string, offset int) ([]map[string]any, er
 }
 
 func targetImportBatch(h *http.Client, items []map[string]any) (map[string]any, error) {
-	data, err := request(h, dstURL+"_batch", map[string]any{"records": items}, key)
+	data, err := requestPlainInternal(h, dstURL+"_batch", map[string]any{"records": items}, key)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +188,38 @@ func targetImportBatch(h *http.Client, items []map[string]any) (map[string]any, 
 		return nil, fmt.Errorf("business code=%d msg=%s", result.Code, result.Msg)
 	}
 	return result.Data, nil
+}
+
+// requestPlainInternal is the server-to-server contract. The fixed internal
+// key authenticates the call; the request and response bodies are ordinary
+// JSON. Client-facing environment encryption is deliberately kept in
+// miserver, not duplicated in this migration tool.
+func requestPlainInternal(h *http.Client, url string, payload map[string]any, headerKey string) ([]byte, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if headerKey != "" {
+		req.Header.Set("X-MI-Internal-Key", headerKey)
+	}
+	resp, err := h.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
 }
 
 func request(h *http.Client, url string, payload map[string]any, headerKey string) ([]byte, error) {

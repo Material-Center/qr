@@ -67,12 +67,40 @@ func encryptResponseStringAt(plain string, cfg CryptoConfig, now time.Time, rand
 	return base64.RawStdEncoding.EncodeToString(wirePrefix)[:6] + base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+// encryptEnvResponseStringAt matches the live environment service. Unlike the
+// authorization response protocol, environment responses do not prepend the
+// optional six-character wire marker; data is the direct Base64 ciphertext.
+func encryptEnvResponseStringAt(plain string, cfg CryptoConfig, now time.Time, random io.Reader) (string, error) {
+	prefixBlock := make([]byte, aesBlockSize)
+	if _, err := io.ReadFull(random, prefixBlock); err != nil {
+		return "", fmt.Errorf("read environment response prefix: %w", err)
+	}
+
+	padded := pkcs7Pad(append(prefixBlock, []byte(plain)...), aesBlockSize)
+	ciphertext, err := encryptCBC(padded, responseSeed(cfg, now), cfg.IV)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
 func decryptResponseStringAt(encoded string, cfg CryptoConfig, now time.Time) (string, error) {
 	if decrypted, err := decryptString(encoded, cfg); err == nil {
 		return decrypted, nil
 	}
 
 	trimmed := strings.TrimSpace(encoded)
+	if trimmed == "" {
+		return "", errors.New("obfuscated response is empty")
+	}
+	// Live environment responses use direct Base64(ciphertext), while some
+	// authorization responses carry a six-character wire marker. Try the live
+	// direct form before stripping the optional marker.
+	if ciphertext, err := decodeBase64(trimmed); err == nil {
+		if plain, err := decryptDynamicCiphertext(ciphertext, cfg, now); err == nil {
+			return plain, nil
+		}
+	}
 	if len(trimmed) <= 6 {
 		return "", errors.New("obfuscated response is too short")
 	}

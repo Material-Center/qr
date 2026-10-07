@@ -2,7 +2,6 @@ package system
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,27 +18,24 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestMIEnvHandleAcceptsCompiledClientEncryption(t *testing.T) {
+func TestMIEnvHandleAcceptsPlainInternalRequest(t *testing.T) {
 	useMIEnvAPITestDB(t)
 	gin.SetMode(gin.TestMode)
-	now := time.Now()
 	payload := map[string]any{
 		"设备代号": "cepheus", "设备ID": "device-a", "类型": "QQ888",
 		"串码备份包名称": "backup-a", "安卓ID": "android-a", "密钥": "key-a",
 	}
 	raw, err := json.Marshal(payload)
 	require.NoError(t, err)
-	envelopeRaw, err := json.Marshal(map[string]string{"data": encryptMIEnvRequestForTest(t, raw, defaultMIEnvCrypto(), now)})
-	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "action", Value: "/add_env"}}
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/add_env", bytes.NewReader(envelopeRaw))
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/add_env", bytes.NewReader(raw))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 	(&MIEnvApi{}).Handle(ctx)
 
-	response := decodeMIEnvResponseForTest(t, recorder, defaultMIEnvCrypto(), now)
+	response := decodePlainMIEnvResponseForTest(t, recorder)
 	require.EqualValues(t, 0, response["code"])
 	require.Equal(t, "添加成功", response["msg"])
 }
@@ -230,17 +226,15 @@ func TestMIEnvQueryEnvEncryptedClientContract(t *testing.T) {
 
 	payload, err := json.Marshal(map[string]any{"设备ID": "f54dbf77", "limit": 10000})
 	require.NoError(t, err)
-	envelope, err := json.Marshal(map[string]string{"data": encryptMIEnvRequestForTest(t, payload, defaultMIEnvCrypto(), now)})
-	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "action", Value: "/query_env"}}
-	ctx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/query_env", bytes.NewReader(envelope))
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/query_env", bytes.NewReader(payload))
 	ctx.Request.Header.Set("Content-Type", "application/json")
 	(&MIEnvApi{}).Handle(ctx)
 
-	response := decodeMIEnvResponseForTest(t, recorder, defaultMIEnvCrypto(), now)
+	response := decodePlainMIEnvResponseForTest(t, recorder)
 	require.EqualValues(t, 0, response["code"])
 	require.Equal(t, true, response["success"])
 	require.Equal(t, "ok", response["msg"])
@@ -266,15 +260,13 @@ func TestMIEnvQueryEnvEncryptedClientContract(t *testing.T) {
 
 	emptyPayload, err := json.Marshal(map[string]any{"设备ID": "missing-device", "limit": 10000})
 	require.NoError(t, err)
-	emptyEnvelope, err := json.Marshal(map[string]string{"data": encryptMIEnvRequestForTest(t, emptyPayload, defaultMIEnvCrypto(), now)})
-	require.NoError(t, err)
 	emptyRecorder := httptest.NewRecorder()
 	emptyCtx, _ := gin.CreateTestContext(emptyRecorder)
 	emptyCtx.Params = gin.Params{{Key: "action", Value: "/query_env"}}
-	emptyCtx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/query_env", bytes.NewReader(emptyEnvelope))
+	emptyCtx.Request = httptest.NewRequest(http.MethodPost, "/internalTool/miEnv/query_env", bytes.NewReader(emptyPayload))
 	emptyCtx.Request.Header.Set("Content-Type", "application/json")
 	(&MIEnvApi{}).Handle(emptyCtx)
-	emptyResponse := decodeMIEnvResponseForTest(t, emptyRecorder, defaultMIEnvCrypto(), now)
+	emptyResponse := decodePlainMIEnvResponseForTest(t, emptyRecorder)
 	emptyItems, ok := emptyResponse["data"].([]any)
 	require.True(t, ok, "empty query_env list data must be [] rather than null or an object")
 	require.Empty(t, emptyItems)
@@ -322,43 +314,15 @@ func dispatchMIEnvForTest(t *testing.T, action string, payload map[string]any, n
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	(&MIEnvApi{}).dispatch(ctx, action, payload, cfg, now)
-	return decodeMIEnvResponseForTest(t, recorder, cfg, now)
+	return decodePlainMIEnvResponseForTest(t, recorder)
 }
 
-func decodeMIEnvResponseForTest(t *testing.T, recorder *httptest.ResponseRecorder, cfg miEnvCryptoConfig, now time.Time) map[string]any {
+func decodePlainMIEnvResponseForTest(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	require.Equal(t, 200, recorder.Code)
-
-	var envelope struct {
-		Code int    `json:"code"`
-		Data string `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
-	require.Equal(t, 0, envelope.Code)
-	require.Greater(t, len(envelope.Data), 6)
-	ciphertext, err := decodeMIEnvBase64(envelope.Data[6:])
-	require.NoError(t, err)
-	var plain []byte
-	for _, seed := range miEnvResponseSeeds(cfg, now) {
-		plain, err = decryptMIEnvCBC(ciphertext, seed, cfg.IV)
-		if err == nil {
-			break
-		}
-	}
-	require.NoError(t, err)
-	require.Greater(t, len(plain), miEnvBlockSize)
-
 	var body map[string]any
-	require.NoError(t, json.Unmarshal(plain[miEnvBlockSize:], &body))
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
 	return body
-}
-
-func encryptMIEnvRequestForTest(t *testing.T, raw []byte, cfg miEnvCryptoConfig, now time.Time) string {
-	t.Helper()
-	plain := append(make([]byte, miEnvBlockSize), raw...)
-	ciphertext, err := encryptMIEnvCBC(miEnvPKCS7Pad(plain, miEnvBlockSize), miEnvResponseSeed(cfg, now), cfg.IV)
-	require.NoError(t, err)
-	return base64.StdEncoding.EncodeToString(ciphertext)
 }
 
 func useMIEnvAPITestDB(t *testing.T) *gorm.DB {

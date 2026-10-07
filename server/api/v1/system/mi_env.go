@@ -305,22 +305,12 @@ func (a *MIEnvApi) adjustID(c *gin.Context, cfg miEnvCryptoConfig, now time.Time
 }
 
 func (a *MIEnvApi) readPayload(c *gin.Context, cfg miEnvCryptoConfig, now time.Time) (map[string]any, error) {
-	var envelope struct {
-		Data string `json:"data"`
-	}
-	if err := c.ShouldBindJSON(&envelope); err != nil {
-		return nil, fmt.Errorf("decode request: %w", err)
-	}
-	if envelope.Data == "" {
-		return nil, fmt.Errorf("data is required")
-	}
-	plain, err := decryptMIEnvRequest(envelope.Data, cfg, now)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt request: %w", err)
-	}
 	var payload map[string]any
-	if err := json.Unmarshal([]byte(plain), &payload); err != nil {
-		return nil, fmt.Errorf("decode payload: %w", err)
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		return nil, fmt.Errorf("decode plain request: %w", err)
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("plain request must be a JSON object")
 	}
 	return payload, nil
 }
@@ -332,20 +322,10 @@ func (a *MIEnvApi) writeSuccess(c *gin.Context, cfg miEnvCryptoConfig, now time.
 	a.writePlain(c, cfg, now, body)
 }
 func (a *MIEnvApi) writePlain(c *gin.Context, cfg miEnvCryptoConfig, now time.Time, body map[string]any) {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
-		return
-	}
-	encrypted, err := encryptMIEnvResponse(string(raw), cfg, now)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
-		return
-	}
-	// The compiled client checks the transport envelope code before decrypting
-	// the business payload. A missing code is treated as a failed response and
-	// its query helpers replace the decrypted data with nil.
-	c.JSON(http.StatusOK, gin.H{"code": 0, "data": encrypted})
+	// The internal server endpoint is authenticated by X-MI-Internal-Key at the
+	// router middleware. It deliberately returns plain business JSON; miserver
+	// owns the client-facing encryption envelope.
+	c.JSON(http.StatusOK, body)
 }
 
 func miEnvFilter(payload map[string]any, includeList bool) system.MIEnvFilter {

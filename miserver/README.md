@@ -21,6 +21,12 @@ decrypted passwords. In local launcher mode, environment requests are
 forwarded to `http://210.16.170.132:1111/api/internalTool/miEnv/*` with the
 configured internal key.
 
+The internal environment hop is plain JSON and is authenticated only by
+`X-MI-Internal-Key`. `miserver` decrypts the client's request before forwarding
+it, then encrypts the main server's plain response into the source-compatible
+`{"code":0,"data":"<direct Base64 ciphertext>"}` envelope (HTTP status remains 200). The combined `env_exchange` log line
+contains both `request_plaintext` and `response_plaintext` for troubleshooting.
+
 It exposes:
 
 - `POST /shanghaitime`
