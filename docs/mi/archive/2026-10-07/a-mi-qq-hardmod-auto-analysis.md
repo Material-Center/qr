@@ -2,6 +2,8 @@
 
 更新时间：2026-07-08
 
+> 历史快照说明：本文保留早期定位记录。与当前 2026-10-07 基准冲突的 method、环境响应外层和前缀描述，以最新 API 基准文档及当前 `miserver`/主服务实现为准。
+
 ## 范围
 
 本结论来自对 `/Users/fupeng/Downloads/A_mi3.0-2` 的静态定位，主要分析对象是 Nuitka/CPython 编译后的 `.pyd` 文件：
@@ -24,10 +26,10 @@
 
 | 接口 | 用途 | 关键字段 |
 | --- | --- | --- |
-| `GET http://py.j8nda.xyz:9999/shanghaitime` | 获取服务器上海时间 | 返回 `code`、`data`，`data` 会解密后按 `%Y-%m-%d %H:%M:%S` 解析 |
+| `POST http://py.j8nda.xyz:9999/shanghaitime` | 获取服务器上海时间 | 返回 `code`、`data`，`data` 会解密后按 `%Y-%m-%d %H:%M:%S` 解析 |
 | `POST http://py.j8nda.xyz:9999/stoptime` | 检查设备是否被远端停止 | `encrypted_device`、`encrypted_key` |
-| `http://py.j8nda.xyz:9999/get_device` | 获取设备授权信息 | `device_id`，返回设备授权到期时间 |
-| `http://py.j8nda.xyz:9999/use_code` | 输入授权码后授权设备 | `code`，响应看 `success`、`error` |
+| `POST http://py.j8nda.xyz:9999/get_device` | 获取设备授权信息 | `device_id`，返回设备授权到期时间 |
+| `POST http://py.j8nda.xyz:9999/use_code` | 输入授权码后授权设备 | `device_id`、`code`，响应看 `success`、`error` |
 
 加密/通信特征：
 
@@ -125,7 +127,7 @@ offset
 - `bh/bh_gn` 中有 `发送加密请求并解密响应`，普通业务接口通过 `requests.post` 发送加密后的 `data`。
 - `bh/bh_gn` 业务层常量包括 `AUTH_KEY`、`06250511`，但底层 `Gui.jichu.加密/解密` 还包含动态时间密钥逻辑。
 - 动态密钥格式为 `python38x64HHMM`，时间基准是 `America/Los_Angeles` 当前时间；静态字符串说明解密会尝试当前、前后 1 分钟、前后 2 分钟窗口。
-- 已实测环境池请求/响应还会带随机混淆：请求明文 JSON 前有随机块，响应 `data` 可能有 6 字符外层前缀，解密后也要剥离前置随机块。
+- 历史实测曾观察到响应 `data` 可能有 6 字符外层前缀；当前 `miserver`/主服务环境响应不带该前缀。当前仍保留解密兼容尝试，但不能把历史前缀写成当前必需格式。
 - `/stats` 被单独标注为“统计接口不需要加密”。
 
 #### 客户端封包/回包逻辑
@@ -197,8 +199,9 @@ base64.b64encode / base64.b64decode
 ```text
 response.status_code == 200
   -> response.json()
+  -> 检查外层 code == 0
   -> 取 data 字段
-  -> 如存在 6 字符外层混淆前缀，先去掉
+  -> 先对完整 data 解码；历史兼容时再尝试去掉 6 字符前缀
   -> Gui.jichu.解密(...)
   -> 解密后去掉前置随机块
   -> json.loads(...)
@@ -401,7 +404,7 @@ HTTP错误:
 1. 请求服务器时间：
 
    ```text
-   GET http://py.j8nda.xyz:9999/shanghaitime
+   POST http://py.j8nda.xyz:9999/shanghaitime
    ```
 
    返回的 `data` 会解密，并按 `Asia/Shanghai` 时区解析为当前服务器时间。失败时返回未授权，典型日志：
@@ -415,7 +418,7 @@ HTTP错误:
 2. 请求设备授权信息：
 
    ```text
-   http://py.j8nda.xyz:9999/get_device
+   POST http://py.j8nda.xyz:9999/get_device
    ```
 
    参数字段：
