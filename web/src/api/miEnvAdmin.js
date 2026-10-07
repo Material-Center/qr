@@ -12,7 +12,8 @@ export const getMIEnvAdminTypes = (data) => {
   return service({
     url: '/miEnvAdmin/types',
     method: 'post',
-    data
+    data,
+    donNotShowLoading: true
   })
 }
 
