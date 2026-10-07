@@ -345,10 +345,104 @@ func (s *Server) logEnvProxyExchange(r *http.Request, status, bytesWritten int, 
 		format += " response_decrypt_error=%q"
 		parts = append(parts, responseErr.Error())
 	} else if responsePlain != "" {
-		format += " response_plaintext=%s"
-		parts = append(parts, responsePlain)
+		responseField, responseValue := "response_plaintext", responsePlain
+		if isEnvQueryPath(r.URL.Path) {
+			responseField = "response_summary"
+			responseValue = compactEnvResponsePlaintext(responsePlain)
+		}
+		format += " " + responseField + "=%s"
+		parts = append(parts, responseValue)
 	}
 	s.logf(format, parts...)
+}
+
+func isEnvQueryPath(path string) bool {
+	return path == "/query_env" || path == "/query_env_list" || path == "/query_by_device"
+}
+
+// compactEnvResponsePlaintext keeps query logs useful without writing every
+// environment's secret, backup name, and Android ID into miserver.log. The
+// encrypted response sent to the client is unchanged.
+func compactEnvResponsePlaintext(plain string) string {
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(plain), &envelope); err != nil {
+		return plain
+	}
+	summary := map[string]any{}
+	for _, key := range []string{"code", "success", "msg", "message"} {
+		if value, ok := envelope[key]; ok {
+			summary[key] = value
+		}
+	}
+	summary["data_count"] = 0
+	data, ok := envelope["data"]
+	if !ok {
+		return marshalLogSummary(summary)
+	}
+	switch records := data.(type) {
+	case []any:
+		summary["data_count"] = len(records)
+		types := map[string]int{}
+		devices := map[string]int{}
+		for _, raw := range records {
+			item, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			if value, ok := item["类型"].(string); ok && value != "" {
+				types[value]++
+			}
+			if value, ok := item["设备ID"].(string); ok && value != "" {
+				devices[value]++
+			}
+		}
+		if len(types) > 0 {
+			summary["types"] = types
+		}
+		if len(devices) > 0 {
+			summary["devices"] = devices
+		}
+		if len(records) > 0 {
+			if id := envRecordID(records[0]); id != nil {
+				summary["first_id"] = id
+			}
+			if id := envRecordID(records[len(records)-1]); id != nil {
+				summary["last_id"] = id
+			}
+		}
+	case map[string]any:
+		summary["data_kind"] = "record"
+		if id := envRecordID(records); id != nil {
+			summary["id"] = id
+		}
+		for _, key := range []string{"设备ID", "设备代号", "类型"} {
+			if value, ok := records[key]; ok {
+				summary[key] = value
+			}
+		}
+	default:
+		summary["data_kind"] = fmt.Sprintf("%T", data)
+	}
+	return marshalLogSummary(summary)
+}
+
+func envRecordID(item any) any {
+	record, ok := item.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if id, ok := record["id"]; ok {
+		return id
+	}
+	return record["环境id"]
+}
+
+func marshalLogSummary(value map[string]any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return `{"summary_error":"marshal failed"}`
+	}
+	return string(raw)
 }
 
 func (s *Server) accessLog(service string, next http.Handler) http.Handler {

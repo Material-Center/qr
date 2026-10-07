@@ -264,15 +264,28 @@ func TestEnvProxyLogsDecryptedRequestPlaintext(t *testing.T) {
 	if !strings.Contains(logLine, `request_plaintext=`+plain) {
 		t.Fatalf("decrypted request plaintext missing from %q", logLine)
 	}
-	formatted, err := formatEnvClientResponse([]byte(responsePlain))
-	if err != nil {
-		t.Fatalf("format response: %v", err)
+	wantSummary := `{"code":0,"data_count":1,"devices":{"f54dbf77":1},"msg":"ok","success":true}`
+	if !strings.Contains(logLine, `response_outer_code=0 response_summary=`+wantSummary) {
+		t.Fatalf("compact query response summary missing from %q", logLine)
 	}
-	if !strings.Contains(logLine, `response_outer_code=0 response_plaintext=`+string(formatted)) {
-		t.Fatalf("decrypted response plaintext missing from %q", logLine)
+	if strings.Contains(logLine, `response_plaintext=`) {
+		t.Fatalf("query response must not log the full plaintext: %q", logLine)
 	}
 	if strings.Count(logLine, "env_exchange service=env") != 1 {
 		t.Fatalf("expected one combined environment log line, got %q", logLine)
+	}
+}
+
+func TestCompactEnvResponsePlaintextSummarizesQueryRecords(t *testing.T) {
+	plain := `{"code":0,"success":true,"msg":"ok","data":[{"id":34,"设备ID":"device-a","类型":"QQ111","密钥":"secret-a"},{"id":33,"设备ID":"device-a","类型":"QQ111","密钥":"secret-b"},{"id":12,"设备ID":"device-b","类型":"QQ888","密钥":"secret-c"}]}`
+	got := compactEnvResponsePlaintext(plain)
+	if strings.Contains(got, "secret-") {
+		t.Fatalf("summary leaked record secret: %s", got)
+	}
+	for _, want := range []string{`"data_count":3`, `"first_id":34`, `"last_id":12`, `"QQ111":2`, `"QQ888":1`, `"device-a":2`, `"device-b":1`} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("summary %q missing %q", got, want)
+		}
 	}
 }
 

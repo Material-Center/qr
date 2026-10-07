@@ -25,7 +25,8 @@ The internal environment hop is plain JSON and is authenticated only by
 `X-MI-Internal-Key`. `miserver` decrypts the client's request before forwarding
 it, then encrypts the main server's plain response into the source-compatible
 `{"code":0,"data":"<direct Base64 ciphertext>"}` envelope (HTTP status remains 200). The combined `env_exchange` log line
-contains both `request_plaintext` and `response_plaintext` for troubleshooting.
+contains `request_plaintext`; `/query_env`-style list responses use a compact
+`response_summary`, while other environment responses retain `response_plaintext`.
 
 It exposes:
 

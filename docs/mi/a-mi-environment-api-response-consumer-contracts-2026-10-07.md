@@ -820,4 +820,4 @@ data.排序
 1. Windows 客户端对每个 C 级接口是否存在当前静态搜索未发现的动态调用。
 2. `/stats_by_type`、制作进度和标量统计是否在隐藏调试入口被进一步拆字段使用。
 3. 生产 Windows 客户端是否始终运行最新 `miserver.exe`，避免旧代理返回历史结构。
-4. 任何接口出现客户端异常时，应优先查看 `env_exchange` 中的 `request_plaintext` 和 `response_plaintext`，确认调用方实际收到的解密业务对象。
+4. 任何接口出现客户端异常时，应优先查看 `env_exchange` 中的 `request_plaintext`；查询类接口查看 `response_summary`，其他接口查看 `response_plaintext`，确认调用方实际收到的解密业务对象。
