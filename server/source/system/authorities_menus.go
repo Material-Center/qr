@@ -67,7 +67,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 
 	for _, menu := range allMenus {
 		if menu.ParentId == 0 {
-			if menu.Name == "qqCacheManage" || menu.Name == "qqCacheExtract" || menu.Name == "deviceManage" {
+			if menu.Name == "qqCacheManage" || menu.Name == "qqCacheExtract" || menu.Name == "deviceManage" || menu.Name == "miEnvManage" {
 				continue
 			}
 			basicMenus = append(basicMenus, menu)
@@ -92,6 +92,7 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	qqCacheMenu, hasQQCacheMenu := menuNameMap["qqCacheManage"]
 	qqCacheExtractMenu, hasQQCacheExtractMenu := menuNameMap["qqCacheExtract"]
 	deviceManageMenu, hasDeviceManageMenu := menuNameMap["deviceManage"]
+	miEnvManageMenu, hasMIEnvManageMenu := menuNameMap["miEnvManage"]
 	registerCenterChild, hasRegisterCenterChild := menuNameMap["registerTaskCenter"]
 	phoneRegisterCenterChild, hasPhoneRegisterCenterChild := menuNameMap["phoneRegisterTaskCenter"]
 	registerConfigChild, hasRegisterConfigChild := menuNameMap["registerConfig"]
@@ -148,6 +149,9 @@ func (i *initMenuAuthority) InitializeData(ctx context.Context) (next context.Co
 	}
 	if hasDeviceManageMenu {
 		adminMenus = append(adminMenus, deviceManageMenu)
+	}
+	if hasMIEnvManageMenu {
+		adminMenus = append(adminMenus, miEnvManageMenu)
 	}
 	if err = assignMenus(100, adminMenus, "为管理员分配菜单失败"); err != nil {
 		return next, errors.Wrap(err, "为管理员分配菜单失败")
@@ -225,5 +229,15 @@ func (i *initMenuAuthority) DataInserted(ctx context.Context) bool {
 		return true
 	}
 	// 210 由幂等 SQL 补丁兼容已部署的旧环境，不作为全量重建条件。
-	return checkRole(100) && checkRole(200) && checkRole(300) && checkRole(400) && checkRole(500)
+	adminHasMIEnvMenu := false
+	admin := &sysModel.SysAuthority{}
+	if err := db.Model(admin).Where("authority_id = ?", 100).Preload("SysBaseMenus").First(admin).Error; err == nil {
+		for _, menu := range admin.SysBaseMenus {
+			if menu.Name == "miEnvManage" {
+				adminHasMIEnvMenu = true
+				break
+			}
+		}
+	}
+	return adminHasMIEnvMenu && checkRole(100) && checkRole(200) && checkRole(300) && checkRole(400) && checkRole(500)
 }

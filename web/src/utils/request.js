@@ -62,7 +62,9 @@ const guardedRoutes = [
   'YXV0aG9yaXR5L3NldFJvbGVVc2Vycw==', // /authority/setRoleUsers
   'cXFDYWNoZS9zYWxlcy9leHRyYWN0', // /qqCache/sales/extract
   'cmVnaXN0ZXJUYXNrL2NhY2hlL3ByZXBhcmU=', // /registerTask/cache/prepare
-  'cGhvbmVSZWdpc3RlclRhc2svY3JlYXRl' // /phoneRegisterTask/create
+  'cGhvbmVSZWdpc3RlclRhc2svY3JlYXRl', // /phoneRegisterTask/create
+  'bWlFbnZBZG1pbi9kZWxldGVTZWxlY3RlZA==', // /miEnvAdmin/deleteSelected
+  'bWlFbnZBZG1pbi9kZWxldGVBbGw=' // /miEnvAdmin/deleteAll
 ].reduce((routes, item) => routes.add(`/${fromB64(item)}`), new Set())
 
 const utcDayKey = (timestamp) => {

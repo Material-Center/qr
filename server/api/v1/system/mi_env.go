@@ -8,12 +8,108 @@ import (
 	"strings"
 	"time"
 
+	commonResponse "github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
+	systemRes "github.com/flipped-aurora/gin-vue-admin/server/model/system/response"
 	"github.com/flipped-aurora/gin-vue-admin/server/service/system"
+	"github.com/flipped-aurora/gin-vue-admin/server/utils"
 	"github.com/gin-gonic/gin"
 )
 
 type MIEnvApi struct{}
+
+func (a *MIEnvApi) AdminList(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		commonResponse.FailWithMessage("仅管理员可管理环境数据", c)
+		return
+	}
+	var req systemReq.MIEnvAdminList
+	if err := c.ShouldBindJSON(&req); err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	list, total, err := system.MIEnvServiceApp.ListForAdmin(req)
+	if err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	page, pageSize := req.Page, req.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 20
+	}
+	commonResponse.OkWithDetailed(commonResponse.PageResult{
+		List:     systemRes.NewMIEnvAdminItems(list),
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, "获取成功", c)
+}
+
+func (a *MIEnvApi) AdminTypes(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		commonResponse.FailWithMessage("仅管理员可查询环境类型", c)
+		return
+	}
+	var req systemReq.MIEnvAdminList
+	if err := c.ShouldBindJSON(&req); err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	types, err := system.MIEnvServiceApp.ListTypesForAdmin(req)
+	if err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	commonResponse.OkWithDetailed(types, "获取成功", c)
+}
+
+func (a *MIEnvApi) AdminDeleteAll(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		commonResponse.FailWithMessage("仅管理员可删除环境数据", c)
+		return
+	}
+	var req systemReq.MIEnvAdminList
+	if err := c.ShouldBindJSON(&req); err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	if !req.Confirm {
+		commonResponse.FailWithMessage("请确认删除全部操作", c)
+		return
+	}
+	deleted, err := system.MIEnvServiceApp.DeleteAllForAdmin(req, time.Now())
+	if err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	commonResponse.OkWithDetailed(gin.H{"deleted": deleted}, "删除完成", c)
+}
+
+func (a *MIEnvApi) AdminDeleteSelected(c *gin.Context) {
+	if !isQQCacheAdminRole(utils.GetUserAuthorityId(c)) {
+		commonResponse.FailWithMessage("仅管理员可删除环境数据", c)
+		return
+	}
+	var req systemReq.MIEnvAdminDeleteSelected
+	if err := c.ShouldBindJSON(&req); err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	if !req.Confirm {
+		commonResponse.FailWithMessage("请确认删除所选环境", c)
+		return
+	}
+	deleted, err := system.MIEnvServiceApp.DeleteSelectedForAdmin(req.IDs, time.Now())
+	if err != nil {
+		commonResponse.FailWithMessage(err.Error(), c)
+		return
+	}
+	commonResponse.OkWithDetailed(gin.H{"deleted": deleted}, "删除完成", c)
+}
 
 func (a *MIEnvApi) Handle(c *gin.Context) {
 	action := strings.Trim(strings.TrimSpace(c.Param("action")), "/")
@@ -441,8 +537,8 @@ func miEnvData(record *model.SysMIEnvRecord) map[string]any {
 	if record.ConsumedAt != nil {
 		data["consumed_at"] = record.ConsumedAt.Format(time.RFC3339)
 	}
-	if record.DeletedAt != nil {
-		data["deleted_at"] = record.DeletedAt.Format(time.RFC3339)
+	if record.DeletedAt.Valid {
+		data["deleted_at"] = record.DeletedAt.Time.Format(time.RFC3339)
 	}
 	if record.MakeReservedUntil != nil {
 		data["制作预约到期时间"] = record.MakeReservedUntil.Format(time.RFC3339)

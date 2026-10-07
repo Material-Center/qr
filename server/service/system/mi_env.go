@@ -3,10 +3,12 @@ package system
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -110,7 +112,7 @@ func (s *MIEnvService) Import(record model.SysMIEnvRecord, now time.Time) (uint,
 		now = time.Now()
 	}
 	record.UpdatedAt = now
-	record.DeletedAt = nil
+	record.DeletedAt = gorm.DeletedAt{}
 	record.MakeReservedUntil = nil
 
 	var existing model.SysMIEnvRecord
@@ -203,9 +205,212 @@ func (s *MIEnvService) List(filter MIEnvFilter, now time.Time) ([]model.SysMIEnv
 	return records, query.Find(&records).Error
 }
 
+// ListForAdmin returns active environment records for the management page.
+// It deliberately uses a separate filter contract from the compiled-client
+// protocol so admin pagination and date-range semantics cannot affect clients.
+func (s *MIEnvService) ListForAdmin(req systemReq.MIEnvAdminList) ([]model.SysMIEnvRecord, int64, error) {
+	query, err := applyMIEnvAdminFilter(global.GVA_DB.Model(&model.SysMIEnvRecord{}), req)
+	if err != nil {
+		return nil, 0, err
+	}
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	page, pageSize := req.Page, req.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 20
+	}
+	var list []model.SysMIEnvRecord
+	err = query.Order("updated_at DESC").Order("id DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
+	return list, total, err
+}
+
+// ListTypesForAdmin returns active environment types under the selected device
+// and device-group scope for the admin type autocomplete.
+func (s *MIEnvService) ListTypesForAdmin(req systemReq.MIEnvAdminList) ([]string, error) {
+	deviceID := strings.TrimSpace(req.DeviceID)
+	req.DeviceID = ""
+	req.Type = ""
+	req.MinUsage = nil
+	req.MaxUsage = nil
+	req.MinMadeCount = nil
+	req.MaxMadeCount = nil
+	req.Status = ""
+	req.UpdatedAtStart = ""
+	req.UpdatedAtEnd = ""
+	query, err := applyMIEnvAdminFilter(global.GVA_DB.Model(&model.SysMIEnvRecord{}), req)
+	if err != nil {
+		return nil, err
+	}
+	if deviceID != "" {
+		query = query.Where("device_id = ?", deviceID)
+	}
+	var types []string
+	err = query.Where("type <> ''").Distinct("type").Order("type ASC").Limit(200).Pluck("type", &types).Error
+	return types, err
+}
+
+// DeleteAllForAdmin soft-deletes every active record matching the current
+// admin filters. Soft deletion preserves protocol statistics and auditability.
+func (s *MIEnvService) DeleteAllForAdmin(req systemReq.MIEnvAdminList, now time.Time) (int64, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	query, err := applyMIEnvAdminFilter(global.GVA_DB.Model(&model.SysMIEnvRecord{}), req)
+	if err != nil {
+		return 0, err
+	}
+	result := query.Updates(map[string]any{
+		"deleted_at":          now,
+		"make_reserved_until": nil,
+		"updated_at":          now,
+	})
+	return result.RowsAffected, result.Error
+}
+
+// DeleteSelectedForAdmin soft-deletes only the explicitly selected active records.
+func (s *MIEnvService) DeleteSelectedForAdmin(ids []uint, now time.Time) (int64, error) {
+	if global.GVA_DB == nil {
+		return 0, errors.New("数据库未初始化")
+	}
+	if len(ids) == 0 {
+		return 0, errors.New("请选择要删除的环境")
+	}
+	if len(ids) > 200 {
+		return 0, errors.New("单次最多删除 200 条环境")
+	}
+	uniqueIDs := make([]uint, 0, len(ids))
+	seen := make(map[uint]struct{}, len(ids))
+	for _, id := range ids {
+		if id == 0 {
+			return 0, errors.New("环境 ID 无效")
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	result := global.GVA_DB.Model(&model.SysMIEnvRecord{}).
+		Where("id IN ? AND deleted_at IS NULL", uniqueIDs).
+		Updates(map[string]any{
+			"deleted_at":          now,
+			"make_reserved_until": nil,
+			"updated_at":          now,
+		})
+	return result.RowsAffected, result.Error
+}
+
+func applyMIEnvAdminFilter(db *gorm.DB, req systemReq.MIEnvAdminList) (*gorm.DB, error) {
+	if db == nil {
+		return nil, errors.New("数据库未初始化")
+	}
+	db = db.Where("deleted_at IS NULL")
+	if deviceID := strings.TrimSpace(req.DeviceID); deviceID != "" {
+		db = db.Where("device_id = ?", deviceID)
+	}
+	if req.GroupID != nil && *req.GroupID != 0 {
+		deviceIDs := global.GVA_DB.Model(&model.SysDeviceConfig{}).
+			Select("device_id").
+			Where("group_id = ?", *req.GroupID)
+		db = db.Where("device_id IN (?)", deviceIDs)
+	} else if req.Ungrouped {
+		db = db.Where(`NOT EXISTS (
+			SELECT 1 FROM sys_device_configs AS device_config
+			WHERE device_config.deleted_at IS NULL
+				AND device_config.device_id = sys_mi_env_records.device_id
+				AND device_config.group_id IS NOT NULL
+				AND device_config.group_id <> 0
+		)`)
+	}
+	if envType := strings.TrimSpace(req.Type); envType != "" {
+		db = db.Where("type = ?", envType)
+	}
+	if err := validateMIEnvAdminRange("使用次数", req.MinUsage, req.MaxUsage); err != nil {
+		return nil, err
+	}
+	if err := validateMIEnvAdminRange("制作次数", req.MinMadeCount, req.MaxMadeCount); err != nil {
+		return nil, err
+	}
+	if req.MinUsage != nil {
+		db = db.Where("usage_count >= ?", *req.MinUsage)
+	}
+	if req.MaxUsage != nil {
+		db = db.Where("usage_count <= ?", *req.MaxUsage)
+	}
+	if req.MinMadeCount != nil {
+		db = db.Where("made_count >= ?", *req.MinMadeCount)
+	}
+	if req.MaxMadeCount != nil {
+		db = db.Where("made_count <= ?", *req.MaxMadeCount)
+	}
+	switch status := strings.TrimSpace(req.Status); status {
+	case "", "all":
+	case "normal":
+		db = db.Where("frozen = ?", false)
+	case "frozen":
+		db = db.Where("frozen = ?", true)
+	default:
+		return nil, errors.New("状态仅支持 normal 或 frozen")
+	}
+	start, err := parseMIEnvAdminTime(req.UpdatedAtStart, false)
+	if err != nil {
+		return nil, err
+	}
+	end, err := parseMIEnvAdminTime(req.UpdatedAtEnd, true)
+	if err != nil {
+		return nil, err
+	}
+	if start != nil && end != nil && start.After(*end) {
+		return nil, errors.New("更新时间开始值不能晚于结束值")
+	}
+	if start != nil {
+		db = db.Where("updated_at >= ?", *start)
+	}
+	if end != nil {
+		db = db.Where("updated_at <= ?", *end)
+	}
+	return db, nil
+}
+
+func validateMIEnvAdminRange(name string, minValue, maxValue *int) error {
+	if minValue != nil && *minValue < 0 || maxValue != nil && *maxValue < 0 {
+		return errors.New(name + "不能小于 0")
+	}
+	if minValue != nil && maxValue != nil && *minValue > *maxValue {
+		return errors.New(name + "最小值不能大于最大值")
+	}
+	return nil
+}
+
+func parseMIEnvAdminTime(value string, endOfDay bool) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		parsed, err := time.ParseInLocation(layout, value, time.Local)
+		if err != nil {
+			continue
+		}
+		if layout == "2006-01-02" && endOfDay {
+			parsed = parsed.Add(24*time.Hour - time.Nanosecond)
+		}
+		return &parsed, nil
+	}
+	return nil, errors.New("更新时间格式无效")
+}
+
 func (s *MIEnvService) Get(id uint) (*model.SysMIEnvRecord, error) {
 	var record model.SysMIEnvRecord
-	if err := global.GVA_DB.Where("id = ?", id).First(&record).Error; err != nil {
+	if err := global.GVA_DB.Unscoped().Where("id = ?", id).First(&record).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
@@ -341,7 +546,7 @@ func (s *MIEnvService) DeleteByFilter(filter MIEnvFilter, now time.Time) (int64,
 
 func (s *MIEnvService) Clean(olderThan *int, now time.Time) (int64, error) {
 	if olderThan == nil {
-		result := global.GVA_DB.Where("deleted_at IS NOT NULL").Delete(&model.SysMIEnvRecord{})
+		result := global.GVA_DB.Unscoped().Where("deleted_at IS NOT NULL").Delete(&model.SysMIEnvRecord{})
 		return result.RowsAffected, result.Error
 	}
 	days := *olderThan
@@ -356,19 +561,24 @@ func (s *MIEnvService) Stats() (MIEnvStats, error) {
 	var out MIEnvStats
 	now := time.Now()
 	queries := []struct {
-		where string
-		args  []any
-		dest  *int64
+		unscoped bool
+		where    string
+		args     []any
+		dest     *int64
 	}{
-		{"1 = 1", nil, &out.Total},
-		{"deleted_at IS NULL AND frozen = ? AND usage_count < max_usage AND (make_reserved_until IS NULL OR make_reserved_until <= ?)", []any{false, now}, &out.Available},
-		{"deleted_at IS NULL AND usage_count > 0", nil, &out.Consumed},
-		{"deleted_at IS NULL AND frozen = ?", []any{true}, &out.Frozen},
-		{"deleted_at IS NOT NULL", nil, &out.Deleted},
-		{"deleted_at IS NULL AND usage_count = 0", nil, &out.Unused},
+		{true, "1 = 1", nil, &out.Total},
+		{false, "deleted_at IS NULL AND frozen = ? AND usage_count < max_usage AND (make_reserved_until IS NULL OR make_reserved_until <= ?)", []any{false, now}, &out.Available},
+		{false, "deleted_at IS NULL AND usage_count > 0", nil, &out.Consumed},
+		{false, "deleted_at IS NULL AND frozen = ?", []any{true}, &out.Frozen},
+		{true, "deleted_at IS NOT NULL", nil, &out.Deleted},
+		{false, "deleted_at IS NULL AND usage_count = 0", nil, &out.Unused},
 	}
 	for _, item := range queries {
-		if err := global.GVA_DB.Model(&model.SysMIEnvRecord{}).Where(item.where, item.args...).Count(item.dest).Error; err != nil {
+		query := global.GVA_DB.Model(&model.SysMIEnvRecord{})
+		if item.unscoped {
+			query = query.Unscoped()
+		}
+		if err := query.Where(item.where, item.args...).Count(item.dest).Error; err != nil {
 			return MIEnvStats{}, err
 		}
 	}

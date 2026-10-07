@@ -38,6 +38,7 @@ func RegisterTables() {
 	if global.GVA_CONFIG.System.DisableAutoMigrate {
 		global.GVA_LOG.Info("auto-migrate is disabled, skipping table registration")
 		logDeviceAccountTypePermissionError(ensureDeviceAccountTypePermissions())
+		logMIEnvAdminPermissionError(ensureMIEnvAdminPermissions())
 		return
 	}
 
@@ -87,6 +88,10 @@ func RegisterTables() {
 		global.GVA_LOG.Error("register table failed", zap.Error(err))
 		os.Exit(0)
 	}
+	if err = system.EnsureMIEnvRecordIndexes(db); err != nil {
+		global.GVA_LOG.Error("register MI environment indexes failed", zap.Error(err))
+		os.Exit(0)
+	}
 
 	err = bizModel()
 
@@ -95,5 +100,6 @@ func RegisterTables() {
 		os.Exit(0)
 	}
 	logDeviceAccountTypePermissionError(ensureDeviceAccountTypePermissions())
+	logMIEnvAdminPermissionError(ensureMIEnvAdminPermissions())
 	global.GVA_LOG.Info("register table success")
 }

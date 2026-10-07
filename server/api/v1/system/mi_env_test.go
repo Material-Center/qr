@@ -11,6 +11,7 @@ import (
 
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	systemReq "github.com/flipped-aurora/gin-vue-admin/server/model/system/request"
 	serviceSystem "github.com/flipped-aurora/gin-vue-admin/server/service/system"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -38,6 +39,123 @@ func TestMIEnvHandleAcceptsPlainInternalRequest(t *testing.T) {
 	response := decodePlainMIEnvResponseForTest(t, recorder)
 	require.EqualValues(t, 0, response["code"])
 	require.Equal(t, "添加成功", response["msg"])
+}
+
+func TestMIEnvAdminListAndDeleteAll(t *testing.T) {
+	useMIEnvAPITestDB(t)
+	gin.SetMode(gin.TestMode)
+	now := time.Now()
+	_, err := serviceSystem.MIEnvServiceApp.Add(model.SysMIEnvRecord{
+		DeviceCode: "cepheus", DeviceID: "device-a", Type: "QQ111",
+		SerialBackupName: "backup-a", AndroidID: "android-a", Key: "secret-a",
+	}, now)
+	require.NoError(t, err)
+
+	listRecorder := httptest.NewRecorder()
+	listCtx, _ := gin.CreateTestContext(listRecorder)
+	listCtx.Set("claims", &systemReq.CustomClaims{BaseClaims: systemReq.BaseClaims{AuthorityId: 100}})
+	listCtx.Request = httptest.NewRequest(http.MethodPost, "/miEnvAdmin/list", bytes.NewBufferString(`{"page":1,"pageSize":20,"deviceId":"device-a","status":"normal"}`))
+	listCtx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).AdminList(listCtx)
+	var listResponse map[string]any
+	require.NoError(t, json.Unmarshal(listRecorder.Body.Bytes(), &listResponse))
+	require.EqualValues(t, 0, listResponse["code"])
+	pageData := listResponse["data"].(map[string]any)
+	require.EqualValues(t, 1, pageData["total"])
+	item := pageData["list"].([]any)[0].(map[string]any)
+	require.Equal(t, "device-a", item["deviceId"])
+	require.NotContains(t, item, "deviceCode")
+	require.NotContains(t, item, "key", "admin list must not expose the environment secret")
+
+	typesRecorder := httptest.NewRecorder()
+	typesCtx, _ := gin.CreateTestContext(typesRecorder)
+	typesCtx.Set("claims", &systemReq.CustomClaims{BaseClaims: systemReq.BaseClaims{AuthorityId: 100}})
+	typesCtx.Request = httptest.NewRequest(http.MethodPost, "/miEnvAdmin/types", bytes.NewBufferString(`{"deviceId":"device-a"}`))
+	typesCtx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).AdminTypes(typesCtx)
+	var typesResponse map[string]any
+	require.NoError(t, json.Unmarshal(typesRecorder.Body.Bytes(), &typesResponse))
+	require.EqualValues(t, 0, typesResponse["code"])
+	require.Equal(t, []any{"QQ111"}, typesResponse["data"])
+
+	missingConfirmRecorder := httptest.NewRecorder()
+	missingConfirmCtx, _ := gin.CreateTestContext(missingConfirmRecorder)
+	missingConfirmCtx.Set("claims", &systemReq.CustomClaims{BaseClaims: systemReq.BaseClaims{AuthorityId: 100}})
+	missingConfirmCtx.Request = httptest.NewRequest(http.MethodPost, "/miEnvAdmin/deleteAll", bytes.NewBufferString(`{"deviceId":"device-a"}`))
+	missingConfirmCtx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).AdminDeleteAll(missingConfirmCtx)
+	var missingConfirmResponse map[string]any
+	require.NoError(t, json.Unmarshal(missingConfirmRecorder.Body.Bytes(), &missingConfirmResponse))
+	require.NotEqualValues(t, 0, missingConfirmResponse["code"])
+
+	deleteRecorder := httptest.NewRecorder()
+	deleteCtx, _ := gin.CreateTestContext(deleteRecorder)
+	deleteCtx.Set("claims", &systemReq.CustomClaims{BaseClaims: systemReq.BaseClaims{AuthorityId: 100}})
+	deleteCtx.Request = httptest.NewRequest(http.MethodPost, "/miEnvAdmin/deleteAll", bytes.NewBufferString(`{"deviceId":"device-a","confirm":true}`))
+	deleteCtx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).AdminDeleteAll(deleteCtx)
+	var deleteResponse map[string]any
+	require.NoError(t, json.Unmarshal(deleteRecorder.Body.Bytes(), &deleteResponse))
+	require.EqualValues(t, 0, deleteResponse["code"])
+	require.EqualValues(t, 1, deleteResponse["data"].(map[string]any)["deleted"])
+}
+
+func TestMIEnvAdminDeleteSelected(t *testing.T) {
+	db := useMIEnvAPITestDB(t)
+	gin.SetMode(gin.TestMode)
+	now := time.Now()
+	selectedID, err := serviceSystem.MIEnvServiceApp.Add(model.SysMIEnvRecord{
+		DeviceCode: "cepheus", DeviceID: "device-a", Type: "QQ111",
+		SerialBackupName: "backup-a", AndroidID: "android-a", Key: "secret-a",
+	}, now)
+	require.NoError(t, err)
+	remainingID, err := serviceSystem.MIEnvServiceApp.Add(model.SysMIEnvRecord{
+		DeviceCode: "venus", DeviceID: "device-b", Type: "QQ111",
+		SerialBackupName: "backup-b", AndroidID: "android-b", Key: "secret-b",
+	}, now)
+	require.NoError(t, err)
+
+	missingConfirmRecorder := httptest.NewRecorder()
+	missingConfirmCtx, _ := gin.CreateTestContext(missingConfirmRecorder)
+	missingConfirmCtx.Set("claims", &systemReq.CustomClaims{BaseClaims: systemReq.BaseClaims{AuthorityId: 100}})
+	missingConfirmCtx.Request = httptest.NewRequest(http.MethodPost, "/miEnvAdmin/deleteSelected", bytes.NewBufferString(fmt.Sprintf(`{"ids":[%d]}`, selectedID)))
+	missingConfirmCtx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).AdminDeleteSelected(missingConfirmCtx)
+	var missingConfirmResponse map[string]any
+	require.NoError(t, json.Unmarshal(missingConfirmRecorder.Body.Bytes(), &missingConfirmResponse))
+	require.NotEqualValues(t, 0, missingConfirmResponse["code"])
+
+	deleteRecorder := httptest.NewRecorder()
+	deleteCtx, _ := gin.CreateTestContext(deleteRecorder)
+	deleteCtx.Set("claims", &systemReq.CustomClaims{BaseClaims: systemReq.BaseClaims{AuthorityId: 100}})
+	deleteCtx.Request = httptest.NewRequest(http.MethodPost, "/miEnvAdmin/deleteSelected", bytes.NewBufferString(fmt.Sprintf(`{"ids":[%d],"confirm":true}`, selectedID)))
+	deleteCtx.Request.Header.Set("Content-Type", "application/json")
+	(&MIEnvApi{}).AdminDeleteSelected(deleteCtx)
+	var deleteResponse map[string]any
+	require.NoError(t, json.Unmarshal(deleteRecorder.Body.Bytes(), &deleteResponse))
+	require.EqualValues(t, 0, deleteResponse["code"])
+	require.EqualValues(t, 1, deleteResponse["data"].(map[string]any)["deleted"])
+
+	var activeIDs []uint
+	require.NoError(t, db.Model(&model.SysMIEnvRecord{}).Where("deleted_at IS NULL").Pluck("id", &activeIDs).Error)
+	require.Equal(t, []uint{remainingID}, activeIDs)
+}
+
+func TestMIEnvAdminListRejectsNonAdminRole(t *testing.T) {
+	useMIEnvAPITestDB(t)
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Set("claims", &systemReq.CustomClaims{BaseClaims: systemReq.BaseClaims{AuthorityId: 200}})
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/miEnvAdmin/list", bytes.NewBufferString(`{}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+
+	(&MIEnvApi{}).AdminList(ctx)
+
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.NotEqualValues(t, 0, response["code"])
+	require.Equal(t, "仅管理员可管理环境数据", response["msg"])
 }
 
 func TestMIEnvImportPreservesSourceFieldsAndType(t *testing.T) {

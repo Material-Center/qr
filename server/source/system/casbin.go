@@ -294,6 +294,10 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "888", V1: "/qqCache/sales/settlement/history", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/qqCache/roleHint", V2: "GET"},
 		{Ptype: "p", V0: "888", V1: "/deviceConfig/list", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/miEnvAdmin/list", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/miEnvAdmin/types", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/miEnvAdmin/deleteSelected", V2: "POST"},
+		{Ptype: "p", V0: "888", V1: "/miEnvAdmin/deleteAll", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/deviceConfig/save", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/deviceConfig/delete", V2: "POST"},
 		{Ptype: "p", V0: "888", V1: "/deviceConfig/batchUpdate", V2: "POST"},
@@ -360,6 +364,10 @@ func (i *initCasbin) InitializeData(ctx context.Context) (context.Context, error
 		{Ptype: "p", V0: "100", V1: "/deviceConfig/group/list", V2: "GET"},
 		{Ptype: "p", V0: "100", V1: "/deviceConfig/group/save", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/deviceConfig/group/delete", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/miEnvAdmin/list", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/miEnvAdmin/types", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/miEnvAdmin/deleteSelected", V2: "POST"},
+		{Ptype: "p", V0: "100", V1: "/miEnvAdmin/deleteAll", V2: "POST"},
 		{Ptype: "p", V0: "100", V1: "/jwt/jsonInBlacklist", V2: "POST"},
 
 		// 200 团长（业务角色）

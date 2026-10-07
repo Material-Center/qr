@@ -13,6 +13,7 @@
   "/src/view/dashboard/components/wiki.vue": "Wiki",
   "/src/view/dashboard/index.vue": "Dashboard",
   "/src/view/device/deviceConfig.vue": "DeviceConfig",
+  "/src/view/environment/miEnvManage.vue": "MIEnvManage",
   "/src/view/error/index.vue": "Error",
   "/src/view/error/reload.vue": "Reload",
   "/src/view/example/breakpoint/breakpoint.vue": "BreakPoint",
