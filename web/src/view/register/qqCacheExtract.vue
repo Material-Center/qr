@@ -139,11 +139,12 @@ const recentMinuteOptions = [
   { label: '最近30分钟', shortLabel: '30分钟', value: 30 },
   { label: '最近1小时', shortLabel: '1小时', value: 60 },
   { label: '最近2小时', shortLabel: '2小时', value: 120 },
-  { label: '3小时以上', shortLabel: '3小时以上', value: -180 }
+  { label: '3小时以上', shortLabel: '3小时以上', value: -180 },
+  { label: '4小时以上', shortLabel: '4小时以上', value: -240 }
 ]
 
 const visibleRecentMinuteOptions = computed(() => {
-  return recentMinuteOptions.filter((item) => item.value !== -180 || summary.value.allowThreeHoursPlus)
+  return recentMinuteOptions.filter((item) => item.value > 0 || summary.value.allowThreeHoursPlus)
 })
 
 const normalizePositiveInteger = (value) => {

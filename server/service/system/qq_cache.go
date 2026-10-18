@@ -28,6 +28,7 @@ const qqCacheSalesAllowedAccountTypesKey = "qq_cache_sales_allowed_account_types
 const qqCacheSalesAllowThreeHoursPlusKey = "qq_cache_sales_allow_three_hours_plus"
 const qqCacheSalesThreeHoursPlusTodayOnlyKey = "qq_cache_sales_three_hours_plus_today_only"
 const qqCacheSalesThreeHoursPlusMinutes = -180
+const qqCacheSalesFourHoursPlusMinutes = -240
 
 const (
 	qqCacheServiceRoleSuperAdmin = uint(888)
@@ -521,7 +522,7 @@ func saveQQCacheSalesThreeHoursPlusTodayOnly(tx *gorm.DB, enabled bool) error {
 	if enabled {
 		value = "true"
 	}
-	return saveQQCacheParam(tx, qqCacheSalesThreeHoursPlusTodayOnlyKey, "QQ缓存销售三小时以上限制当天", value, "是否将销售三小时以上筛选限制为当天上传的缓存")
+	return saveQQCacheParam(tx, qqCacheSalesThreeHoursPlusTodayOnlyKey, "QQ缓存销售3/4小时以上限制当天", value, "是否将销售3/4小时以上筛选限制为当天上传的缓存")
 }
 
 func saveQQCacheSalesAllowThreeHoursPlus(tx *gorm.DB, enabled bool) error {
@@ -529,7 +530,7 @@ func saveQQCacheSalesAllowThreeHoursPlus(tx *gorm.DB, enabled bool) error {
 	if enabled {
 		value = "true"
 	}
-	return saveQQCacheParam(tx, qqCacheSalesAllowThreeHoursPlusKey, "QQ缓存销售三小时以上筛选", value, "是否允许销售使用三小时以上筛选")
+	return saveQQCacheParam(tx, qqCacheSalesAllowThreeHoursPlusKey, "QQ缓存销售3/4小时以上筛选", value, "是否允许销售使用3/4小时以上筛选")
 }
 
 func saveQQCacheParam(tx *gorm.DB, key string, name string, value string, desc string) error {
@@ -751,9 +752,9 @@ func applyQQCacheRecentMinutesFilter(db *gorm.DB, recentMinutes int) (*gorm.DB, 
 	return db.Where("created_at >= ? AND created_at <= ?", startAt, endAt), nil
 }
 
-// Sales' "3 hours plus" is limited to records uploaded today and at least
-// three hours ago; the generic administrator filter intentionally remains
-// history-wide for compatibility.
+// Sales' "hours plus" filters can be limited to records uploaded today and at
+// least the selected number of hours ago; the generic administrator filter
+// intentionally remains history-wide for compatibility.
 func applyQQCacheSalesRecentMinutesFilter(db *gorm.DB, recentMinutes int, todayOnly bool) (*gorm.DB, error) {
 	if !todayOnly {
 		return applyQQCacheRecentMinutesFilter(db, recentMinutes)
@@ -762,12 +763,16 @@ func applyQQCacheSalesRecentMinutesFilter(db *gorm.DB, recentMinutes int, todayO
 }
 
 func applyQQCacheSalesRecentMinutesFilterAt(db *gorm.DB, recentMinutes int, now time.Time) (*gorm.DB, error) {
-	if recentMinutes != qqCacheSalesThreeHoursPlusMinutes {
+	if !isQQCacheSalesHoursPlusMinutes(recentMinutes) {
 		return applyQQCacheRecentMinutesFilter(db, recentMinutes)
 	}
 	cutoffAt := now.Add(time.Duration(recentMinutes) * time.Minute)
 	startAt := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
 	return db.Where("created_at >= ? AND created_at <= ?", startAt, cutoffAt), nil
+}
+
+func isQQCacheSalesHoursPlusMinutes(recentMinutes int) bool {
+	return recentMinutes == qqCacheSalesThreeHoursPlusMinutes || recentMinutes == qqCacheSalesFourHoursPlusMinutes
 }
 
 func (s *QQCacheService) ResetExtractByID(id uint) error {
@@ -936,15 +941,15 @@ func (s *QQCacheService) ExportSalesPendingIniZipByCountWithRecentMinutes(count 
 		return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("提取数量必须大于0")
 	}
 	if recentMinutes < 0 {
-		if recentMinutes != qqCacheSalesThreeHoursPlusMinutes {
-			return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("销售仅支持三小时以上筛选")
+		if !isQQCacheSalesHoursPlusMinutes(recentMinutes) {
+			return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("销售仅支持三小时或四小时以上筛选")
 		}
 		allow, err := s.GetSalesAllowThreeHoursPlus()
 		if err != nil {
 			return nil, 0, system.SysQQCacheExtractBatch{}, err
 		}
 		if !allow {
-			return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("销售未开启三小时以上筛选")
+			return nil, 0, system.SysQQCacheExtractBatch{}, errors.New("销售未开启3/4小时以上筛选")
 		}
 	}
 	allowedTypes, err := s.GetSalesAllowedAccountTypes()
@@ -1057,11 +1062,11 @@ func (s *QQCacheService) GetSalesSummaryWithRecentMinutes(extractorID uint, date
 		return summary, err
 	}
 	if recentMinutes < 0 {
-		if recentMinutes != qqCacheSalesThreeHoursPlusMinutes {
-			return summary, errors.New("销售仅支持三小时以上筛选")
+		if !isQQCacheSalesHoursPlusMinutes(recentMinutes) {
+			return summary, errors.New("销售仅支持三小时或四小时以上筛选")
 		}
 		if !allowThreeHoursPlus {
-			return summary, errors.New("销售未开启三小时以上筛选")
+			return summary, errors.New("销售未开启3/4小时以上筛选")
 		}
 	}
 	summary.AllowThreeHoursPlus = allowThreeHoursPlus

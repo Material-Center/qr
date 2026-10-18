@@ -48,13 +48,67 @@ func TestQQCacheSalesThreeHoursPlusRequiresAdminConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, summary.AllowThreeHoursPlus)
 	_, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -180)
-	require.ErrorContains(t, err, "未开启三小时以上筛选")
+	require.ErrorContains(t, err, "未开启3/4小时以上筛选")
+	_, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -240)
+	require.ErrorContains(t, err, "未开启3/4小时以上筛选")
 
 	require.NoError(t, (&QQCacheService{}).SaveSalesExportConfig([]string{AccountTypeDefault}, true, false))
 	summary, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -180)
 	require.NoError(t, err)
 	require.True(t, summary.AllowThreeHoursPlus)
 	require.EqualValues(t, 1, summary.Available)
+	summary, err = (&QQCacheService{}).GetSalesSummaryWithRecentMinutes(salesID, "", -240)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.Available)
+}
+
+func TestQQCacheSalesFourHoursPlusIncludesBoundary(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.Local)
+	ini := "qqnum=11001\nguid=GUID11001\n"
+	records := []model.SysQQCacheRecord{
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-24 * time.Hour)}, QQNum: "11001", INI: &ini},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-5 * time.Hour)}, QQNum: "11002", INI: &ini},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-4 * time.Hour)}, QQNum: "11003", INI: &ini},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-4*time.Hour + time.Minute)}, QQNum: "11004", INI: &ini},
+	}
+	require.NoError(t, global.GVA_DB.Create(&records).Error)
+
+	db, err := applyQQCacheSalesRecentMinutesFilterAt(
+		global.GVA_DB.Model(&model.SysQQCacheRecord{}),
+		qqCacheSalesFourHoursPlusMinutes,
+		now,
+	)
+	require.NoError(t, err)
+	var result []model.SysQQCacheRecord
+	require.NoError(t, db.Order("qq_num").Find(&result).Error)
+	require.Len(t, result, 2)
+	require.Equal(t, "11002", result[0].QQNum)
+	require.Equal(t, "11003", result[1].QQNum)
+}
+
+func TestQQCacheSalesFourHoursPlusFiltersActualExtract(t *testing.T) {
+	setupQQCacheSalesTestDB(t)
+
+	salesID := uint(6002)
+	now := time.Now()
+	ini := "qqnum=12001\nguid=GUID12001\n"
+	require.NoError(t, global.GVA_DB.Create(&[]model.SysQQCacheRecord{
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-5 * time.Hour)}, QQNum: "12001", INI: &ini},
+		{GVA_MODEL: global.GVA_MODEL{CreatedAt: now.Add(-3 * time.Hour)}, QQNum: "12002", INI: &ini},
+	}).Error)
+	require.NoError(t, (&QQCacheService{}).SaveSalesExportConfig([]string{AccountTypeDefault}, true, false))
+
+	_, count, batch, err := (&QQCacheService{}).ExportSalesPendingIniZipByCountWithRecentMinutes(2, salesID, qqCacheSalesFourHoursPlusMinutes)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, count)
+	require.EqualValues(t, 1, batch.ExtractCount)
+
+	var extracted []model.SysQQCacheRecord
+	require.NoError(t, global.GVA_DB.Where("extractor = ?", salesID).Find(&extracted).Error)
+	require.Len(t, extracted, 1)
+	require.Equal(t, "12001", extracted[0].QQNum)
 }
 
 func TestQQCacheSalesThreeHoursPlusOnlyIncludesToday(t *testing.T) {

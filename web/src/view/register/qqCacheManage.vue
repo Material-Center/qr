@@ -369,9 +369,9 @@
         </el-checkbox>
       </el-checkbox-group>
       <el-divider content-position="left">提取范围</el-divider>
-      <el-checkbox v-model="salesAllowThreeHoursPlus">允许销售使用“3小时以上”筛选</el-checkbox>
+      <el-checkbox v-model="salesAllowThreeHoursPlus">允许销售使用“3/4小时以上”筛选</el-checkbox>
       <el-checkbox v-model="salesThreeHoursPlusTodayOnly" :disabled="!salesAllowThreeHoursPlus">
-        “3小时以上”仅限制当天上传
+        “3/4小时以上”仅限制当天上传
       </el-checkbox>
       <el-alert
         v-if="!salesAllowedAccountTypes.length"
